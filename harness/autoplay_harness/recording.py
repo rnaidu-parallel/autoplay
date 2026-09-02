@@ -12,6 +12,13 @@ class RecordingError(RuntimeError):
 
 
 class GameplayRecorder:
+    # Desktop Duplication output to record. ScreenCapture._get_camera calls dxcam.create()
+    # without an output index, which selects the primary output, so recording and
+    # screenshots must both use output 0.
+    OUTPUT_INDEX = 0
+    PRIMARY_ENCODER = "h264_nvenc"
+    FALLBACK_ENCODER = "libx264"
+
     def __init__(
         self,
         directory: Path,
@@ -22,33 +29,54 @@ class GameplayRecorder:
         self.segment_minutes = segment_minutes
         self.retention_segments = retention_segments
         self.process: subprocess.Popen[bytes] | None = None
+        self.encoder: str | None = None
 
-    def _command(self) -> list[str]:
+    def _command(self, encoder: str = PRIMARY_ENCODER) -> list[str]:
         pattern = self.directory / "gameplay-%03d.mp4"
+        # Frames stay on the GPU only if a CUDA device can be derived from the desktop's
+        # D3D11 device; on this machine that derivation fails, so the frames are downloaded
+        # and handed to the encoder as software BGRA.
+        filters = f"ddagrab=output_idx={self.OUTPUT_INDEX}:framerate=30:draw_mouse=0,hwdownload,format=bgra"
+        if encoder == self.PRIMARY_ENCODER:
+            encoding = [
+                "-c:v",
+                "h264_nvenc",
+                "-preset",
+                "p4",
+                "-rc",
+                "vbr",
+                "-cq",
+                "23",
+                "-b:v",
+                "0",
+                # NVENC only honours -force_key_frames as an IDR when forced-idr is set.
+                "-forced-idr",
+                "1",
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        else:
+            encoding = [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "20",
+                "-pix_fmt",
+                "yuv420p",
+            ]
         command = [
             imageio_ffmpeg.get_ffmpeg_exe(),
             "-y",
             "-hide_banner",
             "-loglevel",
             "error",
-            "-f",
-            "gdigrab",
-            "-draw_mouse",
-            "0",
-            "-framerate",
-            "30",
-            "-thread_queue_size",
-            "1024",
-            "-i",
-            "desktop",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "20",
-            "-pix_fmt",
-            "yuv420p",
+            "-init_hw_device",
+            "d3d11va",
+            "-filter_complex",
+            filters,
+            *encoding,
             "-force_key_frames",
             f"expr:gte(t,n_forced*{self.segment_minutes * 60})",
             "-f",
@@ -65,16 +93,19 @@ class GameplayRecorder:
 
     def start(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.process = subprocess.Popen(
-            self._command(),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-        )
-        time.sleep(1)
-        if self.process.poll() is not None:
-            raise RecordingError("FFmpeg exited before gameplay recording started.")
+        for encoder in (self.PRIMARY_ENCODER, self.FALLBACK_ENCODER):
+            self.process = subprocess.Popen(
+                self._command(encoder),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            time.sleep(1)
+            if self.process.poll() is None:
+                self.encoder = encoder
+                return
+        raise RecordingError("FFmpeg exited before gameplay recording started.")
 
     def stop(self) -> None:
         if self.process is None or self.process.poll() is not None:

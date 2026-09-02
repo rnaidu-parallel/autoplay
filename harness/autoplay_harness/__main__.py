@@ -3,16 +3,24 @@ from __future__ import annotations
 import argparse
 import base64
 import ctypes
+import hashlib
 import json
 import os
+import re
+import subprocess
+import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
+
+import imageio_ffmpeg
 
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
 from .openrouter import OpenRouterClient
 from .prompts import ACTOR_SYSTEM_PROMPT
+from .recording import GameplayRecorder
 from .report import render, summarize
 from .runner import AutoplayHarness
 from .supervisor import GameSupervisor
@@ -73,6 +81,11 @@ def main() -> int:
     )
     capture_parser = subparsers.add_parser("capture-test", help="Save the foreground window client area")
     capture_parser.add_argument("--output", default="artifacts/harness-capture.jpg")
+    record_parser = subparsers.add_parser(
+        "record-test",
+        help="Record the desktop briefly and verify the captured frames are live, not stale",
+    )
+    record_parser.add_argument("--seconds", type=int, default=5)
     wiki_parser = subparsers.add_parser("wiki-test", help="Query the Stardew Valley Wiki")
     wiki_parser.add_argument("query")
     cache_parser = subparsers.add_parser(
@@ -248,6 +261,36 @@ def main() -> int:
         print(json.dumps({"path": str(output), "width": frame.width, "height": frame.height}))
         return 0
 
+    if arguments.command == "record-test":
+        directory = Path(tempfile.mkdtemp(prefix="autoplay-record-test-"))
+        recorder = GameplayRecorder(directory)
+        recorder.start()
+        time.sleep(arguments.seconds)
+        recorder.stop()
+        video = directory / "gameplay-000.mp4"
+        frames = _decoded_frame_count(video)
+        expected_minimum = int(0.8 * 30 * arguments.seconds)
+        early = _frame_digest(video, 0.5)
+        late = _frame_digest(video, max(0.5, arguments.seconds - 0.5))
+        frames_differ = early != late
+        print(
+            json.dumps(
+                {
+                    "encoder": recorder.encoder,
+                    "frames": frames,
+                    "expected_min": expected_minimum,
+                    "frames_differ": frames_differ,
+                    "path": str(video),
+                }
+            )
+        )
+        if frames < expected_minimum:
+            print("Recording is stale: too few frames were decoded.", file=sys.stderr)
+            return 1
+        if not frames_differ:
+            print("Warning: the sampled frames are identical; the desktop may have been static.", file=sys.stderr)
+        return 0
+
     if arguments.command == "wiki-test":
         print(json.dumps(StardewWiki().search(arguments.query), indent=2, ensure_ascii=False))
         return 0
@@ -319,6 +362,40 @@ def main() -> int:
         return 0
 
     return 2
+
+
+def _decoded_frame_count(video: Path) -> int:
+    result = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-v", "error", "-stats", "-i", str(video), "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    )
+    counts = re.findall(r"frame=\s*(\d+)", result.stderr)
+    return int(counts[-1]) if counts else 0
+
+
+def _frame_digest(video: Path, timestamp: float) -> str:
+    result = subprocess.run(
+        [
+            imageio_ffmpeg.get_ffmpeg_exe(),
+            "-hide_banner",
+            "-v",
+            "error",
+            "-ss",
+            str(timestamp),
+            "-i",
+            str(video),
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-c:v",
+            "png",
+            "-",
+        ],
+        capture_output=True,
+    )
+    return hashlib.sha256(result.stdout).hexdigest()
 
 
 def _observe_and_capture(
