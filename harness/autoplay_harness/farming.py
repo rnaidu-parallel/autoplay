@@ -324,12 +324,13 @@ def till_tiles(bridge: NamedPipeBridge, state: dict[str, Any], tiles: list[dict[
 
 
 def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_budget: int) -> dict[str, Any]:
-    """Walk into the farmhouse, answer the bed prompt, and prove the night advanced the day."""
+    """Walk into the farmhouse, answer the bed prompt, and wait for the nightly event and save."""
     runner = _Controls(bridge, state, action_budget)
     steps: list[dict[str, Any]] = []
     fields = ("day", "time", "stamina", "money")
     before = {key: state.get(key) for key in fields}
     start_health = state.get("health") or 0
+    save_count_before = state.get("saveCount") or 0
 
     def finish(status: str, reason: str | None = None) -> dict[str, Any]:
         return {"status": status, "reason": reason, "state": runner.state,
@@ -346,11 +347,16 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
             return "world_changed_or_damage_taken"
         return None
 
+    def day_advanced() -> bool:
+        return runner.state.get("day") == (before["day"] or 0) + 1
+
     def slept() -> bool:
-        return (runner.state.get("day") == (before["day"] or 0) + 1
+        return (day_advanced()
                 and runner.state.get("worldReady") is True and runner.state.get("playerFree") is True
                 and (runner.state.get("menu") or "none") == "none"
-                and runner.state.get("location") == "FarmHouse")
+                and runner.state.get("location") == "FarmHouse"
+                and runner.state.get("nightActive") is False
+                and (runner.state.get("saveCount") or 0) > save_count_before)
 
     if not (state.get("worldReady") and state.get("playerFree") and state.get("menu") == "none"
             and before["day"] is not None):
@@ -402,12 +408,12 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
     # day proves the night ran. Escape would cancel the sleep, so a lingering question gets the
     # Yes hotkey the box binds itself, once.
     retried = False
-    while not slept() and runner.executed + 2 <= action_budget:
+    while not day_advanced() and runner.executed + 2 <= action_budget:
         error = step("idle", ticks=120)
         if error:
             return finish("blocked", error)
         menu = runner.state.get("menu") or "none"
-        if slept() or menu == "none":
+        if day_advanced() or menu == "none":
             continue
         if runner.state.get("dialogueResponses"):
             if retried:
@@ -420,8 +426,21 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
             error = step("press", buttons=["Escape"])
         if error:
             return finish("blocked", error)
-    if not slept():
+    if not day_advanced():
         return finish("partial", "night_transition_did_not_finish")
     steps.append({"step": "new_day", "day": runner.state.get("day"), "time": runner.state.get("time"),
                   "location": runner.state.get("location")})
+
+    idle_rounds = 0
+    while not slept() and idle_rounds < 12 and runner.executed < action_budget:
+        error = step("idle", ticks=300)
+        if error == "action_budget_reached":
+            break
+        if error:
+            return finish("blocked", error)
+        idle_rounds += 1
+    if not slept():
+        return finish("partial", "night_did_not_finish")
+    steps.append({"step": "night_finished", "idle_rounds": idle_rounds,
+                  "saveCount": runner.state.get("saveCount")})
     return finish("completed")

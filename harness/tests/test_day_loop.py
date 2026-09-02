@@ -84,16 +84,19 @@ class ToolBridge:
 
 
 class SleepBridge:
-    def __init__(self, advance_day=True, prompt=True, transit=True, component_click=True):
+    def __init__(self, advance_day=True, prompt=True, transit=True, component_click=True, save=True):
         self.calls = []
         self.advance_day = advance_day
         self.prompt = prompt
         self.transit = transit
         self.component_click = component_click
+        self.save = save
         self.idles = 0
+        self.night_idle_rounds = 0
         self.state = {"worldReady": True, "playerFree": True, "canMove": True, "menu": "none",
                       "location": "Farm", "health": 100, "eventUp": False, "day": 5, "time": 1900,
-                      "stamina": 120, "money": 500, "tileX": 64, "tileY": 15, "dialogueResponses": []}
+                      "stamina": 120, "money": 500, "tileX": 64, "tileY": 15,
+                      "nightActive": False, "saveCount": 0, "dialogueResponses": []}
 
     def request(self, kind, **arguments):
         self.calls.append((kind, arguments))
@@ -117,8 +120,16 @@ class SleepBridge:
             self.state["menu"] = "none"
         elif kind == "idle":
             self.idles += 1
-            if self.advance_day and self.idles >= 3 and self.state["menu"] == "none":
-                self.state.update(day=6, time=620, stamina=270, playerFree=True)
+            if (self.advance_day and self.state["day"] == 5 and self.idles >= 3
+                    and self.state["menu"] == "none"):
+                self.state.update(day=6, time=620, stamina=270, playerFree=False, canMove=False,
+                                  nightActive=True)
+            elif self.state["day"] == 6 and arguments["ticks"] == 300:
+                self.night_idle_rounds += 1
+                if self.night_idle_rounds >= 3:
+                    self.state.update(nightActive=False, playerFree=True, canMove=True)
+                    if self.save:
+                        self.state["saveCount"] = 1
         return {"status": "completed", "state": copy.deepcopy(self.state)}
 
 
@@ -229,18 +240,28 @@ class GoHomeAndSleepTests(unittest.TestCase):
         self.assertEqual({"day": 5, "time": 1900, "stamina": 120, "money": 500}, result["before"])
         self.assertEqual({"day": 6, "time": 620, "stamina": 270, "money": 500}, result["after"])
         self.assertEqual(["go_to_location", "wait", "wait", "navigate", "idle",
-                          "choose_dialogue_response", "idle", "press", "idle"],
+                          "choose_dialogue_response", "idle", "press", "idle",
+                          "idle", "idle", "idle"],
                          [call[0] for call in bridge.calls])
         self.assertNotIn(["Y"], [arguments["buttons"] for kind, arguments in bridge.calls
                                  if kind == "press"])
-        self.assertEqual(["enter_farmhouse", "reach_bed", "answer_sleep_prompt", "new_day"],
+        self.assertEqual(["enter_farmhouse", "reach_bed", "answer_sleep_prompt", "new_day",
+                          "night_finished"],
                          [step["step"] for step in result["steps"]])
+        self.assertEqual({"step": "night_finished", "idle_rounds": 3, "saveCount": 1},
+                         result["steps"][-1])
 
     def test_unanswered_question_falls_back_to_the_yes_hotkey(self):
         bridge = SleepBridge(component_click=False)
-        result = go_home_and_sleep(bridge, copy.deepcopy(bridge.state), 12)
+        result = go_home_and_sleep(bridge, copy.deepcopy(bridge.state), 20)
         self.assertEqual("completed", result["status"])
         self.assertIn(("press", {"buttons": ["Y"]}), bridge.calls)
+
+    def test_night_without_a_new_save_reports_partial(self):
+        bridge = SleepBridge(save=False)
+        result = go_home_and_sleep(bridge, copy.deepcopy(bridge.state), 30)
+        self.assertEqual(("partial", "night_did_not_finish"), (result["status"], result["reason"]))
+        self.assertEqual(0, result["state"]["saveCount"])
 
     def test_day_that_does_not_advance_reports_partial(self):
         bridge = SleepBridge(advance_day=False)

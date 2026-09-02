@@ -568,7 +568,7 @@ class AutoplayHarness:
             return response
         if name == "go_home_and_sleep":
             response = go_home_and_sleep(self.bridge, before_state or {},
-                                         30 if self.continuous else self.max_actions - self.game_actions)
+                                         45 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
             return response
         movement_key = self._movement_key(name, arguments, before_state)

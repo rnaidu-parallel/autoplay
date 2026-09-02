@@ -93,6 +93,7 @@ public sealed class ModEntry : Mod
     private bool navigationRequiresAction;
     private int navigationActionPhase;
     private int navigationActionTicks;
+    private int saveCount;
 
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
@@ -123,6 +124,7 @@ public sealed class ModEntry : Mod
         );
 
         helper.Events.GameLoop.SaveLoaded += this.OnSaveLoaded;
+        helper.Events.GameLoop.Saved += this.OnSaved;
         helper.Events.GameLoop.UpdateTicking += this.OnUpdateTicking;
         helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
     }
@@ -130,6 +132,11 @@ public sealed class ModEntry : Mod
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
         this.LogState("save_loaded");
+    }
+
+    private void OnSaved(object? sender, SavedEventArgs e)
+    {
+        this.saveCount++;
     }
 
     private void OnCommand(string command, string[] args)
@@ -383,7 +390,7 @@ public sealed class ModEntry : Mod
 
     private void StartNavigation(Point target, int maxTicks, string? targetLocation, bool requiresAction)
     {
-        if (!Context.IsWorldReady || !Context.IsPlayerFree)
+        if (!Context.IsWorldReady || !IsPlayerFreeStrict())
         {
             this.CompletePipeRequest("rejected", "player_not_free");
             return;
@@ -418,7 +425,7 @@ public sealed class ModEntry : Mod
 
     private void StartLocationTransit(string targetLocation, int maxTicks)
     {
-        if (!Context.IsWorldReady || !Context.IsPlayerFree)
+        if (!Context.IsWorldReady || !IsPlayerFreeStrict())
         {
             this.CompletePipeRequest("rejected", "player_not_free");
             return;
@@ -457,7 +464,7 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        if (this.navigationActionPhase == 0 && (!Context.IsPlayerFree || Game1.activeClickableMenu is not null || Game1.eventUp))
+        if (this.navigationActionPhase == 0 && (!IsPlayerFreeStrict() || Game1.activeClickableMenu is not null || Game1.eventUp))
         {
             this.FinishNavigation("interrupted", "player_not_free");
             return;
@@ -1135,6 +1142,8 @@ public sealed class ModEntry : Mod
         ICursorPosition cursor = this.helper.Input.GetCursorPosition();
         string menu = GetMenuState();
         IReadOnlyList<BridgeDialogueResponse> dialogueResponses = CaptureDialogueResponses();
+        bool nightActive = Game1.farmEvent is not null || Game1.freezeControls
+            || Game1.activeClickableMenu is SaveGameMenu;
 
         if (!Context.IsWorldReady)
         {
@@ -1143,8 +1152,10 @@ public sealed class ModEntry : Mod
                 WorldReady = false,
                 GameActive = Game1.game1.IsActive,
                 SimulationPaused = Game1.paused,
-                PlayerFree = Context.IsPlayerFree,
-                CanMove = Context.CanPlayerMove,
+                PlayerFree = IsPlayerFreeStrict(),
+                CanMove = Context.CanPlayerMove && !nightActive,
+                NightActive = nightActive,
+                SaveCount = this.saveCount,
                 GraphicsFullScreen = Game1.graphics.IsFullScreen,
                 WindowedBorderless = Game1.options.windowedBorderlessFullscreen,
                 ViewportWidth = Game1.graphics.GraphicsDevice.Viewport.Width,
@@ -1405,8 +1416,10 @@ public sealed class ModEntry : Mod
             WorldReady = true,
             GameActive = Game1.game1.IsActive,
             SimulationPaused = Game1.paused,
-            PlayerFree = Context.IsPlayerFree,
-            CanMove = Context.CanPlayerMove,
+            PlayerFree = IsPlayerFreeStrict(),
+            CanMove = Context.CanPlayerMove && !nightActive,
+            NightActive = nightActive,
+            SaveCount = this.saveCount,
             GraphicsFullScreen = Game1.graphics.IsFullScreen,
             WindowedBorderless = Game1.options.windowedBorderlessFullscreen,
             ViewportWidth = Game1.graphics.GraphicsDevice.Viewport.Width,
@@ -1499,6 +1512,12 @@ public sealed class ModEntry : Mod
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
         );
         return field is null ? null : field.GetValue(null) is not null;
+    }
+
+    private static bool IsPlayerFreeStrict()
+    {
+        return Context.IsPlayerFree && !Game1.freezeControls && Game1.farmEvent is null
+            && Game1.activeClickableMenu is not SaveGameMenu;
     }
 
     private static IReadOnlyList<BridgeShopItem> CaptureShopItems()
@@ -1778,8 +1797,9 @@ public sealed class ModEntry : Mod
             {
                 "world_ready" => () => Context.IsWorldReady == expectedBoolean,
                 "game_active" => () => Game1.game1.IsActive == expectedBoolean,
-                "player_free" => () => Context.IsPlayerFree == expectedBoolean,
-                "can_move" => () => Context.CanPlayerMove == expectedBoolean,
+                "player_free" => () => IsPlayerFreeStrict() == expectedBoolean,
+                "can_move" => () => (Context.CanPlayerMove && !Game1.freezeControls && Game1.farmEvent is null
+                    && Game1.activeClickableMenu is not SaveGameMenu) == expectedBoolean,
                 "using_tool" => () => Context.IsWorldReady && Game1.player.UsingTool == expectedBoolean,
                 "event_up" => () => Game1.eventUp == expectedBoolean,
                 _ => null!

@@ -43,6 +43,8 @@ internal sealed class GameStateSnapshot
     public bool SimulationPaused { get; init; }
     public bool PlayerFree { get; init; }
     public bool CanMove { get; init; }
+    public bool NightActive { get; init; }
+    public int SaveCount { get; init; }
     public bool GraphicsFullScreen { get; init; }
     public bool WindowedBorderless { get; init; }
     public int ViewportWidth { get; init; }
