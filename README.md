@@ -11,6 +11,7 @@ The harness has completed a continuous full-screen run with MiniMax M3's free Op
 - Bounded keyboard, cursor, click, drag, scroll, wait, idle, dialogue-choice, navigation, and stop operations.
 - Bridge-side `navigate_to` and `go_to_location` that plan with the game's real collision rules across the whole location and still emit ordinary W/A/S/D controls and the action key.
 - A cached world graph, persistent visited-location tracking, compact exploration context, and verified multi-hop `travel_to` routing.
+- A per-save daily notebook with agenda carry-over, evening reflection, durable learned facts, and enforced farm-use zones.
 - Structured crops, obstacles, NPCs, shop rows, dialogue text, and inventory counts, so objectives can require real work such as `plantedCrops >= 15` or `inventory.Parsnip Seeds >= 20`.
 - A compact state-first actor for verified navigation/planting skills, with full visual controls on demand, and a slower director for global priorities.
 - A persistent objective ledger that prevents the agent from replacing an unfinished objective.

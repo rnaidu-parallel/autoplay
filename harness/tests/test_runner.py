@@ -4,10 +4,13 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from autoplay_harness.capture import Frame
+from autoplay_harness.notebook import Notebook
 from autoplay_harness.objectives import ObjectiveLedger
 from autoplay_harness.openrouter import OpenRouterClient, OpenRouterError, ToolDecision
 from autoplay_harness.runner import AutoplayHarness, HarnessError
 from autoplay_harness.telemetry import Telemetry
+from autoplay_harness.tools import PLAN_DAY_TOOL, REFLECT_TOOL, UPDATE_FARM_PLAN_TOOL
+from autoplay_harness.world import WorldMap
 
 
 class _Bridge:
@@ -635,6 +638,275 @@ class RunnerTests(unittest.TestCase):
             )
             self.assertIsNone(harness.ledger.snapshot()["active"])
             self.assertEqual("blocked", harness.ledger.snapshot()["history"][-1]["status"])
+
+    def test_morning_planning_uses_restricted_tools_on_day_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.telemetry = Mock(step=0)
+            harness.director_feedback = None
+            harness.world = Mock()
+            harness.world.summary.return_value = {"unvisited": ["Town"]}
+            harness._context = Mock(return_value="context")
+            harness._print_step = Mock()
+            farm_plan = ToolDecision(
+                "update_farm_plan",
+                {"zones": [{"name": "Plot", "purpose": "crops", "x1": 1, "y1": 1, "x2": 5, "y2": 5}],
+                 "notes": "Near the house"},
+                {}, None,
+            )
+            agenda = [
+                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "morning"},
+                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "midday"},
+                {"goal": "Clear debris", "success_condition": "stamina <= 200", "slot": "afternoon"},
+                {"goal": "Return home", "success_condition": "location is FarmHouse", "slot": "evening"},
+                {"goal": "Organize tools", "success_condition": "toolbarIndex >= 0", "slot": "evening"},
+            ]
+            day_plan = ToolDecision("plan_day", {"theme": "Explore", "agenda": agenda, "dropped": []}, {}, None)
+            harness._decide = Mock(side_effect=[(farm_plan, 1), (day_plan, 1)])
+            state = {"day": 17, "location": "FarmHouse", "time": 600,
+                     "farmLayout": {"width": 80, "height": 65}}
+
+            harness._plan_day_if_needed(state, self.frame)
+
+            self.assertEqual(17, harness.notebook.current_day)
+            self.assertEqual(5, len(harness.notebook.remaining(17)))
+            self.assertEqual([UPDATE_FARM_PLAN_TOOL], harness._decide.call_args_list[0].args[3])
+            self.assertEqual([PLAN_DAY_TOOL], harness._decide.call_args_list[1].args[3])
+            harness.telemetry.record.assert_any_call("day_planned", {"day": 17, "agenda_size": 5})
+
+    def test_invalid_morning_agenda_produces_feedback_and_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.set_farm_plan(
+                [{"name": "Plot", "purpose": "crops", "x1": 1, "y1": 1, "x2": 5, "y2": 5}],
+                "Small plot", 1,
+            )
+            harness.telemetry = Mock(step=0)
+            harness.director_feedback = None
+            harness.world = Mock()
+            harness.world.summary.return_value = {"unvisited": []}
+            harness._context = Mock(return_value="context")
+            harness._print_step = Mock()
+            invalid = ToolDecision(
+                "plan_day",
+                {"theme": "Short", "agenda": [
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning"}
+                    for index in range(4)
+                ], "dropped": []}, {}, None,
+            )
+            valid = ToolDecision(
+                "plan_day",
+                {"theme": "Full", "agenda": [
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 4 else "morning"}
+                    for index in range(5)
+                ], "dropped": []}, {}, None,
+            )
+            harness._decide = Mock(side_effect=[(invalid, 1), (valid, 1)])
+
+            harness._plan_day_if_needed(
+                {"day": 2, "location": "FarmHouse", "time": 600,
+                 "farmLayout": {"width": 80, "height": 65}},
+                self.frame,
+            )
+
+            self.assertEqual(2, harness._decide.call_count)
+            self.assertIsNone(harness.director_feedback)
+            harness.telemetry.record.assert_any_call(
+                "agenda_plan_rejected",
+                {"attempt": 1, "mode": "morning", "errors": ["morning planning needs 5-8 new items"]},
+            )
+
+    def test_unknown_carried_ids_are_stripped_without_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.set_farm_plan(
+                [{"name": "Plot", "purpose": "crops", "x1": 1, "y1": 1, "x2": 5, "y2": 5}],
+                "Small plot", 1,
+            )
+            harness.telemetry = Mock(step=0)
+            harness.director_feedback = None
+            harness.world = Mock()
+            harness.world.summary.return_value = {"unvisited": []}
+            harness._context = Mock(return_value="context")
+            harness._print_step = Mock()
+            agenda = [
+                {
+                    "goal": f"Fresh goal {index}",
+                    "slot": "evening" if index == 4 else "morning",
+                    "carried_id": f"explore-backwoods-{index}",
+                }
+                for index in range(5)
+            ]
+            decision = ToolDecision(
+                "plan_day", {"theme": "Fresh start", "agenda": agenda, "dropped": []}, {}, None
+            )
+            harness._decide = Mock(return_value=(decision, 1))
+
+            harness._plan_day_if_needed(
+                {"day": 2, "location": "FarmHouse", "time": 600,
+                 "farmLayout": {"width": 80, "height": 65}},
+                self.frame,
+            )
+
+            self.assertEqual(1, harness._decide.call_count)
+            self.assertTrue(all("carried_id" not in item for item in agenda))
+            self.assertEqual(5, len(harness.notebook.remaining(2)))
+            harness.telemetry.record.assert_any_call(
+                "ignored_carried_ids",
+                {"ids": [f"explore-backwoods-{index}" for index in range(5)]},
+            )
+            self.assertFalse(any(
+                call.args[0] == "agenda_plan_rejected"
+                for call in harness.telemetry.record.call_args_list
+            ))
+
+    def test_invalid_agenda_is_accepted_with_gaps_after_two_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.set_farm_plan(
+                [{"name": "Plot", "purpose": "crops", "x1": 1, "y1": 1, "x2": 5, "y2": 5}],
+                "Small plot", 1,
+            )
+            harness.telemetry = Mock(step=0)
+            harness.director_feedback = None
+            harness.world = Mock()
+            harness.world.summary.return_value = {"unvisited": []}
+            harness._context = Mock(return_value="context")
+            harness._print_step = Mock()
+            invalid = ToolDecision(
+                "plan_day",
+                {"theme": "Short", "agenda": [
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning"}
+                    for index in range(4)
+                ], "dropped": []}, {}, None,
+            )
+            harness._decide = Mock(return_value=(invalid, 1))
+
+            harness._plan_day_if_needed(
+                {"day": 3, "location": "FarmHouse", "time": 600,
+                 "farmLayout": {"width": 80, "height": 65}},
+                self.frame,
+            )
+
+            self.assertEqual(2, harness._decide.call_count)
+            self.assertEqual(4, len(harness.notebook.remaining(3)))
+            harness.telemetry.record.assert_any_call(
+                "agenda_accepted_with_gaps",
+                {"mode": "morning", "errors": ["morning planning needs 5-8 new items"]},
+            )
+
+    def test_go_to_location_records_no_walkable_path_for_current_day(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = Mock()
+            harness.bridge.request.return_value = {
+                "status": "blocked",
+                "error": "no_walkable_path",
+                "state": {"location": "Farm", "day": 7},
+            }
+            harness.world = WorldMap(Path(directory))
+            harness.game_actions = 0
+            harness.blocked_movements = set()
+
+            result = harness._execute_actor_tool(
+                ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None),
+                self.frame,
+                {"location": "Farm", "day": 7},
+            )
+
+            self.assertEqual("no_walkable_path", result["error"])
+            self.assertEqual(
+                [{"from": "Farm", "to": "Backwoods", "day": 7}],
+                harness.world.blocked_paths,
+            )
+
+    def test_objective_completion_marks_linked_agenda_item_done(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.start_day(3)
+            harness.notebook.set_agenda(
+                3,
+                [{"goal": "Earn money", "success_condition": "money >= 10", "slot": "morning"}],
+                "Progress",
+            )
+            agenda_id = harness.notebook.remaining(3)[0]["id"]
+            harness.notebook.mark(agenda_id, "active")
+            harness.ledger = ObjectiveLedger(Path(directory) / "objectives.json", "Bootstrap", "money >= 1")
+            harness.ledger.complete_objective("done")
+            harness.ledger.set_objective("Earn money", "money >= 10", "Sell something", agenda_id)
+            harness.telemetry = Mock(step=0)
+
+            self.assertTrue(harness._complete_verified_objective({"day": 3, "money": 10}))
+
+            item = harness.notebook.data["days"]["3"]["agenda"][0]
+            self.assertEqual("done", item["status"])
+
+    def test_bedtime_reflects_before_sleep_and_carries_remaining_items(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = _Bridge()
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.start_day(4)
+            harness.notebook.set_agenda(
+                4, [{"goal": "Late task", "slot": "evening"}], "Long day"
+            )
+            harness.telemetry = Mock(step=0)
+            harness._context = Mock(return_value="context")
+            harness._print_step = Mock()
+            harness._decide = Mock(return_value=(
+                ToolDecision("reflect", {"summary": "Worked hard", "learned": ["Town closes late"]}, {}, None),
+                1,
+            ))
+            harness.game_actions = 0
+            harness.continuous = True
+            order = []
+
+            def sleep(_bridge, _state, _actions):
+                order.append("sleep")
+                return {"status": "completed", "controls_executed": 1}
+
+            original_decide = harness._decide
+            harness._decide = Mock(side_effect=lambda *args: (order.append("reflect"), original_decide(*args))[1])
+            with patch("autoplay_harness.runner.go_home_and_sleep", side_effect=sleep):
+                result = harness._execute_actor_tool(
+                    ToolDecision("go_home_and_sleep", {}, {}, None), self.frame,
+                    {"day": 4, "time": 2100, "stamina": 100, "health": 100},
+                )
+
+            self.assertEqual("completed", result["status"])
+            self.assertEqual(["reflect", "sleep"], order)
+            self.assertEqual([REFLECT_TOOL], harness._decide.call_args.args[3])
+            self.assertEqual("Worked hard", harness.notebook.data["days"]["4"]["reflection"])
+            self.assertEqual("carried", harness.notebook.data["days"]["4"]["agenda"][0]["status"])
+
+    @patch("autoplay_harness.runner.till_tiles")
+    def test_till_tiles_outside_crop_zone_is_rejected_without_input(self, till_skill) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = _Bridge()
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.set_farm_plan(
+                [{"name": "Plot", "purpose": "crops", "x1": 5, "y1": 5, "x2": 8, "y2": 8}],
+                "One plot", 5,
+            )
+            harness.game_actions = 0
+            harness.continuous = True
+
+            result = harness._execute_actor_tool(
+                ToolDecision("till_tiles", {"tiles": [{"x": 9, "y": 8}]}, {}, None),
+                self.frame,
+                {"location": "Farm"},
+            )
+
+            self.assertEqual("rejected", result["status"])
+            self.assertEqual("outside_crop_zone", result["reason"])
+            self.assertEqual([], harness.bridge.calls)
+            till_skill.assert_not_called()
 
 
 if __name__ == "__main__":

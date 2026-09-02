@@ -18,6 +18,8 @@ class WorldMap:
         self.visited: dict[str, int] = data.get("visited", {})
         self.last_location: str | None = data.get("last_location")
         self.unreachable_edges: list[dict[str, Any]] = data.get("unreachable_edges", [])
+        self.blocked_paths: list[dict[str, Any]] = data.get("blocked_paths", [])
+        self.current_day: int | None = data.get("day")
         self.nodes: dict[str, dict[str, Any]] = {}
         self.edges: list[dict[str, Any]] = []
         self.version: int | None = None
@@ -46,10 +48,18 @@ class WorldMap:
         self._loaded = True
 
     def observe(self, state: dict[str, Any]) -> None:
+        changed = False
+        day = state.get("day")
+        if isinstance(day, int) and day != self.current_day:
+            self.current_day = day
+            self.blocked_paths = []
+            changed = True
         location = state.get("location")
         if not location:
+            if changed:
+                self._save()
             return
-        changed = location != self.last_location
+        changed = location != self.last_location or changed
         self.last_location = location
         if location not in self.visited:
             self.visited[location] = int(state.get("day") or 1)
@@ -70,6 +80,16 @@ class WorldMap:
             self.unreachable_edges.append(value)
         else:
             existing.update(value)
+        self._save()
+
+    def record_blocked_path(self, from_name: str, to_name: str, day: int) -> None:
+        if day != self.current_day:
+            self.current_day = day
+            self.blocked_paths = []
+        value = {"from": from_name, "to": to_name, "day": day}
+        if value in self.blocked_paths:
+            return
+        self.blocked_paths.append(value)
         self._save()
 
     def route(
@@ -105,6 +125,16 @@ class WorldMap:
         unreachable = list(dict.fromkeys(
             edge["to"] for edge in self.unreachable_edges if edge.get("to") in self.nodes
         ))[-12:]
+        blocked_pairs = self._blocked_pairs()
+        destinations = {edge["to"] for edge in self.edges if edge["from"] == current}
+        blocked_now = sorted(
+            destination for destination in destinations
+            if all(
+                (edge["from"], edge["to"]) in blocked_pairs
+                for edge in self.edges
+                if edge["from"] == current and edge["to"] == destination
+            )
+        )
         home = self.route(current or "", "FarmHouse", time)
         route_home = home.get("route", []) if isinstance(home, dict) else home
         return {
@@ -112,6 +142,7 @@ class WorldMap:
             "exits": exits,
             "unvisited": unvisited,
             "unreachable": unreachable,
+            "blockedNow": blocked_now,
             "visitedCount": len(set(self.nodes) & set(self.visited)),
             "totalCount": len(self.nodes),
             "routeHome": route_home,
@@ -125,10 +156,10 @@ class WorldMap:
         if from_name == to_name:
             return []
         adjacent: dict[str, list[tuple[str, dict[str, Any]]]] = {name: [] for name in self.nodes}
-        unreachable = self._unreachable_pairs()
+        unavailable = self._unreachable_pairs() | self._blocked_pairs()
         for edge in self._available_edges():
             adjacent[edge["from"]].append((edge["to"], edge))
-            if undirected and (edge["to"], edge["from"]) not in unreachable:
+            if undirected and (edge["to"], edge["from"]) not in unavailable:
                 adjacent[edge["to"]].append((edge["from"], edge))
         queue = deque([from_name])
         previous: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -156,10 +187,10 @@ class WorldMap:
         if origin not in self.nodes:
             return {}
         adjacent = {name: set() for name in self.nodes}
-        unreachable = self._unreachable_pairs()
+        unavailable = self._unreachable_pairs() | self._blocked_pairs()
         for edge in self._available_edges():
             adjacent[edge["from"]].add(edge["to"])
-            if (edge["to"], edge["from"]) not in unreachable:
+            if (edge["to"], edge["from"]) not in unavailable:
                 adjacent[edge["to"]].add(edge["from"])
         distances = {origin: 0}
         queue = deque([origin])
@@ -184,9 +215,16 @@ class WorldMap:
             if edge.get("from") and edge.get("to")
         }
 
+    def _blocked_pairs(self) -> set[tuple[str, str]]:
+        return {
+            (path["from"], path["to"])
+            for path in self.blocked_paths
+            if path.get("day") == self.current_day and path.get("from") and path.get("to")
+        }
+
     def _available_edges(self) -> list[dict[str, Any]]:
-        unreachable = self._unreachable_pairs()
-        return [edge for edge in self.edges if (edge["from"], edge["to"]) not in unreachable]
+        unavailable = self._unreachable_pairs() | self._blocked_pairs()
+        return [edge for edge in self.edges if (edge["from"], edge["to"]) not in unavailable]
 
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
@@ -195,6 +233,8 @@ class WorldMap:
                 "visited": self.visited,
                 "last_location": self.last_location,
                 "unreachable_edges": self.unreachable_edges,
+                "blocked_paths": self.blocked_paths,
+                "day": self.current_day,
             }, indent=2),
             encoding="utf-8",
         )
@@ -266,9 +306,12 @@ def travel_to(
 
     def remember_failed_edge(from_name: str, to_name: str, response: dict[str, Any]) -> str:
         reason = response_reason(response, "location_did_not_change")
-        if reason.startswith("no_exit_") or reason.startswith("door_action_"):
+        day = int(current.get("day") or state.get("day") or 1)
+        if reason == "no_walkable_path":
+            world_map.record_blocked_path(from_name, to_name, day)
+        elif reason.startswith("no_exit_") or reason.startswith("door_action_"):
             world_map.record_unreachable(
-                from_name, to_name, int(current.get("day") or state.get("day") or 1), reason
+                from_name, to_name, day, reason
             )
         return reason
 

@@ -251,7 +251,89 @@ ACTOR_TOOLS = [
 ]
 
 
+PLAN_DAY_TOOL = function_tool(
+    "plan_day",
+    "Create the day's agenda. Morning plans need 5 to 8 items; an explicit pre-bedtime refill needs 2 to 4 new items. carried_id is ONLY for ids listed under notebook.today.carried and must be omitted for new goals. Give a reason for every dropped carried candidate.",
+    {
+        "theme": {"type": "string", "maxLength": 200},
+        "agenda": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "maxLength": 400},
+                    "success_condition": {"type": "string", "maxLength": 300},
+                    "slot": {"type": "string", "enum": ["morning", "midday", "afternoon", "evening"]},
+                    "carried_id": {"type": "string", "maxLength": 40},
+                },
+                "required": ["goal", "slot"],
+                "additionalProperties": False,
+            },
+        },
+        "dropped": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "maxLength": 40},
+                    "reason": {"type": "string", "maxLength": 300},
+                },
+                "required": ["id", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    ["theme", "agenda", "dropped"],
+)
+
+UPDATE_FARM_PLAN_TOOL = function_tool(
+    "update_farm_plan",
+    "Set farm-use zones from farmLayout. Keep crop plots near water or the house, trees at edges, and paths clear.",
+    {
+        "zones": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "maxLength": 80},
+                    "purpose": {"type": "string", "enum": ["crops", "trees", "paths", "buildings", "animals", "reserve"]},
+                    "x1": {"type": "integer"},
+                    "y1": {"type": "integer"},
+                    "x2": {"type": "integer"},
+                    "y2": {"type": "integer"},
+                },
+                "required": ["name", "purpose", "x1", "y1", "x2", "y2"],
+                "additionalProperties": False,
+            },
+        },
+        "notes": {"type": "string", "maxLength": 1000},
+    },
+    ["zones", "notes"],
+)
+
+REFLECT_TOOL = function_tool(
+    "reflect",
+    "Record a short end-of-day reflection and durable facts learned today.",
+    {
+        "summary": {"type": "string", "maxLength": 1000},
+        "learned": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {"type": "string", "maxLength": 300},
+        },
+    },
+    ["summary", "learned"],
+)
+
+
 DIRECTOR_TOOLS = [
+    PLAN_DAY_TOOL,
+    UPDATE_FARM_PLAN_TOOL,
+    REFLECT_TOOL,
     function_tool(
         "continue_objective",
         "Keep the active objective and set its next concrete milestone in one or two sentences.",
@@ -271,6 +353,7 @@ DIRECTOR_TOOLS = [
             "goal": {"type": "string", "maxLength": 400},
             "success_condition": {"type": "string", "maxLength": 300},
             "milestone": {"type": "string", "maxLength": 400},
+            "agenda_id": {"type": "string", "maxLength": 40},
         },
         ["goal", "success_condition", "milestone"],
     ),

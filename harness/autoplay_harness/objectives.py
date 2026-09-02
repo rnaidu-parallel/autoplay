@@ -101,7 +101,13 @@ class ObjectiveLedger:
         self.data["active"] = None
         self._save()
 
-    def set_objective(self, goal: str, success_condition: str, milestone: str) -> None:
+    def set_objective(
+        self,
+        goal: str,
+        success_condition: str,
+        milestone: str,
+        agenda_id: str | None = None,
+    ) -> None:
         if self.data.get("active") is not None:
             raise ObjectiveError("The active objective must be completed or blocked before setting another.")
         if evaluate_state_condition(success_condition, {}) is None:
@@ -117,6 +123,8 @@ class ObjectiveLedger:
             "status": "active",
             "created_at": self._now(),
         }
+        if agenda_id is not None:
+            self.data["active"]["agenda_id"] = agenda_id
         self._save()
 
     def _require_active(self) -> dict[str, Any]:

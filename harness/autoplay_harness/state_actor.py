@@ -7,6 +7,7 @@ from .tools import ACTOR_TOOLS, function_tool
 
 STATE_ACTOR_PROMPT = """Control a legitimate Stardew Valley playthrough with ordinary inputs.
 Choose exactly one tool, with no prose. Advance the active objective; do not replace it.
+Today's agenda is in notebook.today; work the active objective, and keep planting and tilling inside the crop zone when a farm plan exists.
 This request has structured state, not a screenshot. Never invent tiles, items, or progress.
 Use go_to_location for an adjacent destination listed in warps; the bridge handles doors,
 collision-aware walking, and transition settling. Use navigate_to for a known tile in the

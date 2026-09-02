@@ -12,6 +12,7 @@ from typing import Any
 from .bridge import BridgeError, NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
 from .farming import go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
+from .notebook import Notebook
 from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
 from .openrouter import OpenRouterClient, OpenRouterError, ToolDecision
 from .prompts import ACTOR_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
@@ -19,7 +20,7 @@ from .recording import GameplayRecorder, RecordingError
 from .supervisor import GameSupervisor
 from .state_actor import STATE_ACTOR_PROMPT, STATE_ACTOR_TOOLS, can_use_state_actor, compact_state, prompt_ledger
 from .telemetry import Telemetry
-from .tools import ACTOR_TOOLS, DIRECTOR_TOOLS
+from .tools import ACTOR_TOOLS, DIRECTOR_TOOLS, PLAN_DAY_TOOL, REFLECT_TOOL, UPDATE_FARM_PLAN_TOOL
 from .wiki import StardewWiki
 from .world import WorldMap, travel_to
 
@@ -58,6 +59,7 @@ class AutoplayHarness:
         self.run_directory = repository_root / "harness" / "runs" / self.run_id
         self.state_directory = self.run_directory / "state" if isolated_state else repository_root / "harness" / "state"
         self.world = WorldMap(self.state_directory)
+        self.notebook = Notebook(self.state_directory)
         self.max_actions = max_actions
         self.max_decisions = max_decisions
         self.director_interval = director_interval
@@ -142,6 +144,9 @@ class AutoplayHarness:
             consecutive_errors = 0
             while not self.stop_reason and (self.continuous or (self.game_actions < self.max_actions and self.decisions < self.max_decisions)):
                 try:
+                    state, frame = self._observe()
+                    self._plan_day_if_needed(state, frame)
+                    self._refill_agenda_if_needed(state, frame)
                     if self.stall_review_requested and self.director_future is not None:
                         self._finish_director_review(wait=True, apply=False)
                     else:
@@ -155,6 +160,7 @@ class AutoplayHarness:
                         # New goal selection needs a result; routine reviews never block the actor.
                         if self.director_future is not None:
                             self._finish_director_review(wait=True)
+                        self._agenda_feedback(state)
                         self._director_review()
                     elif self.director_future is None and self.game_actions - self.last_director_action_count >= self.director_interval:
                         self._start_director_review()
@@ -406,6 +412,191 @@ class AutoplayHarness:
         if not self.continuous and self.decisions >= self.max_decisions and not self.stop_reason:
             self.stop_reason = "max_decisions_reached"
 
+    def _plan_day_if_needed(self, state: dict[str, Any], frame: Frame) -> None:
+        day = state.get("day")
+        if not isinstance(day, int):
+            return
+        existing = self.notebook.data["days"].get(str(day))
+        if self.notebook.current_day == day and existing is not None and existing["theme"]:
+            return
+        self.notebook.start_day(day)
+        self.director_feedback = None
+        if self.notebook.farm_plan is None:
+            self.telemetry.step += 1
+            decision, model_ms = self._decide(
+                DIRECTOR_SYSTEM_PROMPT, self._context("director", state, frame), frame,
+                [UPDATE_FARM_PLAN_TOOL], "director",
+            )
+            try:
+                self._apply_farm_plan(decision.arguments, state)
+            except ValueError as error:
+                self.director_feedback = f"Farm plan was rejected: {error}"
+                self.telemetry.record("farm_plan_rejected", {"reason": str(error)})
+            else:
+                self.telemetry.record("farm_plan_set", {"day": day})
+            self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
+
+        self._request_agenda(state, frame, "morning")
+        agenda = self.notebook.data["days"][str(day)]["agenda"]
+        self.telemetry.record("day_planned", {"day": day, "agenda_size": len(agenda)})
+
+    def _refill_agenda_if_needed(self, state: dict[str, Any], frame: Frame) -> None:
+        day = state.get("day")
+        if not isinstance(day, int) or self.notebook.current_day != day:
+            return
+        if self._bedtime_allowed(state) or self.ledger.snapshot().get("active") is not None:
+            return
+        entry = self.notebook.data["days"].get(str(day))
+        if not entry or not entry["agenda"] or self.notebook.remaining(day):
+            return
+        minutes = max(0, 20 * 60 - self._time_minutes(int(state.get("time") or 0)))
+        hours = round(minutes / 60, 1)
+        self.director_feedback = (
+            f"Agenda finished with {hours:g} in-game hours before bedtime; add 2-4 more goals"
+        )
+        self._request_agenda(state, frame, "refill")
+        self.telemetry.record(
+            "agenda_refilled",
+            {"day": day, "agenda_size": len(self.notebook.data["days"][str(day)]["agenda"])},
+        )
+
+    def _request_agenda(self, state: dict[str, Any], frame: Frame, mode: str) -> None:
+        last_decision: ToolDecision | None = None
+        last_errors: list[str] = []
+        for attempt in range(1, 3):
+            self.telemetry.step += 1
+            decision, model_ms = self._decide(
+                DIRECTOR_SYSTEM_PROMPT, self._context("director", state, frame), frame,
+                [PLAN_DAY_TOOL], "director",
+            )
+            last_decision = decision
+            ignored_carried_ids = self._strip_invalid_carried_ids(decision.arguments, state)
+            if ignored_carried_ids:
+                self.telemetry.record("ignored_carried_ids", {"ids": ignored_carried_ids})
+            last_errors = self._agenda_errors(decision.arguments, state, mode)
+            if not last_errors:
+                self._apply_agenda(decision.arguments, state)
+                self.director_feedback = None
+                self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
+                return
+            self.director_feedback = "Invalid plan_day: " + "; ".join(last_errors)
+            self.telemetry.record(
+                "agenda_plan_rejected",
+                {"attempt": attempt, "mode": mode, "errors": last_errors},
+            )
+            self._print_step(
+                "director", decision, {"status": "rejected", "reason": self.director_feedback},
+                state, model_ms, 0,
+            )
+
+        assert last_decision is not None
+        self._apply_agenda(last_decision.arguments, state)
+        self.telemetry.record(
+            "agenda_accepted_with_gaps",
+            {"mode": mode, "errors": last_errors},
+        )
+
+    def _agenda_errors(
+        self, arguments: dict[str, Any], state: dict[str, Any], mode: str
+    ) -> list[str]:
+        agenda = arguments.get("agenda", [])
+        minimum, maximum = (5, 8) if mode == "morning" else (2, 4)
+        errors = []
+        if not minimum <= len(agenda) <= maximum:
+            errors.append(f"{mode} planning needs {minimum}-{maximum} new items")
+        if not any(item.get("slot") == "evening" for item in agenda):
+            errors.append("at least one new item must use the evening slot")
+
+        day = int(state["day"])
+        carried = {
+            item["id"] for item in self.notebook.remaining(day) if item["status"] == "carried"
+        }
+        kept = [item.get("carried_id") for item in agenda if item.get("carried_id")]
+        dropped = [item.get("id") for item in arguments.get("dropped", [])]
+        missing = carried - set(kept) - set(dropped)
+        if missing:
+            errors.append("carried items need carried_id or a drop reason: " + ", ".join(sorted(missing)))
+
+        if mode == "morning":
+            unvisited = self.world.summary(state.get("location"), state.get("time")).get("unvisited", [])
+            exploration_found = False
+            for item in agenda:
+                goal = item.get("goal", "").casefold()
+                condition = (item.get("success_condition") or "").casefold()
+                for location in unvisited:
+                    if location.casefold() in goal and f"location is {location}".casefold() in condition:
+                        exploration_found = True
+                        break
+                if exploration_found:
+                    break
+            if unvisited and not exploration_found:
+                errors.append(
+                    "include an item naming an unvisited location whose success_condition contains "
+                    "`location is <that name>`"
+                )
+        return errors
+
+    def _strip_invalid_carried_ids(
+        self, arguments: dict[str, Any], state: dict[str, Any]
+    ) -> list[str]:
+        day = int(state["day"])
+        candidates = {
+            item["id"] for item in self.notebook.remaining(day) if item["status"] == "carried"
+        }
+        used: set[str] = set()
+        ignored: list[str] = []
+        for item in arguments.get("agenda", []):
+            carried_id = item.get("carried_id")
+            if not carried_id:
+                continue
+            if carried_id not in candidates or carried_id in used:
+                ignored.append(carried_id)
+                item.pop("carried_id", None)
+                continue
+            used.add(carried_id)
+        return list(dict.fromkeys(ignored))
+
+    def _apply_agenda(self, arguments: dict[str, Any], state: dict[str, Any]) -> None:
+        self.notebook.set_agenda(
+            int(state["day"]), arguments["agenda"], arguments["theme"], arguments.get("dropped", [])
+        )
+
+    def _apply_farm_plan(self, arguments: dict[str, Any], state: dict[str, Any]) -> None:
+        layout = state.get("farmLayout")
+        if not isinstance(layout, dict):
+            raise ValueError("farmLayout is unavailable")
+        width = layout.get("width")
+        height = layout.get("height")
+        if not isinstance(width, int) or not isinstance(height, int):
+            raise ValueError("farmLayout bounds are unavailable")
+        zones = arguments.get("zones", [])
+        if not any(zone.get("purpose") == "crops" for zone in zones):
+            raise ValueError("at least one crops zone is required")
+        for zone in zones:
+            if not (
+                0 <= zone["x1"] <= zone["x2"] < width
+                and 0 <= zone["y1"] <= zone["y2"] < height
+            ):
+                raise ValueError(f"zone {zone.get('name', '<unnamed>')} is outside Farm bounds")
+        self.notebook.set_farm_plan(zones, arguments["notes"], int(state["day"]))
+
+    def _agenda_feedback(self, state: dict[str, Any]) -> None:
+        day = state.get("day")
+        if not isinstance(day, int) or self.notebook.current_day != day:
+            return
+        pending = [
+            {key: item.get(key) for key in ("id", "goal", "slot", "status")}
+            for item in self.notebook.remaining(day)
+        ]
+        if pending:
+            self.director_feedback = "No objective is active. Select from these agenda items: " + json.dumps(
+                pending, ensure_ascii=False, separators=(",", ":")
+            )
+
+    @staticmethod
+    def _time_minutes(value: int) -> int:
+        return (value // 100) * 60 + value % 100
+
     def _complete_verified_objective(self, state: dict[str, Any]) -> bool:
         active = self.ledger.snapshot().get("active")
         evaluation = evaluate_state_condition(active["success_condition"], state) if active else None
@@ -414,7 +605,10 @@ class AutoplayHarness:
                 f"Harness verified `{active['success_condition']}` against structured state: "
                 + ", ".join(f"{key}={state.get(key)!r}" for key in ("location", "time", "day", "menu", "playerFree"))
             )
+            agenda_id = active.get("agenda_id")
             self.ledger.complete_objective(evidence)
+            if agenda_id is not None:
+                self.notebook.mark(agenda_id, "done", evidence)
             self.telemetry.record(
                 "objective_completed",
                 {"objective_id": active["id"], "evidence": evidence},
@@ -579,7 +773,10 @@ class AutoplayHarness:
                         {"reason": reason, "evidence": arguments["evidence"]},
                     )
             else:
+                agenda_id = (self.ledger.snapshot().get("active") or {}).get("agenda_id")
                 self.ledger.block_objective(arguments["evidence"])
+                if agenda_id is not None and hasattr(self, "notebook"):
+                    self.notebook.mark(agenda_id, "carried", arguments["evidence"])
         elif decision.name == "set_objective":
             try:
                 evaluation = evaluate_state_condition(arguments["success_condition"], state)
@@ -587,11 +784,24 @@ class AutoplayHarness:
                     raise ObjectiveError("The proposed success condition is already satisfied.")
                 if evaluation is not None and any(" is unavailable" in item for item in evaluation[1]):
                     raise ObjectiveError("The proposed success condition uses an unavailable state field.")
+                agenda_id = arguments.get("agenda_id")
+                day = state.get("day")
+                remaining = (
+                    self.notebook.remaining(day)
+                    if hasattr(self, "notebook") and isinstance(day, int) else []
+                )
+                if remaining and agenda_id is None:
+                    raise ObjectiveError("An agenda_id is required while agenda items remain.")
+                if agenda_id is not None and not any(item["id"] == agenda_id for item in remaining):
+                    raise ObjectiveError("The agenda_id is not a remaining item for today.")
                 self.ledger.set_objective(
                     arguments["goal"],
                     arguments["success_condition"],
                     arguments["milestone"],
+                    agenda_id,
                 )
+                if agenda_id is not None and hasattr(self, "notebook"):
+                    self.notebook.mark(agenda_id, "active")
             except ObjectiveError as error:
                 self.director_feedback = (
                     f"Previous set_objective was rejected: {error} "
@@ -601,6 +811,25 @@ class AutoplayHarness:
                     "objective_update_rejected",
                     {"reason": str(error), "arguments": arguments},
                 )
+        elif decision.name == "plan_day":
+            day = state.get("day")
+            entry = self.notebook.data["days"].get(str(day)) if isinstance(day, int) else None
+            mode = "refill" if entry and entry["theme"] and not self.notebook.remaining(day) else "morning"
+            ignored_carried_ids = self._strip_invalid_carried_ids(arguments, state)
+            if ignored_carried_ids:
+                self.telemetry.record("ignored_carried_ids", {"ids": ignored_carried_ids})
+            errors = self._agenda_errors(arguments, state, mode)
+            if errors:
+                self.director_feedback = "Invalid plan_day: " + "; ".join(errors)
+            else:
+                self._apply_agenda(arguments, state)
+        elif decision.name == "update_farm_plan":
+            try:
+                self._apply_farm_plan(arguments, state)
+            except ValueError as error:
+                self.director_feedback = f"Farm plan was rejected: {error}"
+        elif decision.name == "reflect":
+            self.notebook.reflect(int(state["day"]), arguments["summary"], arguments["learned"])
         else:
             raise HarnessError(f"Unknown director tool: {decision.name}")
 
@@ -619,6 +848,9 @@ class AutoplayHarness:
         if name in {"plant_seeds", "plant_nearest_seeds"}:
             tiles = (nearest_empty_tiles(before_state or {}, arguments["count"]) if name == "plant_nearest_seeds"
                      else arguments["tiles"])
+            zone_rejection = self._crop_zone_rejection(tiles, before_state or {})
+            if zone_rejection is not None:
+                return zone_rejection
             response = plant_seeds(self.bridge, before_state or {}, arguments["seed_slot"], tiles,
                                    len(tiles) * 5 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
@@ -626,6 +858,10 @@ class AutoplayHarness:
         if name in {"water_crops", "till_tiles"}:
             skill = water_crops if name == "water_crops" else till_tiles
             tiles = arguments["tiles"]
+            if name == "till_tiles":
+                zone_rejection = self._crop_zone_rejection(tiles, before_state or {})
+                if zone_rejection is not None:
+                    return zone_rejection
             response = skill(self.bridge, before_state or {}, tiles,
                              len(tiles) * 5 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
@@ -638,6 +874,8 @@ class AutoplayHarness:
                     "time": (before_state or {}).get("time"),
                     "stamina": (before_state or {}).get("stamina"),
                 }
+            if hasattr(self, "notebook"):
+                self._reflect_before_sleep(before_state or {}, frame)
             response = go_home_and_sleep(self.bridge, before_state or {},
                                          45 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
@@ -671,6 +909,14 @@ class AutoplayHarness:
             response = self.bridge.request("navigate", x=arguments["tile_x"], y=arguments["tile_y"], ticks=600)
         elif name == "go_to_location":
             response = self.bridge.request("go_to_location", location=arguments["location"], ticks=600)
+            reason = response.get("error") or response.get("reason")
+            if response.get("status") != "completed" and reason == "no_walkable_path":
+                response_state = response.get("state") or {}
+                self.world.record_blocked_path(
+                    (before_state or {}).get("location") or "",
+                    arguments["location"],
+                    int(response_state.get("day") or (before_state or {}).get("day") or 1),
+                )
         elif name == "press":
             response = self.bridge.request("press", buttons=arguments["buttons"])
         elif name == "hold":
@@ -740,6 +986,39 @@ class AutoplayHarness:
                 "warning": "Movement did not change location or position; choose a different direction.",
             }
         return response
+
+    def _crop_zone_rejection(
+        self, tiles: list[dict[str, Any]], state: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if state.get("location") != "Farm" or not hasattr(self, "notebook"):
+            return None
+        plan = self.notebook.farm_plan
+        if plan is None:
+            return None
+        zones = [zone for zone in plan["zones"] if zone["purpose"] == "crops"]
+        if all(self.notebook.in_zone(tile["x"], tile["y"], "crops") for tile in tiles):
+            return None
+        return {"status": "rejected", "reason": "outside_crop_zone", "zones": zones}
+
+    def _reflect_before_sleep(self, state: dict[str, Any], frame: Frame) -> None:
+        day = state.get("day")
+        if not isinstance(day, int):
+            self.telemetry.record("reflection_skipped", {"reason": "day_unavailable"})
+            return
+        self.telemetry.step += 1
+        try:
+            decision, model_ms = self._decide(
+                DIRECTOR_SYSTEM_PROMPT, self._context("director", state, frame), frame,
+                [REFLECT_TOOL], "director",
+            )
+            if decision.name != "reflect":
+                raise HarnessError(f"Expected reflect, received {decision.name}")
+            self.notebook.reflect(day, decision.arguments["summary"], decision.arguments["learned"])
+            self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
+        except (HarnessError, OpenRouterError, KeyError, TypeError, ValueError) as error:
+            self.telemetry.record("reflection_skipped", {"reason": str(error)})
+        for item in self.notebook.remaining(day):
+            self.notebook.mark(item["id"], "carried", "Unfinished at bedtime.")
 
     def _execute_control_sequence(
         self,
@@ -924,6 +1203,9 @@ class AutoplayHarness:
             "wiki_results": self.latest_wiki_results,
             "director_feedback": self.director_feedback if role == "director" else None,
             "world": self.world.summary(state.get("location"), state.get("time")),
+            "notebook": (
+                self.notebook.context(state.get("day")) if hasattr(self, "notebook") else None
+            ),
             "game_state": compact_state(harness_state) if state_only else harness_state,
             "frame": None if state_only else {
                 "frame_id": frame.frame_id,

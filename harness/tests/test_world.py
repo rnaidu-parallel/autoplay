@@ -73,6 +73,19 @@ class _RejectingTravelBridge:
         }
 
 
+class _BlockedTravelBridge:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def request(self, request_type, **arguments):
+        self.calls.append((request_type, arguments))
+        return {
+            "status": "blocked",
+            "error": "no_walkable_path",
+            "state": {"location": "A", "day": 5, "health": 100, "menu": "none"},
+        }
+
+
 class WorldMapTests(unittest.TestCase):
     def make_world(self, directory: str) -> WorldMap:
         world = WorldMap(Path(directory))
@@ -183,6 +196,35 @@ class WorldMapTests(unittest.TestCase):
             summary = reloaded.summary("A", 1200)
             self.assertNotIn("B", summary["exits"])
             self.assertEqual(["B"], summary["unreachable"])
+
+    def test_no_walkable_hop_is_blocked_for_today_and_expires_next_day(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            bridge = _BlockedTravelBridge()
+            result = travel_to(
+                bridge,
+                {"location": "A", "day": 5, "time": 1200, "health": 100, "menu": "none"},
+                world,
+                "B",
+                3,
+            )
+
+            self.assertEqual("hop_failed:no_walkable_path", result["reason"])
+            self.assertEqual(
+                [{"from": "A", "to": "B", "day": 5}],
+                world.blocked_paths,
+            )
+            self.assertEqual(["B"], world.summary("A", 1200)["blockedNow"])
+            self.assertEqual([], world.route("A", "B"))
+
+            reloaded = WorldMap(Path(directory))
+            reloaded.load(_MapBridge(), 1)
+            self.assertEqual(["B"], reloaded.summary("A", 1200)["blockedNow"])
+            reloaded.observe({"location": "A", "day": 6})
+
+            self.assertEqual([], reloaded.blocked_paths)
+            self.assertEqual([], reloaded.summary("A", 1200)["blockedNow"])
+            self.assertEqual(["B"], reloaded.route("A", "B"))
 
     def test_travel_to_rejects_unknown_destination_without_input(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

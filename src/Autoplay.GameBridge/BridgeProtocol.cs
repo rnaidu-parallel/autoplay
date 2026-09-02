@@ -108,8 +108,47 @@ internal sealed class GameStateSnapshot
     public int? NavigationOriginY { get; init; }
     public IReadOnlyList<string> NavigationRows { get; init; } = Array.Empty<string>();
     public IReadOnlyList<BridgeDialogueResponse> DialogueResponses { get; init; } = Array.Empty<BridgeDialogueResponse>();
+    public BridgeFarmLayout? FarmLayout { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BridgeDiagnostics? Diagnostics { get; init; }
+}
+
+internal sealed class BridgeFarmLayout
+{
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public BridgePoint HouseTile { get; init; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BridgePoint? ShippingBinTile { get; init; }
+    public IReadOnlyList<BridgeBounds> WaterBoxes { get; init; } = Array.Empty<BridgeBounds>();
+    public IReadOnlyList<BridgeFarmBuilding> Buildings { get; init; } = Array.Empty<BridgeFarmBuilding>();
+    public IReadOnlyList<BridgeDebrisCell> DebrisCells { get; init; } = Array.Empty<BridgeDebrisCell>();
+}
+
+internal sealed class BridgePoint
+{
+    public int X { get; init; }
+    public int Y { get; init; }
+}
+
+internal class BridgeBounds
+{
+    public int X1 { get; init; }
+    public int Y1 { get; init; }
+    public int X2 { get; init; }
+    public int Y2 { get; init; }
+}
+
+internal sealed class BridgeFarmBuilding : BridgeBounds
+{
+    public string Name { get; init; } = string.Empty;
+}
+
+internal sealed class BridgeDebrisCell
+{
+    public int X { get; init; }
+    public int Y { get; init; }
+    public int Count { get; init; }
 }
 
 internal sealed class BridgeWorldMapNode

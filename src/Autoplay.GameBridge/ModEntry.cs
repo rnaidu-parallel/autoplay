@@ -98,6 +98,8 @@ public sealed class ModEntry : Mod
     private int saveCount;
     private BridgeWorldMap? worldMapCache;
     private int worldMapVersion;
+    private BridgeFarmLayout? farmLayoutCache;
+    private int farmLayoutCacheDay = -1;
 
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
@@ -136,6 +138,8 @@ public sealed class ModEntry : Mod
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
         this.worldMapCache = null;
+        this.farmLayoutCache = null;
+        this.farmLayoutCacheDay = -1;
         this.LogState("save_loaded");
     }
 
@@ -1715,6 +1719,7 @@ public sealed class ModEntry : Mod
             NavigationOriginY = navigationOriginY,
             NavigationRows = navigationRows,
             DialogueResponses = dialogueResponses,
+            FarmLayout = this.CaptureFarmLayout(),
             Diagnostics = new BridgeDiagnostics
             {
                 IsInBed = Game1.player.isInBed.Value,
@@ -1741,6 +1746,131 @@ public sealed class ModEntry : Mod
                 PressedKeys = Game1.GetKeyboardState().GetPressedKeys().Select(key => key.ToString()).ToArray()
             }
         };
+    }
+
+    private BridgeFarmLayout CaptureFarmLayout()
+    {
+        int day = Game1.Date.TotalDays;
+        if (this.farmLayoutCache is not null && this.farmLayoutCacheDay == day)
+            return this.farmLayoutCache;
+
+        Farm farm = Game1.getFarm();
+        int width = farm.Map.Layers[0].LayerWidth;
+        int height = farm.Map.Layers[0].LayerHeight;
+        var buildings = farm.buildings
+            .Select(building => new BridgeFarmBuilding
+            {
+                Name = building.buildingType.Value,
+                X1 = building.tileX.Value,
+                Y1 = building.tileY.Value,
+                X2 = building.tileX.Value + building.tilesWide.Value - 1,
+                Y2 = building.tileY.Value + building.tilesHigh.Value - 1
+            })
+            .ToArray();
+
+        var farmHouse = farm.buildings.FirstOrDefault(building =>
+            (building.indoors.Value?.NameOrUniqueName ?? building.GetIndoorsName()) == "FarmHouse"
+        );
+        Point houseTile = farmHouse is null
+            ? farm.GetMainFarmHouseEntry()
+            : new Point(
+                farmHouse.tileX.Value + farmHouse.humanDoor.Value.X,
+                farmHouse.tileY.Value + farmHouse.humanDoor.Value.Y + 1
+            );
+        var shippingBin = farm.buildings.FirstOrDefault(building =>
+            building.buildingType.Value.Contains("Shipping Bin", StringComparison.OrdinalIgnoreCase)
+            || building.GetType().Name.Contains("ShippingBin", StringComparison.OrdinalIgnoreCase)
+        );
+        BridgePoint? shippingBinTile = shippingBin is null ? null : new BridgePoint
+        {
+            X = shippingBin.tileX.Value + shippingBin.tilesWide.Value / 2,
+            Y = shippingBin.tileY.Value + shippingBin.tilesHigh.Value
+        };
+
+        var waterRegions = new List<(BridgeBounds bounds, int size)>();
+        var seenWater = new HashSet<Point>();
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                var origin = new Point(x, y);
+                if (seenWater.Contains(origin) || !farm.isWaterTile(x, y))
+                    continue;
+                int x1 = x, y1 = y, x2 = x, y2 = y, size = 0;
+                var queue = new Queue<Point>();
+                queue.Enqueue(origin);
+                seenWater.Add(origin);
+                while (queue.Count > 0)
+                {
+                    Point tile = queue.Dequeue();
+                    size++;
+                    x1 = Math.Min(x1, tile.X);
+                    y1 = Math.Min(y1, tile.Y);
+                    x2 = Math.Max(x2, tile.X);
+                    y2 = Math.Max(y2, tile.Y);
+                    foreach (Point neighbor in new[]
+                    {
+                        new Point(tile.X - 1, tile.Y), new Point(tile.X + 1, tile.Y),
+                        new Point(tile.X, tile.Y - 1), new Point(tile.X, tile.Y + 1)
+                    })
+                    {
+                        if (neighbor.X < 0 || neighbor.Y < 0 || neighbor.X >= width || neighbor.Y >= height
+                            || seenWater.Contains(neighbor) || !farm.isWaterTile(neighbor.X, neighbor.Y))
+                        {
+                            continue;
+                        }
+                        seenWater.Add(neighbor);
+                        queue.Enqueue(neighbor);
+                    }
+                }
+                waterRegions.Add((new BridgeBounds { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 }, size));
+            }
+        }
+
+        var debris = new Dictionary<Point, int>();
+        void AddDebris(int x, int y)
+        {
+            var cell = new Point(x / 10, y / 10);
+            debris[cell] = debris.GetValueOrDefault(cell) + 1;
+        }
+        foreach (var entry in farm.Objects.Pairs)
+        {
+            if (RecommendedToolFor(entry.Value.Name) != "Interact")
+                AddDebris((int)entry.Key.X, (int)entry.Key.Y);
+        }
+        foreach (var entry in farm.terrainFeatures.Pairs)
+        {
+            if (entry.Value is Tree or Grass)
+                AddDebris((int)entry.Key.X, (int)entry.Key.Y);
+        }
+        foreach (ResourceClump clump in farm.resourceClumps)
+            AddDebris((int)clump.Tile.X, (int)clump.Tile.Y);
+
+        this.farmLayoutCache = new BridgeFarmLayout
+        {
+            Width = width,
+            Height = height,
+            HouseTile = new BridgePoint { X = houseTile.X, Y = houseTile.Y },
+            ShippingBinTile = shippingBinTile,
+            WaterBoxes = waterRegions
+                .OrderByDescending(region => region.size)
+                .Take(12)
+                .Select(region => region.bounds)
+                .ToArray(),
+            Buildings = buildings,
+            DebrisCells = debris
+                .OrderBy(entry => entry.Key.Y)
+                .ThenBy(entry => entry.Key.X)
+                .Select(entry => new BridgeDebrisCell
+                {
+                    X = entry.Key.X,
+                    Y = entry.Key.Y,
+                    Count = entry.Value
+                })
+                .ToArray()
+        };
+        this.farmLayoutCacheDay = day;
+        return this.farmLayoutCache;
     }
 
     private static bool? CaptureNewDaySyncActive()
