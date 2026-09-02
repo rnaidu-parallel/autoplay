@@ -14,7 +14,7 @@ Correctness is judged against observed game state. Model prose, a valid tool cal
 | Bedtime | Walk onto the exposed `bedTile`, answer the sleep question, and require `day == previous_day + 1` with the night event finished, `saveCount` advanced, `worldReady`, `playerFree`, `menu` none, and `location` FarmHouse | Proven live from the Farm exterior: house entry, sleep, night event, save, and next-morning exit; it does not judge whether bedtime was well timed |
 | Goal | Harness evaluates a structured success condition before decisions and after tool results | A weak condition can certify a weak objective; five crops does not prove an entire day was played well |
 | Cost and pacing | Per-attempt response times, retries, tokens, cost, cache, rejected/blocked action rate | Low latency and cache hits are efficiency measures, not correctness |
-| Evidence | Full state/result logs plus optional client screenshots | Fullscreen GDI video recording remains unreliable; long-session viewing quality is unvalidated |
+| Evidence | Full state/result logs plus optional client screenshots | Borderless Desktop Duplication recording restarts automatically; long-session viewing quality is unvalidated |
 
 The director proposes milestones. It does not grade its own gameplay or complete objectives. No additional LLM judge is used. A successful bootstrap and a verified final objective require no evaluation-model calls.
 

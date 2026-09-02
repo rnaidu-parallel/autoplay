@@ -1041,6 +1041,10 @@ public sealed class ModEntry : Mod
                 this.StartFocus();
                 return;
 
+            case "focus":
+                this.StartFocus();
+                return;
+
             case "press" when TryParseAgentButtons(request.Buttons, out SButton[] pressButtons):
                 this.ResumeSimulation();
                 this.StartHold(pressButtons, 1);

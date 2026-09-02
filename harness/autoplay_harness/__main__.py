@@ -188,10 +188,10 @@ def main() -> int:
             if state.get("menu") == "TitleMenu":
                 time.sleep(22)
                 observation, frame = _observe_and_capture(bridge, capture)
-            if arguments.fullscreen and original_display_mode != "fullscreen":
-                display_response = bridge.request("set_display_mode", mode="fullscreen")
+            if arguments.fullscreen and original_display_mode != "borderless":
+                display_response = bridge.request("set_display_mode", mode="borderless")
                 if display_response.get("status") != "completed":
-                    raise RuntimeError(f"Could not enable full-screen mode: {display_response}")
+                    raise RuntimeError(f"Could not enable borderless full-screen mode: {display_response}")
                 time.sleep(3)
                 observation, frame = _observe_and_capture(bridge, capture)
             primary_width = ctypes.windll.user32.GetSystemMetrics(0)
@@ -199,11 +199,11 @@ def main() -> int:
             final_state = observation.get("state") or {}
             if arguments.fullscreen and (
                 (frame.width, frame.height) != (primary_width, primary_height)
-                or not final_state.get("graphicsFullScreen")
-                or final_state.get("windowedBorderless")
+                or final_state.get("graphicsFullScreen")
+                or not final_state.get("windowedBorderless")
             ):
                 raise RuntimeError(
-                    "Full-screen test failed: "
+                    "Borderless full-screen test failed: "
                     f"captured {frame.width}x{frame.height}, expected {primary_width}x{primary_height}; "
                     f"state={final_state}."
                 )
@@ -239,7 +239,7 @@ def main() -> int:
             }
             print(json.dumps(smoke_results, indent=2))
         finally:
-            if arguments.fullscreen and original_display_mode not in {None, "fullscreen"} and bridge is not None:
+            if arguments.fullscreen and original_display_mode not in {None, "borderless"} and bridge is not None:
                 try:
                     bridge.request("set_display_mode", mode=original_display_mode)
                     time.sleep(2)

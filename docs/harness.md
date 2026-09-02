@@ -66,7 +66,7 @@ Pointer tools use normalized coordinates from `0` to `1` and must echo the curre
 
 On a new game launch, the harness waits through the publisher splash and title animation, selects the Load menu, and opens the first existing save before recording or making a gameplay model request. Wrong title submenus are escaped deterministically.
 
-Before launching Stardew, the supervisor sets its startup display preference to windowed because switching to full screen during the startup logo can stall that animation. The autonomous runner waits through the startup logos, then requests true full-screen mode through the SMAPI bridge before its first model observation. A rejected display-mode change stops the run before any model request. Normal cleanup restores windowed mode. `--keep-game-open` leaves the running game in full screen.
+Before launching Stardew, the supervisor sets its startup display preference to windowed because switching to full screen during the startup logo can stall that animation. The autonomous runner waits through the startup logos, then requests borderless full-screen mode through the SMAPI bridge before its first model observation. A rejected display-mode change stops the run before any model request. Normal cleanup restores windowed mode. `--keep-game-open` leaves the running game in full screen.
 
 While a playable world is loaded, the bridge owns `Game1.paused`. Each observation freezes simulation; each bounded control resumes it and freezes it again after completion. This prevents provider latency from advancing multiple unattended days. The `idle` tool deliberately advances a bounded number of ticks without pressing a key.
 

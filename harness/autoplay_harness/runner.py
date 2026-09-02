@@ -15,7 +15,7 @@ from .farming import go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_t
 from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
 from .openrouter import OpenRouterClient, OpenRouterError, ToolDecision
 from .prompts import ACTOR_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
-from .recording import GameplayRecorder
+from .recording import GameplayRecorder, RecordingError
 from .supervisor import GameSupervisor
 from .state_actor import STATE_ACTOR_PROMPT, STATE_ACTOR_TOOLS, can_use_state_actor, compact_state, prompt_ledger
 from .telemetry import Telemetry
@@ -126,9 +126,9 @@ class AutoplayHarness:
         )
         try:
             self._observe()
-            display_response = self.bridge.request("set_display_mode", mode="fullscreen")
+            display_response = self.bridge.request("set_display_mode", mode="borderless")
             if display_response.get("status") != "completed":
-                raise HarnessError(f"Could not enable full-screen mode: {display_response}")
+                raise HarnessError(f"Could not enable borderless full-screen mode: {display_response}")
             time.sleep(3)
             self._ensure_world_loaded()
             consecutive_errors = 0
@@ -144,6 +144,7 @@ class AutoplayHarness:
                         self._start_director_review()
                     if self.ledger.snapshot().get("active") is None:
                         continue
+                    self._restart_recorder_if_needed()
                     self._actor_step()
                     consecutive_errors = 0
                 except (BridgeError, CaptureError, OpenRouterError, ObjectiveError, KeyError, TypeError, ValueError) as error:
@@ -249,6 +250,23 @@ class AutoplayHarness:
             response = self.bridge.observe()
             if response.get("status") != "completed":
                 raise HarnessError(f"Observation failed: {response}")
+            state = response.get("state") or {}
+            if state.get("worldReady") and state.get("gameActive") is False:
+                for focus_attempt in range(1, 3):
+                    self.bridge.request("focus")
+                    self.bridge.request("wait", field="game_active", value="true", ticks=120)
+                    response = self.bridge.observe()
+                    if response.get("status") != "completed":
+                        raise HarnessError(f"Observation failed: {response}")
+                    state = response.get("state") or {}
+                    self.telemetry.record(
+                        "window_refocused",
+                        {"attempt": focus_attempt, "game_active_after": state.get("gameActive")},
+                    )
+                    if state.get("gameActive"):
+                        break
+                if state.get("gameActive") is False:
+                    raise BridgeError("game_window_inactive")
             try:
                 capture_started = time.perf_counter()
                 frame = self.capture.capture()
@@ -300,6 +318,17 @@ class AutoplayHarness:
             self.recorder.start()
             self.telemetry.record("recording_started", {"directory": str(self.recorder.directory)})
         return state, frame
+
+    def _restart_recorder_if_needed(self) -> None:
+        if self.recorder is None or self.recorder.process is None or self.recorder.is_alive():
+            return
+        segment_count = len(list(self.recorder.directory.glob("gameplay-*.mp4")))
+        self.telemetry.record("recording_restarted", {"segment_count": segment_count})
+        try:
+            self.recorder.start()
+        except RecordingError as error:
+            self.telemetry.record("recording_failed", {"error": str(error)})
+            self.recorder = None
 
     def _capture_focused_frame(self) -> Frame:
         assert self.bridge is not None
@@ -715,9 +744,9 @@ class AutoplayHarness:
         if self.bridge is not None:
             self.bridge.close()
         self.bridge = self.supervisor.connect_bridge()
-        display_response = self.bridge.request("set_display_mode", mode="fullscreen")
+        display_response = self.bridge.request("set_display_mode", mode="borderless")
         if display_response.get("status") != "completed":
-            raise HarnessError(f"Could not restore full-screen mode after reconnect: {display_response}")
+            raise HarnessError(f"Could not restore borderless full-screen mode after reconnect: {display_response}")
 
     @staticmethod
     def _movement_key(

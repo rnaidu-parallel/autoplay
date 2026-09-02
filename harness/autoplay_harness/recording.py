@@ -33,6 +33,7 @@ class GameplayRecorder:
 
     def _command(self, encoder: str = PRIMARY_ENCODER) -> list[str]:
         pattern = self.directory / "gameplay-%03d.mp4"
+        segment_start_number = len(list(self.directory.glob("gameplay-*.mp4")))
         # Frames stay on the GPU only if a CUDA device can be derived from the desktop's
         # D3D11 device; on this machine that derivation fails, so the frames are downloaded
         # and handed to the encoder as software BGRA.
@@ -83,6 +84,8 @@ class GameplayRecorder:
             "segment",
             "-segment_time",
             str(self.segment_minutes * 60),
+            "-segment_start_number",
+            str(segment_start_number),
             "-reset_timestamps",
             "1",
         ]
@@ -106,6 +109,9 @@ class GameplayRecorder:
                 self.encoder = encoder
                 return
         raise RecordingError("FFmpeg exited before gameplay recording started.")
+
+    def is_alive(self) -> bool:
+        return self.process is not None and self.process.poll() is None
 
     def stop(self) -> None:
         if self.process is None or self.process.poll() is not None:

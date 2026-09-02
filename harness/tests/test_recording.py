@@ -1,11 +1,23 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from autoplay_harness.recording import GameplayRecorder
 
 
 class GameplayRecorderTests(unittest.TestCase):
+    def test_recording_continues_after_existing_segments(self) -> None:
+        existing = [Path("gameplay-000.mp4"), Path("gameplay-001.mp4")]
+        with patch.object(Path, "glob", return_value=existing):
+            command = GameplayRecorder(Path("video"))._command()
+
+        index = command.index("-segment_start_number")
+        self.assertEqual("2", command[index + 1])
+
+    def test_recorder_is_not_alive_before_start(self) -> None:
+        self.assertFalse(GameplayRecorder(Path("video")).is_alive())
+
     def test_recording_uses_bounded_segment_ring_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             command = GameplayRecorder(Path(directory))._command()

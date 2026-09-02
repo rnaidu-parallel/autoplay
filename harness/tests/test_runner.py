@@ -180,6 +180,54 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(same, AutoplayHarness._action_fingerprint(decision, dict(state)))
         self.assertNotEqual(same, changed)
 
+    def test_observe_refocuses_an_inactive_game_window(self) -> None:
+        class FocusBridge(_Bridge):
+            def __init__(self) -> None:
+                super().__init__()
+                self.observations = [
+                    {"worldReady": True, "gameActive": False, "menu": "none"},
+                    {"worldReady": True, "gameActive": True, "menu": "none"},
+                ]
+
+            def observe(self):
+                return {"status": "completed", "state": self.observations.pop(0)}
+
+        harness = object.__new__(AutoplayHarness)
+        harness.bridge = FocusBridge()
+        harness.capture = Mock()
+        harness.capture.capture.return_value = self.frame
+        harness.telemetry = Mock()
+        harness.recorder = None
+        harness.title_screen_ready = True
+
+        state, _ = harness._observe()
+
+        self.assertTrue(state["gameActive"])
+        self.assertEqual(("focus", {}), harness.bridge.calls[0])
+        self.assertEqual(
+            ("wait", {"field": "game_active", "value": "true", "ticks": 120}),
+            harness.bridge.calls[1],
+        )
+        harness.telemetry.record.assert_any_call(
+            "window_refocused", {"attempt": 1, "game_active_after": True}
+        )
+
+    def test_dead_recorder_is_restarted(self) -> None:
+        recorder = Mock()
+        recorder.directory.glob.return_value = [Path("gameplay-000.mp4")]
+        recorder.process = object()
+        recorder.is_alive.return_value = False
+        harness = object.__new__(AutoplayHarness)
+        harness.recorder = recorder
+        harness.telemetry = Mock()
+
+        harness._restart_recorder_if_needed()
+
+        recorder.start.assert_called_once_with()
+        harness.telemetry.record.assert_called_once_with(
+            "recording_restarted", {"segment_count": 1}
+        )
+
     @patch("autoplay_harness.runner.time.sleep")
     def test_bootstrap_loads_first_save_without_model_decisions(self, _sleep) -> None:
         class BootstrapBridge(_Bridge):
