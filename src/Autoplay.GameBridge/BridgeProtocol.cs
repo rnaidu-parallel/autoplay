@@ -34,6 +34,10 @@ internal sealed class BridgeResponse
     public string? Error { get; init; }
     public string? Reason { get; init; }
     public GameStateSnapshot? State { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BridgeWorldMapNode>? Nodes { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BridgeWorldMapEdge>? Edges { get; init; }
 }
 
 internal sealed class GameStateSnapshot
@@ -45,6 +49,7 @@ internal sealed class GameStateSnapshot
     public bool CanMove { get; init; }
     public bool NightActive { get; init; }
     public int SaveCount { get; init; }
+    public int WorldMapVersion { get; init; }
     public bool GraphicsFullScreen { get; init; }
     public bool WindowedBorderless { get; init; }
     public int ViewportWidth { get; init; }
@@ -105,6 +110,34 @@ internal sealed class GameStateSnapshot
     public IReadOnlyList<BridgeDialogueResponse> DialogueResponses { get; init; } = Array.Empty<BridgeDialogueResponse>();
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public BridgeDiagnostics? Diagnostics { get; init; }
+}
+
+internal sealed class BridgeWorldMapNode
+{
+    public string Name { get; init; } = string.Empty;
+    public bool IsOutdoors { get; init; }
+    public bool IsFarm { get; init; }
+}
+
+internal sealed class BridgeWorldMapEdge
+{
+    public string From { get; init; } = string.Empty;
+    public string To { get; init; } = string.Empty;
+    public int X { get; init; }
+    public int Y { get; init; }
+    public string Kind { get; init; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequiresAction { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OpenTime { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? CloseTime { get; init; }
+}
+
+internal sealed class BridgeWorldMap
+{
+    public IReadOnlyList<BridgeWorldMapNode> Nodes { get; init; } = Array.Empty<BridgeWorldMapNode>();
+    public IReadOnlyList<BridgeWorldMapEdge> Edges { get; init; } = Array.Empty<BridgeWorldMapEdge>();
 }
 
 internal sealed class BridgeDiagnostics

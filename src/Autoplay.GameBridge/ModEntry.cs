@@ -92,9 +92,12 @@ public sealed class ModEntry : Mod
     private string navigationLocationName = string.Empty;
     private string? navigationTargetLocation;
     private bool navigationRequiresAction;
+    private Point? navigationExitPush;
     private int navigationActionPhase;
     private int navigationActionTicks;
     private int saveCount;
+    private BridgeWorldMap? worldMapCache;
+    private int worldMapVersion;
 
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
@@ -132,6 +135,7 @@ public sealed class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
+        this.worldMapCache = null;
         this.LogState("save_loaded");
     }
 
@@ -389,11 +393,18 @@ public sealed class ModEntry : Mod
         this.navigationStallTicks = 0;
         this.navigationTargetLocation = null;
         this.navigationRequiresAction = false;
+        this.navigationExitPush = null;
         this.navigationActionPhase = 0;
         this.navigationActionTicks = 0;
     }
 
-    private void StartNavigation(Point target, int maxTicks, string? targetLocation, bool requiresAction)
+    private void StartNavigation(
+        Point target,
+        int maxTicks,
+        string? targetLocation,
+        bool requiresAction,
+        Point? exitPush = null
+    )
     {
         if (!Context.IsWorldReady || !IsPlayerFreeStrict())
         {
@@ -418,12 +429,14 @@ public sealed class ModEntry : Mod
         this.navigationLocationName = location.NameOrUniqueName;
         this.navigationTargetLocation = targetLocation;
         this.navigationRequiresAction = requiresAction;
+        this.navigationExitPush = exitPush;
         this.navigationActionPhase = 0;
         this.navigationActionTicks = 0;
         this.focusWarmupTicks = 2;
         this.Monitor.Log(
             $"navigation_started target=({target.X},{target.Y}) steps={path.Count} max_ticks={maxTicks} "
-                + $"target_location={targetLocation ?? "none"} requires_action={requiresAction}",
+                + $"target_location={targetLocation ?? "none"} requires_action={requiresAction} "
+                + $"exitPush={(exitPush is Point push ? $"({push.X},{push.Y})" : "none")}",
             LogLevel.Info
         );
     }
@@ -436,14 +449,20 @@ public sealed class ModEntry : Mod
             return;
         }
 
-        (Point tile, bool requiresAction)? exit = FindExit(Game1.currentLocation, targetLocation);
+        (Point tile, bool requiresAction, Point? exitPush)? exit = FindExit(Game1.currentLocation, targetLocation);
         if (exit is null)
         {
             this.CompletePipeRequest("blocked", "no_exit_to_location");
             return;
         }
 
-        this.StartNavigation(exit.Value.tile, maxTicks, targetLocation, exit.Value.requiresAction);
+        this.StartNavigation(
+            exit.Value.tile,
+            maxTicks,
+            targetLocation,
+            exit.Value.requiresAction,
+            exit.Value.exitPush
+        );
     }
 
     private void DriveNavigation()
@@ -489,7 +508,10 @@ public sealed class ModEntry : Mod
 
         if (this.navigationActionPhase > 0)
         {
-            this.DriveDoorAction();
+            if (this.navigationActionPhase == 4)
+                this.DriveEdgeWarp();
+            else
+                this.DriveDoorAction();
             return;
         }
 
@@ -500,6 +522,13 @@ public sealed class ModEntry : Mod
 
         if (this.navigationIndex >= path.Count)
         {
+            if (!this.navigationRequiresAction && this.navigationExitPush is not null)
+            {
+                this.navigationActionPhase = 4;
+                this.navigationActionTicks = 0;
+                return;
+            }
+
             if (this.navigationRequiresAction)
             {
                 this.navigationActionPhase = 1;
@@ -533,6 +562,23 @@ public sealed class ModEntry : Mod
         }
 
         this.navigationLastPixel = standing;
+    }
+
+    private void DriveEdgeWarp()
+    {
+        this.navigationActionTicks++;
+        Point push = this.navigationExitPush!.Value;
+        if (push.X < 0)
+            this.helper.Input.Press(SButton.A);
+        else if (push.X > 0)
+            this.helper.Input.Press(SButton.D);
+        else if (push.Y < 0)
+            this.helper.Input.Press(SButton.W);
+        else
+            this.helper.Input.Press(SButton.S);
+
+        if (this.navigationActionTicks >= 16)
+            this.FinishNavigation("blocked", "edge_warp_did_not_trigger");
     }
 
     private void DriveDoorAction()
@@ -645,15 +691,33 @@ public sealed class ModEntry : Mod
         return null;
     }
 
-    private static (Point tile, bool requiresAction)? FindExit(GameLocation location, string targetLocation)
+    private static (Point tile, bool requiresAction, Point? exitPush)? FindExit(
+        GameLocation location,
+        string targetLocation
+    )
     {
         Point playerTile = Game1.player.TilePoint;
-        Warp? warp = location.warps
+        int width = location.Map.Layers[0].LayerWidth;
+        int height = location.Map.Layers[0].LayerHeight;
+        var warp = location.warps
             .Where(candidate => candidate.TargetName.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(candidate => Math.Abs(candidate.X - playerTile.X) + Math.Abs(candidate.Y - playerTile.Y))
+            .Select(candidate =>
+            {
+                var tile = new Point(
+                    Math.Clamp(candidate.X, 0, width - 1),
+                    Math.Clamp(candidate.Y, 0, height - 1)
+                );
+                bool outside = tile.X != candidate.X || tile.Y != candidate.Y;
+                Point? exitPush = outside
+                    ? new Point(Math.Sign(candidate.X - tile.X), Math.Sign(candidate.Y - tile.Y))
+                    : null;
+                return new { tile, exitPush };
+            })
+            .Where(candidate => IsTileWalkable(location, candidate.tile))
+            .OrderBy(candidate => Math.Abs(candidate.tile.X - playerTile.X) + Math.Abs(candidate.tile.Y - playerTile.Y))
             .FirstOrDefault();
         if (warp is not null)
-            return (new Point(warp.X, warp.Y), false);
+            return (warp.tile, false, warp.exitPush);
 
         foreach (var building in location.buildings)
         {
@@ -663,12 +727,10 @@ public sealed class ModEntry : Mod
             if (indoors is null || !indoors.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
                 continue;
             Point door = building.humanDoor.Value;
-            return (new Point(building.tileX.Value + door.X, building.tileY.Value + door.Y + 1), true);
+            return (new Point(building.tileX.Value + door.X, building.tileY.Value + door.Y + 1), true, null);
         }
 
-        int width = location.Map.Layers[0].LayerWidth;
-        int height = location.Map.Layers[0].LayerHeight;
-        (Point tile, bool requiresAction)? best = null;
+        (Point tile, bool requiresAction, Point? exitPush)? best = null;
         int bestDistance = int.MaxValue;
         for (int y = 0; y < height; y++)
         {
@@ -691,13 +753,132 @@ public sealed class ModEntry : Mod
                     if (distance < bestDistance)
                     {
                         bestDistance = distance;
-                        best = (tile, requiresAction);
+                        best = (tile, requiresAction, null);
                     }
                 }
             }
         }
 
         return best;
+    }
+
+    private BridgeWorldMap GetWorldMap()
+    {
+        if (this.worldMapCache is not null)
+            return this.worldMapCache;
+
+        var locations = Game1.locations.ToList();
+        var knownLocations = new Dictionary<string, GameLocation>(StringComparer.OrdinalIgnoreCase);
+        foreach (GameLocation location in locations)
+            knownLocations.TryAdd(location.NameOrUniqueName, location);
+        for (int index = 0; index < locations.Count; index++)
+        {
+            foreach (var building in locations[index].buildings)
+            {
+                string? indoorsName = building.indoors.Value?.NameOrUniqueName ?? building.GetIndoorsName();
+                if (string.IsNullOrWhiteSpace(indoorsName) || knownLocations.ContainsKey(indoorsName))
+                    continue;
+                GameLocation? indoors = building.indoors.Value ?? Game1.getLocationFromName(indoorsName);
+                if (indoors is not null)
+                {
+                    knownLocations.Add(indoors.NameOrUniqueName, indoors);
+                    locations.Add(indoors);
+                }
+            }
+        }
+
+        var edges = new List<BridgeWorldMapEdge>();
+        var seenEdges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddEdge(BridgeWorldMapEdge edge)
+        {
+            if (knownLocations.ContainsKey(edge.To)
+                && seenEdges.Add($"{edge.From}\u001f{edge.To}\u001f{edge.Kind}"))
+            {
+                edges.Add(edge);
+            }
+        }
+
+        foreach (GameLocation location in locations)
+        {
+            string from = location.NameOrUniqueName;
+            foreach (Warp warp in location.warps)
+            {
+                AddEdge(new BridgeWorldMapEdge
+                {
+                    From = from,
+                    To = warp.TargetName,
+                    X = warp.X,
+                    Y = warp.Y,
+                    Kind = "warp"
+                });
+            }
+
+            foreach (var building in location.buildings)
+            {
+                string? indoors = building.indoors.Value?.NameOrUniqueName ?? building.GetIndoorsName();
+                if (string.IsNullOrWhiteSpace(indoors))
+                    continue;
+                Point door = building.humanDoor.Value;
+                AddEdge(new BridgeWorldMapEdge
+                {
+                    From = from,
+                    To = indoors,
+                    X = building.tileX.Value + door.X,
+                    Y = building.tileY.Value + door.Y,
+                    Kind = "door",
+                    RequiresAction = true
+                });
+            }
+
+            int width = location.Map.Layers[0].LayerWidth;
+            int height = location.Map.Layers[0].LayerHeight;
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    string? action = location.doesTileHaveProperty(x, y, "Action", "Buildings");
+                    if (string.IsNullOrWhiteSpace(action))
+                        continue;
+                    string[] parts = action.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length < 4
+                        || parts[0] is not ("Warp" or "LockedDoorWarp" or "WarpWomensLocker" or "WarpMensLocker"))
+                    {
+                        continue;
+                    }
+                    int? openTime = null;
+                    int? closeTime = null;
+                    if (parts[0] == "LockedDoorWarp" && parts.Length >= 6)
+                    {
+                        openTime = int.Parse(parts[4]);
+                        closeTime = int.Parse(parts[5]);
+                    }
+                    AddEdge(new BridgeWorldMapEdge
+                    {
+                        From = from,
+                        To = parts[3],
+                        X = x,
+                        Y = y,
+                        Kind = "action_warp",
+                        RequiresAction = true,
+                        OpenTime = openTime,
+                        CloseTime = closeTime
+                    });
+                }
+            }
+        }
+
+        this.worldMapCache = new BridgeWorldMap
+        {
+            Nodes = locations.Select(location => new BridgeWorldMapNode
+            {
+                Name = location.NameOrUniqueName,
+                IsOutdoors = location.IsOutdoors,
+                IsFarm = location is Farm
+            }).ToArray(),
+            Edges = edges
+        };
+        this.worldMapVersion++;
+        return this.worldMapCache;
     }
 
     private void OnUpdateTicking(object? sender, UpdateTickingEventArgs e)
@@ -1041,6 +1222,10 @@ public sealed class ModEntry : Mod
                 this.StartFocus();
                 return;
 
+            case "world_map" when Context.IsWorldReady:
+                this.CompleteWorldMapRequest(this.GetWorldMap());
+                return;
+
             case "focus":
                 this.StartFocus();
                 return;
@@ -1165,6 +1350,22 @@ public sealed class ModEntry : Mod
         });
     }
 
+    private void CompleteWorldMapRequest(BridgeWorldMap worldMap)
+    {
+        if (this.activePipeRequest is null)
+            return;
+        BridgeRequestEnvelope request = this.activePipeRequest;
+        this.activePipeRequest = null;
+        request.Completion.TrySetResult(new BridgeResponse
+        {
+            Id = request.Request.Id,
+            Status = "completed",
+            State = this.CaptureState(),
+            Nodes = worldMap.Nodes,
+            Edges = worldMap.Edges
+        });
+    }
+
     private bool IsValidScreenPoint(int x, int y)
     {
         var viewport = Game1.graphics.GraphicsDevice.Viewport;
@@ -1190,6 +1391,7 @@ public sealed class ModEntry : Mod
                 CanMove = Context.CanPlayerMove && !nightActive,
                 NightActive = nightActive,
                 SaveCount = this.saveCount,
+                WorldMapVersion = this.worldMapVersion,
                 GraphicsFullScreen = Game1.graphics.IsFullScreen,
                 WindowedBorderless = Game1.options.windowedBorderlessFullscreen,
                 ViewportWidth = Game1.graphics.GraphicsDevice.Viewport.Width,
@@ -1454,6 +1656,7 @@ public sealed class ModEntry : Mod
             CanMove = Context.CanPlayerMove && !nightActive,
             NightActive = nightActive,
             SaveCount = this.saveCount,
+            WorldMapVersion = this.worldMapVersion,
             GraphicsFullScreen = Game1.graphics.IsFullScreen,
             WindowedBorderless = Game1.options.windowedBorderlessFullscreen,
             ViewportWidth = Game1.graphics.GraphicsDevice.Viewport.Width,

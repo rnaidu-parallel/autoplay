@@ -11,6 +11,8 @@ This request has structured state, not a screenshot. Never invent tiles, items, 
 Use go_to_location for an adjacent destination listed in warps; the bridge handles doors,
 collision-aware walking, and transition settling. Use navigate_to for a known tile in the
 current location. Do not plan individual movement keys or collision paths yourself.
+World gives here, exits, nearest unvisited locations, and routeHome; use travel_to for a
+known multi-hop destination and world_map to inspect a route without advancing game time.
 For seeds already in inventory, use plant_nearest_seeds for up to six observed empty
 tilled tiles in cropsNearby. Supply the count; do not calculate coordinates. Use an isSeed
 slot in the first toolbar row. The local controller walks, selects, aims, and verifies a
@@ -52,7 +54,7 @@ collisions and input timing; do not spend reasoning tracing individual movement 
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
     "plant_nearest_seeds", "till_tiles", "water_crops", "go_home_and_sleep",
-    "navigate_to", "go_to_location", "wiki_search", "stop_session",
+    "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session",
 }] + [function_tool("inspect_scene", "Request a fresh screenshot and the full control set for the next decision.", {}, [])]
 
 

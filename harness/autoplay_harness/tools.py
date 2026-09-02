@@ -104,6 +104,18 @@ ACTOR_TOOLS = [
         ["location"],
     ),
     function_tool(
+        "travel_to",
+        "Travel through multiple known locations in one decision. The local controller chooses the shortest world-map route, performs and verifies each adjacent hop, and stops on closed doors, events, dialogue, menus, damage, or failed movement.",
+        {"destination": {"type": "string", "maxLength": 80}},
+        ["destination"],
+    ),
+    function_tool(
+        "world_map",
+        "Inspect the shortest route to a known destination and the compact world summary without sending game input or advancing game time.",
+        {"destination": {"type": "string", "maxLength": 80}},
+        ["destination"],
+    ),
+    function_tool(
         "control_sequence",
         "Execute 1 to 6 safe keyboard steps without another model call. Use for known navigation or repeated tool work; execution stops early on a block, menu change, or location change.",
         {

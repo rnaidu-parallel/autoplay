@@ -70,6 +70,10 @@ Before launching Stardew, the supervisor sets its startup display preference to 
 
 While a playable world is loaded, the bridge owns `Game1.paused`. Each observation freezes simulation; each bounded control resumes it and freezes it again after completion. This prevents provider latency from advancing multiple unattended days. The `idle` tool deliberately advances a bounded number of ticks without pressing a key.
 
+## World map and travel
+
+The bridge builds a read-only directed world graph once per loaded game session and exposes its cache version in structured state. The harness stores first-visit days and the last observed location in `harness/state/world.json` or the isolated run state directory. Each actor and director context includes only the current location, direct exits, up to 12 nearby unvisited locations, visited counts, and the route home. The `world_map` actor tool inspects a destination route without game input, while `travel_to` executes the shortest known multi-hop route with three bounded controls per hop. Travel stops before a closed locked door and stops during execution if an event, menu, dialogue, failed transition, or health loss changes the world. Failed map exits are persisted with their bridge reason, excluded from later routes, and surfaced as unreachable destinations in the compact summary.
+
 ## Control boundary
 
 `plant_seeds(seed_slot, tiles)` handles one to six distinct empty tilled tiles from `cropsNearby`. It walks to each tile, selects a seed inventory slot from the first toolbar row, aims using freshly observed zoom-corrected screen centers, and right-clicks. It verifies a live crop on that exact tile and a one-seed inventory decrement before proceeding. It stops on a failed control, world change, damage, ineffective planting, or the action cap. Each internal input counts toward `--max-actions`. It does not till or water soil.

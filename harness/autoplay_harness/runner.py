@@ -21,6 +21,7 @@ from .state_actor import STATE_ACTOR_PROMPT, STATE_ACTOR_TOOLS, can_use_state_ac
 from .telemetry import Telemetry
 from .tools import ACTOR_TOOLS, DIRECTOR_TOOLS
 from .wiki import StardewWiki
+from .world import WorldMap, travel_to
 
 
 class HarnessError(RuntimeError):
@@ -56,6 +57,7 @@ class AutoplayHarness:
         self.run_id = str(uuid.uuid4())
         self.run_directory = repository_root / "harness" / "runs" / self.run_id
         self.state_directory = self.run_directory / "state" if isolated_state else repository_root / "harness" / "state"
+        self.world = WorldMap(self.state_directory)
         self.max_actions = max_actions
         self.max_decisions = max_decisions
         self.director_interval = director_interval
@@ -293,6 +295,9 @@ class AutoplayHarness:
                 time.sleep(0.25)
                 continue
             state = response.get("state") or {}
+            if state.get("worldReady"):
+                self.world.load(self.bridge, state.get("worldMapVersion"))
+            self.world.observe(state)
             title_splash = state.get("menu") == "TitleMenu" and (
                 frame.visual_variance < 5 or frame.visual_brightness > 215
             )
@@ -637,6 +642,23 @@ class AutoplayHarness:
                                          45 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
             return response
+        if name == "travel_to":
+            action_budget = (max(3, len(self.world.nodes) * 3) if self.continuous
+                             else self.max_actions - self.game_actions)
+            response = travel_to(
+                self.bridge, before_state or {}, self.world, arguments["destination"], action_budget
+            )
+            self.game_actions += response["controls_executed"]
+            return response
+        if name == "world_map":
+            state = before_state or {}
+            return {
+                "status": "completed",
+                "route": self.world.route(
+                    state.get("location") or "", arguments["destination"], state.get("time")
+                ),
+                "summary": self.world.summary(state.get("location"), state.get("time")),
+            }
         movement_key = self._movement_key(name, arguments, before_state)
         if movement_key is not None and movement_key in self.blocked_movements:
             return {
@@ -901,6 +923,7 @@ class AutoplayHarness:
             "memory": self.telemetry.context(),
             "wiki_results": self.latest_wiki_results,
             "director_feedback": self.director_feedback if role == "director" else None,
+            "world": self.world.summary(state.get("location"), state.get("time")),
             "game_state": compact_state(harness_state) if state_only else harness_state,
             "frame": None if state_only else {
                 "frame_id": frame.frame_id,

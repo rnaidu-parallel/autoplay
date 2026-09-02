@@ -156,6 +156,8 @@ class RunnerTests(unittest.TestCase):
             harness.game_actions = 3
             harness.decisions = 4
             harness.director_interval = 24
+            harness.world = Mock()
+            harness.world.summary.return_value = {"here": "FarmHouse", "exits": ["Farm"]}
 
             context = harness._context(
                 "actor", {"worldReady": True, "location": "FarmHouse", "pixelX": 5, "pixelY": 6,
@@ -169,6 +171,46 @@ class RunnerTests(unittest.TestCase):
             self.assertIn('"harnessBedtimeAllowed":true', context)
             self.assertIn('"harnessStalledDecisions":5', context)
             self.assertIn('"harnessLastResult":{"tool":"hold","status":"blocked"}', context)
+            self.assertIn('"world":{"here":"FarmHouse","exits":["Farm"]}', context)
+
+    @patch("autoplay_harness.runner.travel_to")
+    def test_dispatches_travel_to_and_includes_world_in_actor_context(self, travel_skill) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = _Bridge()
+            harness.world = Mock(nodes={"Farm": {}, "Town": {}})
+            harness.world.summary.return_value = {"here": "Farm", "exits": ["Town"]}
+            harness.ledger = ObjectiveLedger(
+                Path(directory) / "objectives.json", "Reach town", "location is Town"
+            )
+            harness.telemetry = Telemetry(Path(directory) / "run")
+            harness.latest_wiki_results = []
+            harness.blocked_movements = set()
+            harness.last_result = None
+            harness.director_feedback = None
+            harness.stalled_decisions = 0
+            harness.continuous = False
+            harness.max_actions = 9
+            harness.max_decisions = 9
+            harness.game_actions = 0
+            harness.decisions = 1
+            travel_skill.return_value = {
+                "status": "completed", "controls_executed": 3, "state": {"location": "Town"}
+            }
+
+            result = harness._execute_actor_tool(
+                ToolDecision("travel_to", {"destination": "Town"}, {}, None),
+                self.frame,
+                {"location": "Farm", "time": 900},
+            )
+            context = harness._context("actor", {"location": "Farm", "time": 900}, self.frame)
+
+            self.assertEqual("completed", result["status"])
+            self.assertEqual(3, harness.game_actions)
+            travel_skill.assert_called_once_with(
+                harness.bridge, {"location": "Farm", "time": 900}, harness.world, "Town", 9
+            )
+            self.assertIn('"world":{"here":"Farm","exits":["Town"]}', context)
 
     def test_stale_frame_is_rejected(self) -> None:
         with self.assertRaises(HarnessError):
@@ -205,6 +247,7 @@ class RunnerTests(unittest.TestCase):
         harness.capture = Mock()
         harness.capture.capture.return_value = self.frame
         harness.telemetry = Mock()
+        harness.world = Mock()
         harness.recorder = None
         harness.title_screen_ready = True
 
