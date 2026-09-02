@@ -19,6 +19,7 @@ change. Existing crops must not be counted as new planting. Do not till or water
 Use till_tiles for up to six tiles listed in tillableNearby, water_crops for up to six
 cropsNearby rows with watered false, and go_home_and_sleep to end the day from the Farm or
 FarmHouse; each selects and verifies its own tool and reports the tiles or steps it proved.
+The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low.
 The harness verifies objective completion; a valid tool call alone proves no progress.
 harnessLastResult explains the last failure. Change tactic after a block; never repeat an
 unchanged failed action. Preserve crops, health, money, inventory, stamina, and the route
@@ -69,7 +70,8 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
               "health", "stamina", "money", "toolbarIndex", "tool", "tilledTiles",
               "plantedCrops", "wateredCrops", "harvestableCrops", "inventoryCounts",
               "wateringCanWater", "wateringCanMax", "bedTile",
-              "warps", "harnessLastResult", "harnessStaminaLow", "harnessBlockedDirectionsHere")
+              "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed",
+              "harnessStalledDecisions", "harnessBlockedDirectionsHere")
     result = {key: state[key] for key in fields if key in state}
     for key, columns in (
         ("inventory", ["slot", "name", "qualifiedId", "stack", "isSeed"]),

@@ -42,6 +42,8 @@ def main() -> int:
     run_parser.add_argument("--max-actions", type=int, default=10)
     run_parser.add_argument("--max-decisions", type=int, default=15)
     run_parser.add_argument("--director-interval", type=int, default=12)
+    run_parser.add_argument("--budget-usd", type=float, default=None,
+                            help="Stop when cumulative actor and director cost reaches this amount")
     run_parser.add_argument(
         "--model",
         choices=list(OpenRouterClient.PROVIDER_PREFERENCES),
@@ -136,6 +138,7 @@ def main() -> int:
             reasoning_effort=arguments.reasoning_effort,
             isolated_state=arguments.isolated_state,
             actor_mode=arguments.actor_mode,
+            budget_usd=arguments.budget_usd,
         )
         print(json.dumps({"stop_reason": harness.run(), "run_id": harness.run_id}))
         return 0

@@ -48,6 +48,7 @@ class AutoplayHarness:
         reasoning_effort: str | None = "low",
         isolated_state: bool = False,
         actor_mode: str = "state-first",
+        budget_usd: float | None = None,
     ) -> None:
         if max_actions < 1 or max_decisions < 1 or director_interval < 1:
             raise HarnessError("max_actions, max_decisions, and director_interval must be positive.")
@@ -70,8 +71,13 @@ class AutoplayHarness:
         self.latest_wiki_results: list[dict[str, Any]] = []
         self.blocked_movements: set[tuple[str | None, int | None, int | None, tuple[str, ...]]] = set()
         self.last_action_fingerprint: str | None = None
+        self.last_progress_fingerprint: tuple[Any, ...] | None = None
+        self.stalled_decisions = 0
+        self.recent_actor_tools: list[str] = []
+        self.stall_review_requested = False
         self.last_result: dict[str, Any] | None = None
         self.director_feedback: str | None = None
+        self.budget_usd = budget_usd
         self.director_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="director")
         self.director_future: Future | None = None
         self.director_snapshot: str | None = None
@@ -134,14 +140,24 @@ class AutoplayHarness:
             consecutive_errors = 0
             while not self.stop_reason and (self.continuous or (self.game_actions < self.max_actions and self.decisions < self.max_decisions)):
                 try:
-                    self._finish_director_review()
-                    if self.ledger.snapshot().get("active") is None:
+                    if self.stall_review_requested and self.director_future is not None:
+                        self._finish_director_review(wait=True, apply=False)
+                    else:
+                        self._finish_director_review()
+                    if self.stop_reason:
+                        continue
+                    if self.stall_review_requested:
+                        self._director_review()
+                        self.stall_review_requested = False
+                    elif self.ledger.snapshot().get("active") is None:
                         # New goal selection needs a result; routine reviews never block the actor.
                         if self.director_future is not None:
                             self._finish_director_review(wait=True)
                         self._director_review()
                     elif self.director_future is None and self.game_actions - self.last_director_action_count >= self.director_interval:
                         self._start_director_review()
+                    if self.stop_reason:
+                        continue
                     if self.ledger.snapshot().get("active") is None:
                         continue
                     self._restart_recorder_if_needed()
@@ -354,6 +370,8 @@ class AutoplayHarness:
         state_only = (getattr(self, "actor_mode", "visual") == "state-first"
                       and not self.inspect_next_scene and can_use_state_actor(state))
         self.inspect_next_scene = False
+        if getattr(self, "last_progress_fingerprint", None) is None:
+            self.last_progress_fingerprint = self._progress_fingerprint(state)
         context = self._context("actor", state, frame, state_only=state_only)
         self.decisions += 1
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
@@ -375,7 +393,9 @@ class AutoplayHarness:
                 self.last_result[key] = result[key]
         self.telemetry.record("tool_result", {"tool": decision.name, "bridge_ms": bridge_ms, "result": result,
                                              "actor_cycle_ms": round((time.perf_counter() - cycle_started) * 1000)})
-        self._print_step("actor", decision, result, (result.get("state") or state), model_ms, bridge_ms)
+        result_state = result.get("state") or state
+        self._update_stall_watchdog(decision.name, result_state)
+        self._print_step("actor", decision, result, result_state, model_ms, bridge_ms)
         if result.get("state"):
             self._complete_verified_objective(result["state"])
         if not self.continuous and self.decisions >= self.max_decisions and not self.stop_reason:
@@ -506,6 +526,16 @@ class AutoplayHarness:
                 "reasoning": (decision.reasoning or "")[:2000] or None,
             },
         )
+        budget_usd = getattr(self, "budget_usd", None)
+        if budget_usd is None:
+            return
+        cumulative_cost = float(self.telemetry.summary["usage"]["cost"])
+        if cumulative_cost >= budget_usd and self.stop_reason != "budget_reached":
+            self.stop_reason = "budget_reached"
+            self.telemetry.record(
+                "budget_reached",
+                {"cumulative_cost": cumulative_cost, "budget_usd": budget_usd},
+            )
 
     def _print_step(
         self,
@@ -596,6 +626,13 @@ class AutoplayHarness:
             self.game_actions += response["controls_executed"]
             return response
         if name == "go_home_and_sleep":
+            if not self._bedtime_allowed(before_state or {}):
+                return {
+                    "status": "rejected",
+                    "reason": "bedtime_not_allowed_before_2000_unless_exhausted",
+                    "time": (before_state or {}).get("time"),
+                    "stamina": (before_state or {}).get("stamina"),
+                }
             response = go_home_and_sleep(self.bridge, before_state or {},
                                          45 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
@@ -794,6 +831,55 @@ class AutoplayHarness:
             separators=(",", ":"),
         )
 
+    @staticmethod
+    def _bedtime_allowed(state: dict[str, Any]) -> bool:
+        return not (
+            (state.get("time") or 0) < 2000
+            and (state.get("stamina") or 0) >= 30
+            and (state.get("health") or 0) >= 50
+        )
+
+    @staticmethod
+    def _progress_fingerprint(state: dict[str, Any]) -> tuple[Any, ...]:
+        inventory_counts = tuple(sorted((state.get("inventoryCounts") or {}).items()))
+        return tuple(state.get(field) for field in (
+            "location", "tileX", "tileY", "day", "time", "money", "stamina",
+            "plantedCrops", "wateredCrops", "tilledTiles", "harvestableCrops",
+        )) + (inventory_counts, state.get("menu"))
+
+    def _update_stall_watchdog(self, tool_name: str, state: dict[str, Any]) -> None:
+        fingerprint = self._progress_fingerprint(state)
+        self.recent_actor_tools.append(tool_name)
+        del self.recent_actor_tools[:-3]
+        if fingerprint == self.last_progress_fingerprint:
+            self.stalled_decisions += 1
+        else:
+            self.stalled_decisions = 0
+        self.last_progress_fingerprint = fingerprint
+
+        if self.stalled_decisions == 8:
+            tools = ", ".join(self.recent_actor_tools)
+            self.telemetry.record(
+                "stall_detected",
+                {"count": self.stalled_decisions, "tools": list(self.recent_actor_tools)},
+            )
+            self.director_feedback = (
+                f"The last 8 decisions changed nothing in the world: {tools}. "
+                "Choose a different tactic or objective."
+            )
+            self.stall_review_requested = True
+        elif self.stalled_decisions == 16:
+            assert self.bridge is not None
+            focus = self.bridge.request("focus")
+            display = self.bridge.request("set_display_mode", mode="borderless")
+            self.telemetry.record(
+                "stall_recovery_attempted",
+                {"count": self.stalled_decisions, "focus": focus.get("status"),
+                 "display_mode": display.get("status")},
+            )
+        elif self.stalled_decisions == 24:
+            self.stop_reason = "stalled"
+
     def _context(self, role: str, state: dict[str, Any], frame: Frame, state_only: bool = False) -> str:
         blocked_here = sorted(
             "+".join(buttons)
@@ -805,6 +891,8 @@ class AutoplayHarness:
             "harnessBlockedDirectionsHere": blocked_here,
             "harnessLastResult": self.last_result,
             "harnessStaminaLow": (state.get("stamina") or 0) < 30 if state.get("worldReady") else False,
+            "harnessBedtimeAllowed": self._bedtime_allowed(state),
+            "harnessStalledDecisions": getattr(self, "stalled_decisions", 0),
         }
         # Slow-changing fields first so a caching provider can reuse the longest possible prefix.
         packet = {

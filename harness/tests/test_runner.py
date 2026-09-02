@@ -93,6 +93,10 @@ class RunnerTests(unittest.TestCase):
             harness.continuous = False
             harness.stop_reason = None
             harness.last_action_fingerprint = None
+            harness.last_progress_fingerprint = None
+            harness.stalled_decisions = 0
+            harness.recent_actor_tools = []
+            harness.stall_review_requested = False
             harness._actor_step()
             self.assertEqual("completed", harness.ledger.snapshot()["history"][-1]["status"])
             self.assertEqual(1, harness._decide.call_count)
@@ -147,19 +151,23 @@ class RunnerTests(unittest.TestCase):
             harness.blocked_movements = {("FarmHouse", 5, 6, ("W",)), ("FarmHouse", 9, 9, ("A",))}
             harness.last_result = {"tool": "hold", "status": "blocked"}
             harness.director_feedback = None
+            harness.stalled_decisions = 5
             harness.continuous = True
             harness.game_actions = 3
             harness.decisions = 4
             harness.director_interval = 24
 
             context = harness._context(
-                "actor", {"worldReady": True, "location": "FarmHouse", "pixelX": 5, "pixelY": 6, "stamina": 12}, self.frame
+                "actor", {"worldReady": True, "location": "FarmHouse", "pixelX": 5, "pixelY": 6,
+                          "time": 1200, "health": 100, "stamina": 12}, self.frame
             )
 
             self.assertLess(context.index('"objective_ledger"'), context.index('"game_state"'))
             self.assertLess(context.index('"game_state"'), context.index('"counters"'))
             self.assertIn('"harnessBlockedDirectionsHere":["W"]', context)
             self.assertIn('"harnessStaminaLow":true', context)
+            self.assertIn('"harnessBedtimeAllowed":true', context)
+            self.assertIn('"harnessStalledDecisions":5', context)
             self.assertIn('"harnessLastResult":{"tool":"hold","status":"blocked"}', context)
 
     def test_stale_frame_is_rejected(self) -> None:
@@ -315,6 +323,93 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(expected, harness.bridge.calls[-1])
         self.assertEqual(len(cases), harness.game_actions)
         _sleep.assert_not_called()
+
+    def test_bedtime_guard_rejects_early_sleep_unless_exhausted(self) -> None:
+        harness = object.__new__(AutoplayHarness)
+        harness.bridge = _Bridge()
+        harness.game_actions = 0
+        harness.continuous = True
+
+        def dispatch_sleep(bridge, _state, _actions):
+            response = bridge.request("sleep_test")
+            return {**response, "controls_executed": 1}
+
+        decision = ToolDecision("go_home_and_sleep", {}, {}, None)
+        with patch("autoplay_harness.runner.go_home_and_sleep", side_effect=dispatch_sleep):
+            rejected = harness._execute_actor_tool(
+                decision, self.frame, {"time": 1200, "stamina": 200, "health": 100}
+            )
+            self.assertEqual("rejected", rejected["status"])
+            self.assertEqual("bedtime_not_allowed_before_2000_unless_exhausted", rejected["reason"])
+            self.assertEqual([], harness.bridge.calls)
+
+            exhausted = harness._execute_actor_tool(
+                decision, self.frame, {"time": 1200, "stamina": 20, "health": 100}
+            )
+            evening = harness._execute_actor_tool(
+                decision, self.frame, {"time": 2100, "stamina": 200, "health": 100}
+            )
+
+        self.assertEqual("completed", exhausted["status"])
+        self.assertEqual("completed", evening["status"])
+        self.assertEqual([("sleep_test", {}), ("sleep_test", {})], harness.bridge.calls)
+
+    def test_stall_watchdog_detects_resets_recovers_and_stops(self) -> None:
+        harness = object.__new__(AutoplayHarness)
+        harness.bridge = _Bridge()
+        harness.telemetry = Mock()
+        harness.stalled_decisions = 0
+        harness.recent_actor_tools = []
+        harness.stall_review_requested = False
+        harness.director_feedback = None
+        harness.stop_reason = None
+        state = {
+            "location": "Farm", "tileX": 10, "tileY": 11, "day": 16, "time": 720,
+            "money": 500, "stamina": 200, "plantedCrops": 4, "wateredCrops": 0,
+            "tilledTiles": 4, "harvestableCrops": 0, "inventoryCounts": {"Wood": 3},
+            "menu": "none",
+        }
+        harness.last_progress_fingerprint = harness._progress_fingerprint(state)
+
+        for _ in range(8):
+            harness._update_stall_watchdog("navigate_to", state)
+
+        self.assertEqual(8, harness.stalled_decisions)
+        self.assertTrue(harness.stall_review_requested)
+        self.assertIn("The last 8 decisions changed nothing", harness.director_feedback)
+        harness.telemetry.record.assert_any_call(
+            "stall_detected", {"count": 8, "tools": ["navigate_to"] * 3}
+        )
+
+        changed = {**state, "wateredCrops": 1}
+        harness._update_stall_watchdog("water_crops", changed)
+        self.assertEqual(0, harness.stalled_decisions)
+
+        for _ in range(24):
+            harness._update_stall_watchdog("click", changed)
+
+        self.assertEqual("stalled", harness.stop_reason)
+        self.assertIn(("focus", {}), harness.bridge.calls)
+        self.assertIn(("set_display_mode", {"mode": "borderless"}), harness.bridge.calls)
+        harness.telemetry.record.assert_any_call(
+            "stall_recovery_attempted",
+            {"count": 16, "focus": "completed", "display_mode": "completed"},
+        )
+
+    def test_budget_tripwire_counts_actor_and_director_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.telemetry = Telemetry(Path(directory) / "run")
+            harness.budget_usd = 0.001
+            harness.stop_reason = None
+            decision = ToolDecision("press", {"buttons": ["W"]}, {"cost": 0.0006}, None)
+
+            harness._record_decision("actor", decision, 1)
+            self.assertIsNone(harness.stop_reason)
+            harness._record_decision("director", decision, 1)
+
+            self.assertEqual("budget_reached", harness.stop_reason)
+            self.assertAlmostEqual(0.0012, harness.telemetry.summary["usage"]["cost"])
 
     def test_keyboard_sequence_executes_steps_and_stops_on_location_change(self) -> None:
         class TransitionBridge(_Bridge):

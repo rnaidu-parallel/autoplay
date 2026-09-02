@@ -108,6 +108,8 @@ Bounded mode has two independent caps.
 
 The defaults are 10 actions and 15 actor decisions. Director reviews add model calls at `--director-interval`, which defaults to 12 game actions, or when a new goal is needed. These are request-count controls, not a guaranteed dollar limit, because cost depends on the selected OpenRouter model and provider.
 
+`--budget-usd` sets an optional cumulative session-cost limit using recorded actor and director decision usage. When cost reaches or exceeds the limit, bounded and continuous runs stop with `budget_reached`. The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low. A stall watchdog requests a director review after 8 unchanged actor decisions, retries focus and borderless mode at 16, and stops with `stalled` at 24.
+
 `--continuous` ignores both caps, applies bounded retry/backoff to transient failures, and keeps the loop running. `--record-video` starts 30 FPS, 1920-by-1080 H.264 capture only after a world is loaded. It captures through the Desktop Duplication API (FFmpeg `ddagrab`), which stays live in full-screen game modes where `gdigrab` froze, and encodes with `h264_nvenc`; if NVENC does not initialize, the recorder retries once with `libx264 -preset ultrafast`. Run `python -m autoplay_harness record-test --seconds 5` to record a short desktop clip and confirm the frame count and that the frames are not stale. `--video-segment-minutes` controls segment length. `--video-retention-segments` defaults to a six-file rolling buffer; `0` explicitly retains the complete raw VOD. Static pauses can be removed from a copy with FFmpeg `mpdecimate`. `--save-frames` remains an opt-in diagnostic mode and should not be used for routine continuous play.
 
 ## Local setup
