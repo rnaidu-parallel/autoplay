@@ -140,21 +140,16 @@ def nearest_empty_tiles(state: dict[str, Any], count: int) -> list[dict[str, int
 def plant_seeds(bridge: NamedPipeBridge, state: dict[str, Any], seed_slot: int,
                 tiles: list[dict[str, int]], action_budget: int) -> dict[str, Any]:
     """Plant observed empty soil using ordinary inputs, verifying each seed before continuing."""
-    origin = state.get("location")
-    controls = 0
+    runner = _Controls(bridge, state, action_budget)
     planted: list[dict[str, int]] = []
-    timings: list[dict[str, Any]] = []
 
     def finish(status: str, reason: str | None = None) -> dict[str, Any]:
-        return {"status": status, "reason": reason, "state": state,
-                "controls_executed": controls, "tiles_planted": planted, "control_timings": timings}
+        return {"status": status, "reason": reason, "state": runner.state,
+                "controls_executed": runner.executed, "tiles_planted": planted,
+                "control_timings": runner.timings}
 
     def item() -> dict[str, Any]:
-        return next((entry for entry in state.get("inventory", []) if entry["slot"] == seed_slot), {})
-
-    def soil(target: dict[str, int]) -> dict[str, Any] | None:
-        return next((crop for crop in state.get("cropsNearby", [])
-                     if (crop["x"], crop["y"]) == (target["x"], target["y"])), None)
+        return next((entry for entry in runner.state.get("inventory", []) if entry["slot"] == seed_slot), {})
 
     seed = item()
     if not seed.get("isSeed") or not 0 <= seed_slot <= 11:
@@ -162,59 +157,50 @@ def plant_seeds(bridge: NamedPipeBridge, state: dict[str, Any], seed_slot: int,
     seed_id = seed["qualifiedId"]
     if not 1 <= len(tiles) <= 6 or len({(tile["x"], tile["y"]) for tile in tiles}) != len(tiles):
         return finish("rejected", "supply_one_to_six_distinct_tiles")
-    if any(soil(tile) is None or soil(tile).get("crop") is not None for tile in tiles):
+    if any(_soil(state, tile) is None or _soil(state, tile).get("crop") is not None for tile in tiles):
         return finish("rejected", "targets_must_be_observed_empty_tilled_soil")
 
-    def control(kind: str, **arguments: Any) -> str | None:
-        nonlocal state, controls
-        if controls >= action_budget:
-            return "action_budget_reached"
-        if (state.get("location") != origin or state.get("menu") != "none"
-                or not state.get("worldReady") or not state.get("playerFree")
-                or not state.get("canMove") or state.get("eventUp")):
-            return "world_changed_or_player_unavailable"
-        previous_health = state.get("health", 0)
-        started = time.perf_counter()
-        response = bridge.request(kind, **arguments)
-        timings.append({"control": kind, "elapsed_ms": round((time.perf_counter() - started) * 1000),
-                        "status": response.get("status")})
-        controls += 1
-        state = response.get("state") or {}
-        if response.get("status") != "completed":
-            return response.get("error") or response.get("reason") or response.get("status") or "control_failed"
-        if (state.get("location") != origin or state.get("menu") != "none"
-                or state.get("eventUp") or state.get("health", 0) < previous_health):
-            return "world_changed_or_damage_taken"
-        return None
-
     for target in tiles:
-        if controls + 2 + (state.get("toolbarIndex") != seed_slot) > action_budget:
+        if runner.executed + 4 + (runner.state.get("toolbarIndex") != seed_slot) > action_budget:
             return finish("partial", "action_budget_reached")
         if item().get("qualifiedId") != seed_id or (item().get("stack") or 0) < 1:
             return finish("partial", "seeds_exhausted_or_changed")
-        error = control("navigate", x=target["x"], y=target["y"], ticks=600)
+        stand, error = runner.stand_beside(target)
+        if stand is None:
+            return finish("blocked", error)
+        if runner.state.get("toolbarIndex") != seed_slot:
+            error = runner.control("press", buttons=[TOOLBAR_BUTTONS[seed_slot]])
+            if error or runner.state.get("toolbarIndex") != seed_slot:
+                return finish("blocked", error or "seed_selection_failed")
+        error = runner.face((target["x"] - stand[0], target["y"] - stand[1]))
         if error:
             return finish("blocked", error)
-        if (state.get("tileX"), state.get("tileY")) != (target["x"], target["y"]):
-            return finish("blocked", "navigation_did_not_reach_target")
-        if state.get("toolbarIndex") != seed_slot:
-            button = ([f"D{i}" for i in range(1, 10)] + ["D0", "OemMinus", "OemPlus"])[seed_slot]
-            error = control("press", buttons=[button])
-            if error or state.get("toolbarIndex") != seed_slot:
-                return finish("blocked", error or "seed_selection_failed")
-        target_soil = soil(target)
+        target_soil = _soil(runner.state, target)
         if target_soil is None or target_soil.get("crop") is not None or item().get("qualifiedId") != seed_id:
             return finish("blocked", "target_or_seed_changed")
-        x, y = target_soil["screenX"], target_soil["screenY"]
-        if not (0 <= x < state["viewportWidth"] and 0 <= y < state["viewportHeight"]):
+        if not _on_screen(runner.state, target_soil):
             return finish("blocked", "target_not_on_screen")
         count_before = item()["stack"]
-        error = control("click", x=x, y=y, button="right")
-        crop_after = soil(target)
+        error = runner.control("click", x=target_soil["screenX"], y=target_soil["screenY"], button="right")
+        crop_after = _soil(runner.state, target)
         if error:
             return finish("blocked", error)
         if (crop_after is None or crop_after.get("crop") is None or crop_after.get("dead")
                 or item().get("stack", 0) != count_before - 1):
+            retry_soil = _soil(runner.state, target)
+            retry_seed = item()
+            if (retry_soil is not None and retry_soil.get("crop") is None
+                    and retry_seed.get("qualifiedId") == seed_id
+                    and retry_seed.get("stack") == count_before
+                    and _on_screen(runner.state, retry_soil)):
+                error = runner.control("click", x=retry_soil["screenX"], y=retry_soil["screenY"], button="right")
+                crop_after = _soil(runner.state, target)
+                if error:
+                    return finish("blocked", error)
+                if (crop_after is not None and crop_after.get("crop") is not None
+                        and not crop_after.get("dead") and item().get("stack", 0) == count_before - 1):
+                    planted.append({"x": target["x"], "y": target["y"], "retried": True})
+                    continue
             return finish("blocked", "planting_not_verified_by_crop_and_seed_delta")
         planted.append(target)
     return finish("completed")

@@ -110,6 +110,7 @@ internal sealed class GameStateSnapshot
 internal sealed class BridgeDiagnostics
 {
     public bool IsInBed { get; init; }
+    public bool IsWarping { get; init; }
     public int FreezePause { get; init; }
     public bool CanMoveRaw { get; init; }
     public bool UsingTool { get; init; }

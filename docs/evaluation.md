@@ -8,9 +8,9 @@ Correctness is judged against observed game state. Model prose, a valid tool cal
 | --- | --- | --- |
 | Allowed control | Strict tool schema, allowed keys, tick limits, current-frame pointer coordinates, bounded action count | A valid action can still be a poor choice |
 | Movement | Collision-aware navigation; unchanged-position guard for long movement holds; stop on blocks and transitions | Does not prove the route was efficient or strategically useful |
-| Planting | Each requested tile must be observed empty tilled soil; verify a live crop on that exact tile and one seed consumed before continuing | Only the local planting operation has this crop/seed contract; generic C/click does not |
+| Planting | Each requested tile must be observed empty tilled soil; stand beside it, select the seeds, face it, right-click its fresh screen center, and verify a live crop on that exact tile and one seed consumed before continuing | Proven live for four tiles in one call after the bridge began moving the cursor one tick before pressing; one verified retry click remains as a safety net |
 | Tilling | Each requested tile must appear in `tillableNearby`; stand beside it, verify the Hoe is selected, face it, swing, and verify the tile became empty tilled soil in `cropsNearby` | Proven live for three Farm tiles; it does not judge whether that soil was worth tilling |
-| Watering | Each requested tile must be an observed crop with `watered` false; verify the Hoe/Can selection, the resulting `watered` state, and one unit of `wateringCanWater` spent; stop with `watering_can_empty` instead of refilling | Not yet proven live: no dry crop has been reachable in a validation run |
+| Watering | Each requested tile must be an observed crop with `watered` false; verify the Hoe/Can selection, the resulting `watered` state, and one unit of `wateringCanWater` spent; stop with `watering_can_empty` instead of refilling | Proven live for four freshly planted crops on a sunny day; it does not refill the can |
 | Bedtime | Walk onto the exposed `bedTile`, answer the sleep question, and require `day == previous_day + 1` with the night event finished, `saveCount` advanced, `worldReady`, `playerFree`, `menu` none, and `location` FarmHouse | Proven live from the Farm exterior: house entry, sleep, night event, save, and next-morning exit; it does not judge whether bedtime was well timed |
 | Goal | Harness evaluates a structured success condition before decisions and after tool results | A weak condition can certify a weak objective; five crops does not prove an entire day was played well |
 | Cost and pacing | Per-attempt response times, retries, tokens, cost, cache, rejected/blocked action rate | Low latency and cache hits are efficiency measures, not correctness |
@@ -46,8 +46,7 @@ Example:
 
 ## Missing acceptance coverage
 
-- Water dry crops; prove the intended tiles become watered and track water/stamina costs.
-- Verify crop persistence across the night. Reaching the farmhouse from the Farm, sleeping, finishing the nightly event and save, and leaving the house the next morning now pass.
+- Full farm day now passes once: plant four, water four, walk home, sleep, save, and find the crops the next morning. Repeat it across several consecutive days.
 - Recover from a blocked route or ineffective input without repeating it indefinitely.
 - Complete shop/NPC/menu tasks using inventory, money, and dialogue evidence.
 - Complete several consecutive days without passing out, damaging crops, abandoning goals, or wasting resources.

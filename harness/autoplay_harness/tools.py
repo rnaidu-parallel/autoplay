@@ -59,7 +59,7 @@ ACTOR_TOOLS = [
     ),
     function_tool(
         "plant_seeds",
-        "Plant seeds on 1 to 6 distinct empty tilled tiles from cropsNearby in one call. Walks to each tile, selects seeds, aims using fresh screen coordinates, right-clicks, and verifies the crop and seed decrement. Stops on failure or world changes. Supply a seed slot from the first 12 inventory slots (isSeed=true). Does not till or water.",
+        "Plant seeds on 1 to 6 distinct empty tilled tiles from cropsNearby in one call. Stands beside each tile, selects seeds, faces it, aims using fresh screen coordinates, right-clicks, and verifies the crop and seed decrement. Stops on failure or world changes. Supply a seed slot from the first 12 inventory slots (isSeed=true). Does not till or water.",
         {"seed_slot": {"type": "integer", "minimum": 0, "maximum": 11},
          "tiles": {"type": "array", "minItems": 1, "maxItems": 6,
                    "items": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},

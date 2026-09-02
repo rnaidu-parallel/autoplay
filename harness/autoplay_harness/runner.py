@@ -556,7 +556,7 @@ class AutoplayHarness:
             tiles = (nearest_empty_tiles(before_state or {}, arguments["count"]) if name == "plant_nearest_seeds"
                      else arguments["tiles"])
             response = plant_seeds(self.bridge, before_state or {}, arguments["seed_slot"], tiles,
-                                   len(tiles) * 3 if self.continuous else self.max_actions - self.game_actions)
+                                   len(tiles) * 5 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
             return response
         if name in {"water_crops", "till_tiles"}:

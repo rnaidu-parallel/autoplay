@@ -52,6 +52,7 @@ public sealed class ModEntry : Mod
     private int ticksRemaining;
     private int focusWarmupTicks;
     private bool cursorPending;
+    private bool cursorMoveApplied;
     private int pendingCursorX;
     private int pendingCursorY;
     private int stateDelayTicks;
@@ -231,6 +232,7 @@ public sealed class ModEntry : Mod
         }
 
         this.cursorPending = true;
+        this.cursorMoveApplied = false;
         this.pendingCursorX = x;
         this.pendingCursorY = y;
         this.focusWarmupTicks = 2;
@@ -240,6 +242,7 @@ public sealed class ModEntry : Mod
     private void StartClick(int x, int y, SButton button)
     {
         this.cursorPending = true;
+        this.cursorMoveApplied = false;
         this.pendingCursorX = x;
         this.pendingCursorY = y;
         this.pendingClickButton = button;
@@ -250,6 +253,7 @@ public sealed class ModEntry : Mod
     private void StartDrag(int startX, int startY, int endX, int endY, SButton button, int ticks)
     {
         this.cursorPending = true;
+        this.cursorMoveApplied = false;
         this.pendingCursorX = startX;
         this.pendingCursorY = startY;
         this.focusWarmupTicks = 2;
@@ -348,6 +352,7 @@ public sealed class ModEntry : Mod
         this.heldButtons = Array.Empty<SButton>();
         this.ticksRemaining = 0;
         this.cursorPending = false;
+        this.cursorMoveApplied = false;
         this.focusWarmupTicks = 0;
         this.stateDelayTicks = 0;
         this.delayedStateReason = null;
@@ -464,6 +469,12 @@ public sealed class ModEntry : Mod
             return;
         }
 
+        if (Game1.isWarping)
+        {
+            this.navigationStallTicks = 0;
+            return;
+        }
+
         if (this.navigationActionPhase == 0 && (!IsPlayerFreeStrict() || Game1.activeClickableMenu is not null || Game1.eventUp))
         {
             this.FinishNavigation("interrupted", "player_not_free");
@@ -526,13 +537,22 @@ public sealed class ModEntry : Mod
 
     private void DriveDoorAction()
     {
-        // Phase 1: face the door above the standing tile. Phase 2: press the action key. Phase 3: wait for the warp.
+        // Phase 1: walk into the door above the standing tile. Phase 2: press the action key. Phase 3: wait for the warp.
         this.navigationActionTicks++;
         switch (this.navigationActionPhase)
         {
             case 1:
+                if (this.navigationActionTicks == 1)
+                {
+                    Point standTile = Game1.player.TilePoint;
+                    int doorScreenX = (int)((((standTile.X * Game1.tileSize) + (Game1.tileSize / 2))
+                        - Game1.viewport.X) * Game1.options.zoomLevel);
+                    int doorScreenY = (int)(((((standTile.Y - 1) * Game1.tileSize) + (Game1.tileSize / 2))
+                        - Game1.viewport.Y) * Game1.options.zoomLevel);
+                    Game1.setMousePosition(doorScreenX, doorScreenY);
+                }
                 this.helper.Input.Press(SButton.W);
-                if (this.navigationActionTicks >= 2)
+                if (this.navigationActionTicks >= 16)
                 {
                     this.navigationActionPhase = 2;
                     this.navigationActionTicks = 0;
@@ -709,9 +729,19 @@ public sealed class ModEntry : Mod
             if (this.focusWarmupTicks-- > 0)
                 return;
 
-            Game1.setMousePosition(this.pendingCursorX, this.pendingCursorY);
-            SetPhysicalCursorPosition(this.pendingCursorX, this.pendingCursorY);
+            if (!this.cursorMoveApplied)
+            {
+                Game1.setMousePosition(this.pendingCursorX, this.pendingCursorY);
+                SetPhysicalCursorPosition(this.pendingCursorX, this.pendingCursorY);
+                if (this.pendingClickButton != SButton.None || this.dragPending)
+                {
+                    this.cursorMoveApplied = true;
+                    return;
+                }
+            }
+
             this.cursorPending = false;
+            this.cursorMoveApplied = false;
 
             if (this.pendingClickButton != SButton.None)
             {
@@ -1481,6 +1511,7 @@ public sealed class ModEntry : Mod
             Diagnostics = new BridgeDiagnostics
             {
                 IsInBed = Game1.player.isInBed.Value,
+                IsWarping = Game1.isWarping,
                 FreezePause = Game1.player.freezePause,
                 CanMoveRaw = Game1.player.CanMove,
                 UsingTool = Game1.player.UsingTool,
