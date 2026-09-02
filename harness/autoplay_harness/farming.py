@@ -59,10 +59,10 @@ class _Controls:
             return error
         return None if self.state.get("tool") == tool_name else "tool_selection_failed"
 
-    def face(self, delta: tuple[int, int]) -> str | None:
+    def face(self, delta: tuple[int, int], force: bool = False) -> str | None:
         """A one-tick direction press turns without moving; the game aims tools at the faced tile."""
         button, facing = FACING_KEYS[delta]
-        if self.state.get("facing") == facing:
+        if self.state.get("facing") == facing and not force:
             return None
         error = self.control("press", buttons=[button])
         if error:
@@ -97,13 +97,19 @@ class _Controls:
 
 def _tool_slot(state: dict[str, Any], tool_name: str) -> int | None:
     entry = next((item for item in state.get("inventory", [])
-                  if item.get("name") == tool_name and 0 <= item.get("slot", -1) <= 11), None)
+                  if (item.get("name") == tool_name or item.get("name", "").endswith(tool_name))
+                  and 0 <= item.get("slot", -1) <= 11), None)
     return entry["slot"] if entry else None
 
 
 def _soil(state: dict[str, Any], target: dict[str, int]) -> dict[str, Any] | None:
     return next((crop for crop in state.get("cropsNearby", [])
                  if (crop["x"], crop["y"]) == (target["x"], target["y"])), None)
+
+
+def _object(state: dict[str, Any], target: dict[str, int]) -> dict[str, Any] | None:
+    return next((entry for entry in state.get("nearbyObjects", [])
+                 if (entry["x"], entry["y"]) == (target["x"], target["y"])), None)
 
 
 def _distinct_tiles(tiles: list[dict[str, int]]) -> bool:
@@ -254,6 +260,24 @@ def water_crops(bridge: NamedPipeBridge, state: dict[str, Any], tiles: list[dict
         soil_after = _soil(runner.state, target)
         water_after = runner.state.get("wateringCanWater")
         if soil_after is None or not soil_after.get("watered") or water_after != water_before - 1:
+            retry_soil = _soil(runner.state, target)
+            retry_water_before = runner.state.get("wateringCanWater")
+            if (retry_soil is not None and retry_soil.get("crop") is not None
+                    and not retry_soil.get("watered") and (retry_water_before or 0) > 0
+                    and _on_screen(runner.state, retry_soil)):
+                error = runner.face((target["x"] - stand[0], target["y"] - stand[1]), force=True)
+                if error:
+                    return finish("blocked", error)
+                error = runner.use_tool(retry_soil["screenX"], retry_soil["screenY"])
+                if error:
+                    return finish("blocked", error)
+                soil_after = _soil(runner.state, target)
+                water_after = runner.state.get("wateringCanWater")
+                if (soil_after is not None and soil_after.get("watered")
+                        and water_after == retry_water_before - 1):
+                    watered.append({"x": target["x"], "y": target["y"], "watered": True,
+                                    "water_left": water_after, "retried": True})
+                    continue
             return finish("blocked", "watering_not_verified_by_watered_state_and_water_delta")
         watered.append({"x": target["x"], "y": target["y"], "watered": True, "water_left": water_after})
     return finish("completed")
@@ -304,8 +328,95 @@ def till_tiles(bridge: NamedPipeBridge, state: dict[str, Any], tiles: list[dict[
             return finish("blocked", error)
         soil = _soil(runner.state, target)
         if soil is None or soil.get("crop") is not None:
+            retry_entry = ground(runner.state, target)
+            if retry_entry is not None and _on_screen(runner.state, retry_entry):
+                error = runner.face((target["x"] - stand[0], target["y"] - stand[1]), force=True)
+                if error:
+                    return finish("blocked", error)
+                error = runner.use_tool(retry_entry["screenX"], retry_entry["screenY"])
+                if error:
+                    return finish("blocked", error)
+                soil = _soil(runner.state, target)
+                if soil is not None and soil.get("crop") is None:
+                    tilled.append({"x": target["x"], "y": target["y"], "tilled": True,
+                                   "retried": True})
+                    continue
             return finish("blocked", "tilling_not_verified_by_new_empty_soil")
         tilled.append({"x": target["x"], "y": target["y"], "tilled": True})
+    return finish("completed")
+
+
+def clear_debris(bridge: NamedPipeBridge, state: dict[str, Any], targets: list[dict[str, int]],
+                 action_budget: int) -> dict[str, Any]:
+    """Clear observed wood, stone, or fiber with the recommended ordinary tool."""
+    runner = _Controls(bridge, state, action_budget)
+    cleared: list[dict[str, Any]] = []
+    inventory_before = state.get("inventoryCounts") or {}
+    swing_caps = {"Axe": 12, "Pickaxe": 12, "Scythe": 2}
+
+    def finish(status: str, reason: str | None = None) -> dict[str, Any]:
+        inventory_after = runner.state.get("inventoryCounts") or {}
+        items_gained = {
+            name: count - inventory_before.get(name, 0)
+            for name, count in inventory_after.items()
+            if count > inventory_before.get(name, 0)
+        }
+        return {"status": status, "reason": reason, "state": runner.state,
+                "controls_executed": runner.executed, "tiles_cleared": cleared,
+                "items_gained": items_gained, "control_timings": runner.timings}
+
+    if not _distinct_tiles(targets):
+        return finish("rejected", "supply_one_to_six_distinct_tiles")
+    observed = [_object(state, target) for target in targets]
+    if any(entry is None or entry.get("recommendedTool") not in swing_caps for entry in observed):
+        return finish("rejected", "targets_must_be_observed_debris_with_a_supported_tool")
+
+    for target, initial in zip(targets, observed):
+        assert initial is not None
+        recommended = initial["recommendedTool"]
+        slot = _tool_slot(runner.state, recommended)
+        if slot is None:
+            return finish("blocked", f"{recommended.casefold()}_must_be_in_the_first_toolbar_row")
+        inventory_tool = next(item for item in runner.state.get("inventory", []) if item.get("slot") == slot)
+        tool_name = inventory_tool["name"]
+        stand, error = runner.stand_beside(target)
+        if stand is None:
+            return finish("blocked", error)
+        error = runner.select_tool(slot, tool_name)
+        if error:
+            return finish("blocked", error)
+        delta = (target["x"] - stand[0], target["y"] - stand[1])
+        error = runner.face(delta)
+        if error:
+            return finish("blocked", error)
+
+        swings = 0
+        while swings < swing_caps[recommended]:
+            if (runner.state.get("stamina") or 0) < 20:
+                return finish("blocked", "stamina_low")
+            entry = _object(runner.state, target)
+            if entry is None:
+                break
+            if entry.get("recommendedTool") != recommended:
+                return finish("blocked", "target_debris_changed")
+            if not _on_screen(runner.state, entry):
+                return finish("blocked", "target_not_on_screen")
+            stamina_before = runner.state.get("stamina")
+            error = runner.use_tool(entry["screenX"], entry["screenY"])
+            if error:
+                return finish("blocked", error)
+            swings += 1
+            if _object(runner.state, target) is None:
+                break
+            if runner.state.get("stamina") == stamina_before:
+                error = runner.face(delta, force=True)
+                if error:
+                    return finish("blocked", error)
+
+        if _object(runner.state, target) is not None:
+            return finish("blocked", "debris_not_cleared_within_swing_cap")
+        cleared.append({"x": target["x"], "y": target["y"],
+                        "kind": initial.get("kind") or initial.get("name"), "swings": swings})
     return finish("completed")
 
 

@@ -423,11 +423,12 @@ public sealed class ModEntry : Mod
             this.CompletePipeRequest("blocked", "no_walkable_path");
             return;
         }
+        int effectiveMaxTicks = Math.Min(3600, Math.Max(maxTicks, (path.Count * 24) + 240));
 
         this.ResumeSimulation();
         this.navigationPath = path;
         this.navigationIndex = 0;
-        this.navigationTicksRemaining = maxTicks;
+        this.navigationTicksRemaining = effectiveMaxTicks;
         this.navigationStallTicks = 0;
         this.navigationLastPixel = Game1.player.StandingPixel;
         this.navigationLocationName = location.NameOrUniqueName;
@@ -438,7 +439,7 @@ public sealed class ModEntry : Mod
         this.navigationActionTicks = 0;
         this.focusWarmupTicks = 2;
         this.Monitor.Log(
-            $"navigation_started target=({target.X},{target.Y}) steps={path.Count} max_ticks={maxTicks} "
+            $"navigation_started target=({target.X},{target.Y}) steps={path.Count} max_ticks={effectiveMaxTicks} "
                 + $"target_location={targetLocation ?? "none"} requires_action={requiresAction} "
                 + $"exitPush={(exitPush is Point push ? $"({push.X},{push.Y})" : "none")}",
             LogLevel.Info

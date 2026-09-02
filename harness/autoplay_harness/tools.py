@@ -83,6 +83,14 @@ ACTOR_TOOLS = [
         ["tiles"],
     ),
     function_tool(
+        "clear_debris",
+        "Clear 1 to 6 distinct wood, stone, or fiber obstacles from nearbyObjects in one call. Walks beside each target, selects its recommended Axe, Pickaxe, or Scythe (including upgraded tools), faces it, and swings until the object disappears or a verified stop condition occurs.",
+        {"targets": {"type": "array", "minItems": 1, "maxItems": 6,
+                     "items": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                               "required": ["x", "y"], "additionalProperties": False}}},
+        ["targets"],
+    ),
+    function_tool(
         "go_home_and_sleep",
         "End the day from the Farm or FarmHouse in one call. Enters the farmhouse, walks onto bedTile, answers the sleep question, waits out the nightly event and save, and dismisses the end-of-day summary. Verifies the next day with the player free in the FarmHouse and reports the day, time, stamina, and money before and after.",
         {},

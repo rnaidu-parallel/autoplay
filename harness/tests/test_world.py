@@ -86,6 +86,17 @@ class _BlockedTravelBridge:
         }
 
 
+class _StaleBlockedTravelBridge(_TravelBridge):
+    def __init__(self, world: WorldMap) -> None:
+        super().__init__("A")
+        self.world = world
+
+    def request(self, request_type, **arguments):
+        if request_type == "go_to_location":
+            self.world.record_blocked_path(self.location, arguments["location"], 5)
+        return super().request(request_type, **arguments)
+
+
 class WorldMapTests(unittest.TestCase):
     def make_world(self, directory: str) -> WorldMap:
         world = WorldMap(Path(directory))
@@ -115,6 +126,14 @@ class WorldMapTests(unittest.TestCase):
             self.assertEqual(["B", "C", "D"], blocked["route"])
             self.assertEqual(900, blocked["blocked_by"]["openTime"])
             self.assertEqual(["B", "C", "D"], world.route("A", "D", 900))
+
+    def test_edge_hours_and_closed_now_report_direct_locked_door(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            self.assertEqual((900, 1700), world.edge_hours("B", "C"))
+            self.assertIsNone(world.edge_hours("A", "B"))
+            self.assertEqual([{"name": "C", "opensAt": 900}], world.summary("B", 800)["closedNow"])
+            self.assertEqual([], world.summary("B", 900)["closedNow"])
 
     def test_visited_persistence_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -225,6 +244,21 @@ class WorldMapTests(unittest.TestCase):
             self.assertEqual([], reloaded.blocked_paths)
             self.assertEqual([], reloaded.summary("A", 1200)["blockedNow"])
             self.assertEqual(["B"], reloaded.route("A", "B"))
+
+    def test_successful_hop_clears_a_stale_blocked_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            bridge = _StaleBlockedTravelBridge(world)
+            result = travel_to(
+                bridge,
+                {"location": "A", "day": 5, "time": 1200, "health": 100, "menu": "none"},
+                world,
+                "B",
+                3,
+            )
+
+            self.assertEqual("completed", result["status"])
+            self.assertEqual([], world.blocked_paths)
 
     def test_travel_to_rejects_unknown_destination_without_input(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

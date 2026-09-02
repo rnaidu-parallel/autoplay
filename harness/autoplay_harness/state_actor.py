@@ -22,6 +22,7 @@ change. Existing crops must not be counted as new planting. Do not till or water
 Use till_tiles for up to six tiles listed in tillableNearby, water_crops for up to six
 cropsNearby rows with watered false, and go_home_and_sleep to end the day from the Farm or
 FarmHouse; each selects and verifies its own tool and reports the tiles or steps it proved.
+Prefer clear_debris over manual swings for wood, stone, and fiber targets from nearbyObjects.
 The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low.
 The harness verifies objective completion; a valid tool call alone proves no progress.
 harnessLastResult explains the last failure. Change tactic after a block; never repeat an
@@ -54,7 +55,7 @@ collisions and input timing; do not spend reasoning tracing individual movement 
 """
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
-    "plant_nearest_seeds", "till_tiles", "water_crops", "go_home_and_sleep",
+    "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session",
 }] + [function_tool("inspect_scene", "Request a fresh screenshot and the full control set for the next decision.", {}, [])]
 
@@ -80,6 +81,7 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
         ("inventory", ["slot", "name", "qualifiedId", "stack", "isSeed"]),
         ("cropsNearby", ["x", "y", "crop", "watered", "readyToHarvest", "dead"]),
         ("tillableNearby", ["x", "y"]),
+        ("nearbyObjects", ["x", "y", "name", "recommendedTool"]),
     ):
         result[key] = {"columns": columns, "rows": [[row.get(k) for k in columns] for row in state.get(key, [])]}
     return result

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import traceback
 import uuid
@@ -11,7 +12,7 @@ from typing import Any
 
 from .bridge import BridgeError, NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
-from .farming import go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
+from .farming import clear_debris, go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 from .notebook import Notebook
 from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
 from .openrouter import OpenRouterClient, OpenRouterError, ToolDecision
@@ -504,8 +505,22 @@ class AutoplayHarness:
         errors = []
         if not minimum <= len(agenda) <= maximum:
             errors.append(f"{mode} planning needs {minimum}-{maximum} new items")
-        if not any(item.get("slot") == "evening" for item in agenda):
+        if mode == "morning" and not any(item.get("slot") == "evening" for item in agenda):
             errors.append("at least one new item must use the evening slot")
+        if int(state.get("time") or 0) < 1800:
+            for item in agenda:
+                clauses = [clause.strip().casefold()
+                           for clause in (item.get("success_condition") or "").split(",")]
+                home = any(re.fullmatch(r"location\s*(?:is|==|=)\s*farmhouse", clause)
+                           for clause in clauses)
+                allowed = all(
+                    re.fullmatch(r"location\s*(?:is|==|=)\s*farmhouse", clause)
+                    or re.fullmatch(r"playerfree\s*(?:is|==|=)\s*true", clause)
+                    for clause in clauses
+                )
+                if home and allowed and item.get("slot") != "evening":
+                    errors.append("return home is not an agenda item before the evening slot")
+                    break
 
         day = int(state["day"])
         carried = {
@@ -863,7 +878,15 @@ class AutoplayHarness:
                 if zone_rejection is not None:
                     return zone_rejection
             response = skill(self.bridge, before_state or {}, tiles,
-                             len(tiles) * 5 if self.continuous else self.max_actions - self.game_actions)
+                             len(tiles) * 8 if self.continuous else self.max_actions - self.game_actions)
+            self.game_actions += response["controls_executed"]
+            return response
+        if name == "clear_debris":
+            targets = arguments["targets"]
+            response = clear_debris(
+                self.bridge, before_state or {}, targets,
+                len(targets) * 16 if self.continuous else self.max_actions - self.game_actions,
+            )
             self.game_actions += response["controls_executed"]
             return response
         if name == "go_home_and_sleep":
@@ -908,6 +931,14 @@ class AutoplayHarness:
         if name == "navigate_to":
             response = self.bridge.request("navigate", x=arguments["tile_x"], y=arguments["tile_y"], ticks=600)
         elif name == "go_to_location":
+            state = before_state or {}
+            hours = self.world.edge_hours(state.get("location") or "", arguments["location"])
+            current_time = state.get("time")
+            if hours is not None and isinstance(current_time, int):
+                open_time, close_time = hours
+                if not self.world._is_open(current_time, open_time, close_time):
+                    return {"status": "rejected", "reason": f"door_closed_until_{open_time}",
+                            "openTime": open_time, "closeTime": close_time}
             response = self.bridge.request("go_to_location", location=arguments["location"], ticks=600)
             reason = response.get("error") or response.get("reason")
             if response.get("status") != "completed" and reason == "no_walkable_path":
@@ -977,6 +1008,9 @@ class AutoplayHarness:
         self.game_actions += 1
         if name != "wait":
             response = self._settle_transition(response)
+        if (name == "go_to_location" and (response.get("state") or {}).get("location") == arguments["location"]
+                and (before_state or {}).get("location") != arguments["location"]):
+            self.world.clear_blocked_path((before_state or {}).get("location") or "", arguments["location"])
         if movement_key is not None and self._same_position(before_state, response.get("state")):
             self.blocked_movements.add(movement_key)
             response = {

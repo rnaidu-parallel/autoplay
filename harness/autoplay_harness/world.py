@@ -92,6 +92,26 @@ class WorldMap:
         self.blocked_paths.append(value)
         self._save()
 
+    def clear_blocked_path(self, from_name: str, to_name: str) -> None:
+        remaining = [
+            path for path in self.blocked_paths
+            if path.get("from") != from_name or path.get("to") != to_name
+        ]
+        if len(remaining) == len(self.blocked_paths):
+            return
+        self.blocked_paths = remaining
+        self._save()
+
+    def edge_hours(self, from_name: str, to_name: str) -> tuple[int, int] | None:
+        edge = next(
+            (candidate for candidate in self.edges
+             if candidate.get("from") == from_name and candidate.get("to") == to_name
+             and candidate.get("kind") == "action_warp"
+             and candidate.get("openTime") is not None and candidate.get("closeTime") is not None),
+            None,
+        )
+        return (edge["openTime"], edge["closeTime"]) if edge is not None else None
+
     def route(
         self, from_name: str, to_name: str, time: int | None = None
     ) -> list[str] | dict[str, Any]:
@@ -135,6 +155,18 @@ class WorldMap:
                 if edge["from"] == current and edge["to"] == destination
             )
         )
+        closed_now = []
+        if time is not None:
+            closed_now = [
+                {"name": name, "opensAt": open_time}
+                for name, open_time in sorted({
+                    (edge["to"], edge["openTime"])
+                    for edge in self.edges
+                    if edge.get("from") == current and edge.get("kind") == "action_warp"
+                    and edge.get("openTime") is not None and edge.get("closeTime") is not None
+                    and not self._is_open(time, edge["openTime"], edge["closeTime"])
+                })
+            ]
         home = self.route(current or "", "FarmHouse", time)
         route_home = home.get("route", []) if isinstance(home, dict) else home
         return {
@@ -143,6 +175,7 @@ class WorldMap:
             "unvisited": unvisited,
             "unreachable": unreachable,
             "blockedNow": blocked_now,
+            "closedNow": closed_now,
             "visitedCount": len(set(self.nodes) & set(self.visited)),
             "totalCount": len(self.nodes),
             "routeHome": route_home,
@@ -330,6 +363,7 @@ def travel_to(
         if current.get("location") != hop:
             failed = transit if transit.get("status") != "completed" else arrival
             return finish("blocked", f"hop_failed:{remember_failed_edge(from_name, hop, failed)}")
+        world_map.clear_blocked_path(from_name, hop)
         ready = send("wait", field="can_move", value="true", ticks=180)
         if unsafe():
             return finish("blocked", "world_changed_or_damage_taken")

@@ -184,12 +184,12 @@ class WaterCropsTests(unittest.TestCase):
         self.assertEqual(("blocked", "watering_can_empty"), (result["status"], result["reason"]))
         self.assertEqual([], bridge.calls)
 
-    def test_ineffective_swing_stops_instead_of_repeating(self):
+    def test_ineffective_swing_retries_once_then_stops(self):
         bridge = ToolBridge(ineffective=True)
         result = water_crops(bridge, copy.deepcopy(bridge.state), self.targets, 10)
         self.assertEqual("watering_not_verified_by_watered_state_and_water_delta", result["reason"])
         self.assertEqual([], result["tiles_watered"])
-        self.assertEqual(4, len(bridge.calls))
+        self.assertEqual(7, len(bridge.calls))
 
 
 class TillTilesTests(unittest.TestCase):

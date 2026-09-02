@@ -315,6 +315,8 @@ class RunnerTests(unittest.TestCase):
     def test_dispatches_every_game_bound_actor_tool(self, _sleep) -> None:
         harness = object.__new__(AutoplayHarness)
         harness.bridge = _Bridge()
+        harness.world = Mock()
+        harness.world.edge_hours.return_value = None
         harness.blocked_movements = set()
         harness.game_actions = 0
         cases = [
@@ -799,6 +801,50 @@ class RunnerTests(unittest.TestCase):
                 {"mode": "morning", "errors": ["morning planning needs 5-8 new items"]},
             )
 
+    def test_refill_needs_no_evening_item_and_rejects_early_home_only_goal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.start_day(2)
+            harness.world = Mock()
+            refill = {"agenda": [
+                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "morning"},
+                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "midday"},
+            ], "dropped": []}
+
+            self.assertEqual([], harness._agenda_errors(refill, {"day": 2, "time": 1200}, "refill"))
+
+            refill["agenda"][0] = {
+                "goal": "Return home", "success_condition": "location is FarmHouse, playerFree is true",
+                "slot": "morning",
+            }
+            self.assertEqual(
+                ["return home is not an agenda item before the evening slot"],
+                harness._agenda_errors(refill, {"day": 2, "time": 1200}, "refill"),
+            )
+            refill["agenda"][0]["slot"] = "evening"
+            self.assertEqual([], harness._agenda_errors(refill, {"day": 2, "time": 1200}, "refill"))
+
+    def test_go_to_location_rejects_closed_door_without_input(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = _Bridge()
+            harness.world = WorldMap(Path(directory))
+            harness.world.edges = [{"from": "Town", "to": "SeedShop", "kind": "action_warp",
+                                    "openTime": 900, "closeTime": 2100}]
+            harness.game_actions = 0
+            harness.blocked_movements = set()
+
+            result = harness._execute_actor_tool(
+                ToolDecision("go_to_location", {"location": "SeedShop"}, {}, None),
+                self.frame,
+                {"location": "Town", "day": 7, "time": 850},
+            )
+
+            self.assertEqual({"status": "rejected", "reason": "door_closed_until_900",
+                              "openTime": 900, "closeTime": 2100}, result)
+            self.assertEqual([], harness.bridge.calls)
+
     def test_go_to_location_records_no_walkable_path_for_current_day(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
@@ -823,6 +869,47 @@ class RunnerTests(unittest.TestCase):
                 [{"from": "Farm", "to": "Backwoods", "day": 7}],
                 harness.world.blocked_paths,
             )
+
+    def test_go_to_location_success_clears_stale_blocked_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            harness = object.__new__(AutoplayHarness)
+            harness.bridge = Mock()
+            harness.bridge.request.return_value = {
+                "status": "completed",
+                "state": {"location": "Backwoods", "day": 7, "worldReady": True,
+                          "canMove": True, "menu": "none"},
+            }
+            harness.world = WorldMap(Path(directory))
+            harness.world.record_blocked_path("Farm", "Backwoods", 7)
+            harness.game_actions = 0
+            harness.blocked_movements = set()
+
+            result = harness._execute_actor_tool(
+                ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None),
+                self.frame,
+                {"location": "Farm", "day": 7, "time": 1200},
+            )
+
+            self.assertEqual("completed", result["status"])
+            self.assertEqual([], harness.world.blocked_paths)
+
+    @patch("autoplay_harness.runner.clear_debris")
+    def test_clear_debris_dispatch_uses_per_target_continuous_budget(self, debris_skill) -> None:
+        harness = object.__new__(AutoplayHarness)
+        harness.bridge = _Bridge()
+        harness.game_actions = 0
+        harness.continuous = True
+        debris_skill.return_value = {"status": "completed", "controls_executed": 3}
+        state = {"location": "Farm"}
+        targets = [{"x": 1, "y": 2}, {"x": 3, "y": 4}]
+
+        result = harness._execute_actor_tool(
+            ToolDecision("clear_debris", {"targets": targets}, {}, None), self.frame, state
+        )
+
+        self.assertEqual("completed", result["status"])
+        debris_skill.assert_called_once_with(harness.bridge, state, targets, 32)
+        self.assertEqual(3, harness.game_actions)
 
     def test_objective_completion_marks_linked_agenda_item_done(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

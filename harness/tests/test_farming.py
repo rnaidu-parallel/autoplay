@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from autoplay_harness.farming import nearest_empty_tiles, plant_seeds
+from autoplay_harness.farming import clear_debris, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 
 
 class FarmBridge:
@@ -49,6 +49,71 @@ class FarmBridge:
             if self.clicks[target] == self.plant_on_click:
                 crop["crop"] = "Parsnip"
                 self.state["inventory"][0]["stack"] -= 1
+        return {"status": "completed", "state": copy.deepcopy(self.state)}
+
+
+class DebrisBridge:
+    def __init__(self, disappear_after=2, stamina=100):
+        self.calls = []
+        self.clicks = 0
+        self.disappear_after = disappear_after
+        self.state = {"worldReady": True, "playerFree": True, "canMove": True, "menu": "none",
+                      "location": "Farm", "health": 100, "stamina": stamina, "eventUp": False,
+                      "tileX": 10, "tileY": 10, "facing": 0, "tool": "Hoe",
+                      "viewportWidth": 1920, "viewportHeight": 1080,
+                      "navigationOriginX": 0, "navigationOriginY": 0,
+                      "navigationRows": ["." * 25 for _ in range(25)],
+                      "inventory": [{"slot": 1, "name": "Copper Axe"}],
+                      "inventoryCounts": {"Wood": 3},
+                      "nearbyObjects": [{"x": 10, "y": 9, "name": "Twig", "recommendedTool": "Axe",
+                                         "screenX": 100, "screenY": 200}]}
+
+    def request(self, kind, **arguments):
+        self.calls.append((kind, arguments))
+        if kind == "press":
+            button = arguments["buttons"][0]
+            if button == "D2":
+                self.state["tool"] = "Copper Axe"
+            elif button in {"W", "A", "S", "D"}:
+                self.state["facing"] = {"W": 0, "D": 1, "S": 2, "A": 3}[button]
+        elif kind == "click":
+            self.clicks += 1
+            if self.clicks > 1:
+                self.state["stamina"] -= 2
+            if self.clicks == self.disappear_after:
+                self.state["nearbyObjects"] = []
+                self.state["inventoryCounts"]["Wood"] += 1
+        return {"status": "completed", "state": copy.deepcopy(self.state)}
+
+
+class RetryingToolBridge:
+    def __init__(self, tool):
+        self.calls = []
+        self.clicks = 0
+        self.tool = tool
+        self.state = {"worldReady": True, "playerFree": True, "canMove": True, "menu": "none",
+                      "location": "Farm", "health": 100, "stamina": 100, "eventUp": False,
+                      "tileX": 10, "tileY": 10, "facing": 0, "tool": tool,
+                      "viewportWidth": 1920, "viewportHeight": 1080,
+                      "navigationOriginX": 0, "navigationOriginY": 0,
+                      "navigationRows": ["." * 25 for _ in range(25)],
+                      "inventory": [{"slot": 0, "name": tool}],
+                      "wateringCanWater": 40,
+                      "cropsNearby": [{"x": 10, "y": 9, "crop": "Parsnip", "watered": False,
+                                        "screenX": 100, "screenY": 200}],
+                      "tillableNearby": [{"x": 10, "y": 9, "screenX": 100, "screenY": 200}]}
+
+    def request(self, kind, **arguments):
+        self.calls.append((kind, arguments))
+        if kind == "click":
+            self.clicks += 1
+            if self.clicks == 2 and self.tool == "Watering Can":
+                self.state["cropsNearby"][0]["watered"] = True
+                self.state["wateringCanWater"] -= 1
+            elif self.clicks == 2:
+                self.state["tillableNearby"] = []
+                self.state["cropsNearby"] = [{"x": 10, "y": 9, "crop": None,
+                                               "screenX": 100, "screenY": 200}]
         return {"status": "completed", "state": copy.deepcopy(self.state)}
 
 
@@ -122,3 +187,35 @@ class FarmingTests(unittest.TestCase):
         self.assertEqual(("blocked", "no_passable_tile_next_to_target"),
                          (result["status"], result["reason"]))
         self.assertEqual([], bridge.calls)
+
+    def test_clear_debris_matches_upgraded_tool_and_refaces_after_a_miss(self):
+        bridge = DebrisBridge()
+        result = clear_debris(bridge, copy.deepcopy(bridge.state), [{"x": 10, "y": 9}], 16)
+
+        self.assertEqual("completed", result["status"])
+        self.assertEqual([{"x": 10, "y": 9, "kind": "Twig", "swings": 2}], result["tiles_cleared"])
+        self.assertEqual({"Wood": 1}, result["items_gained"])
+        self.assertIn(("press", {"buttons": ["D2"]}), bridge.calls)
+        self.assertEqual(1, sum(kind == "press" and arguments["buttons"] == ["W"]
+                                for kind, arguments in bridge.calls))
+
+    def test_clear_debris_stops_before_swinging_at_low_stamina(self):
+        bridge = DebrisBridge(stamina=19)
+        result = clear_debris(bridge, copy.deepcopy(bridge.state), [{"x": 10, "y": 9}], 16)
+
+        self.assertEqual(("blocked", "stamina_low"), (result["status"], result["reason"]))
+        self.assertFalse(any(kind == "click" for kind, _arguments in bridge.calls))
+
+    def test_watering_and_tilling_retry_after_forced_reface(self):
+        water_bridge = RetryingToolBridge("Watering Can")
+        water = water_crops(water_bridge, copy.deepcopy(water_bridge.state), [{"x": 10, "y": 9}], 8)
+        self.assertEqual("completed", water["status"])
+        self.assertTrue(water["tiles_watered"][0]["retried"])
+        self.assertIn(("press", {"buttons": ["W"]}), water_bridge.calls)
+
+        till_bridge = RetryingToolBridge("Hoe")
+        till_bridge.state["cropsNearby"] = []
+        tilled = till_tiles(till_bridge, copy.deepcopy(till_bridge.state), [{"x": 10, "y": 9}], 8)
+        self.assertEqual("completed", tilled["status"])
+        self.assertTrue(tilled["tiles_tilled"][0]["retried"])
+        self.assertIn(("press", {"buttons": ["W"]}), till_bridge.calls)
