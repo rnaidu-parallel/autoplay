@@ -18,6 +18,7 @@ The harness has completed a continuous full-screen run with MiniMax M3's free Op
 - Harness-verified objective completion against explicit structured game-state predicates; the director only sets the next objective.
 - Movement and repeated-action stagnation guards.
 - Append-only telemetry plus bounded deterministic memory compaction.
+- A localhost OBS browser-source overlay for the live plan, current objective, actions, and session stats.
 - A Stardew Valley Wiki search tool with in-memory result caching.
 - Stable OpenRouter system prompts, tool definitions, and a sticky `session_id` for prompt-cache affinity.
 - Deterministic first-save loading, full-screen simulation ownership, recoverable continuous mode, and segmented 1080p recording.

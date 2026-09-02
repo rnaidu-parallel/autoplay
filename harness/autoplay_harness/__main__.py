@@ -16,6 +16,7 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
+from . import overlay
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
 from .openrouter import OpenRouterClient
@@ -103,9 +104,16 @@ def main() -> int:
     cache_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
     report_parser = subparsers.add_parser("report", help="Summarize a run's events.jsonl (default: most recent run)")
     report_parser.add_argument("run_id", nargs="?")
+    overlay_parser = subparsers.add_parser("overlay", help="Serve the stream overlay for a run")
+    overlay_parser.add_argument("--run", default="latest")
+    overlay_parser.add_argument("--port", type=int, default=8765)
+    overlay_parser.add_argument("--state-dir", default="harness/state")
 
     arguments = parser.parse_args()
     root = repository_root()
+
+    if arguments.command == "overlay":
+        return overlay.main(arguments)
 
     if arguments.command == "report":
         runs = root / "harness" / "runs"

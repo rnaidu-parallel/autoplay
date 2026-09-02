@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Autoplay stream overlay</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(13, 17, 23, .88);
+      --edge: rgba(255, 255, 255, .14);
+      --text: #f7f3e8;
+      --muted: #b9c1ca;
+      --green: #77e083;
+      --amber: #ffd166;
+      --red: #ff7777;
+      --blue: #79c7ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 1920px;
+      height: 1080px;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      color: var(--text);
+      font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+      font-size: 20px;
+      line-height: 1.25;
+    }
+
+    .panel {
+      border: 2px solid var(--edge);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 5px 20px rgba(0, 0, 0, .35);
+      backdrop-filter: blur(5px);
+    }
+
+    #rail {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      bottom: 148px;
+      width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    #day-card, #now-card, #lesson-card, #footer { padding: 15px 17px; }
+    #plan-card { padding: 15px 17px; min-height: 0; overflow: hidden; }
+    #lesson-card { padding-block: 11px; }
+
+    .eyebrow {
+      margin-bottom: 7px;
+      color: var(--amber);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .day-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    #day { font-size: 25px; font-weight: 900; text-transform: capitalize; }
+    #time { color: var(--amber); font-size: 30px; font-weight: 900; white-space: nowrap; }
+    #weather { margin-top: 4px; color: var(--muted); text-transform: capitalize; }
+
+    .meters {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 12px;
+      align-items: center;
+      margin-top: 13px;
+      font-size: 16px;
+    }
+
+    .bar {
+      height: 13px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 7px;
+      background: rgba(255,255,255,.08);
+    }
+
+    .bar > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: linear-gradient(90deg, #53bd62, #a7ee7c);
+      transition: width .35s ease;
+    }
+
+    #money { color: var(--amber); font-weight: 800; }
+
+    #plan-card { flex: 1 1 auto; }
+    #theme { margin-bottom: 10px; font-size: 18px; font-weight: 800; }
+
+    #agenda {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .agenda-item {
+      display: grid;
+      grid-template-columns: 25px 1fr;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .agenda-item.active { color: var(--text); font-weight: 800; }
+    .agenda-item.done { color: var(--green); }
+    .agenda-item.dropped { color: var(--red); }
+    .agenda-icon { color: var(--amber); }
+
+    .now-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    #badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      padding: 4px 9px;
+      color: var(--green);
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #badge.thinking, #badge.acting { color: var(--blue); }
+    #badge.stalled, #badge.restarting { color: var(--amber); }
+    #badge.stopped { color: var(--red); }
+
+    #badge.thinking::after {
+      content: "";
+      display: inline-block;
+      width: 1.3em;
+      animation: dots 1.2s steps(4, end) infinite;
+    }
+
+    @keyframes dots {
+      0% { content: ""; }
+      25% { content: "."; }
+      50% { content: ".."; }
+      75%, 100% { content: "..."; }
+    }
+
+    #goal { margin-top: 7px; font-size: 19px; font-weight: 900; }
+    #milestone { margin-top: 6px; color: var(--muted); font-size: 15px; }
+    #lesson { color: var(--muted); font-size: 15px; }
+    #lesson::before { content: "✦ "; color: var(--amber); }
+
+    #footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    #ticker {
+      position: absolute;
+      right: 22px;
+      bottom: 18px;
+      left: 22px;
+      height: 120px;
+      padding: 13px 15px;
+    }
+
+    #actions {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      height: 100%;
+    }
+
+    .action {
+      min-width: 0;
+      padding: 10px 12px;
+      overflow: hidden;
+      border-left: 5px solid var(--blue);
+      border-radius: 8px;
+      background: rgba(255,255,255,.055);
+    }
+
+    .action.completed { border-color: var(--green); }
+    .action.blocked { border-color: var(--amber); }
+    .action.rejected, .action.error, .action.timeout { border-color: var(--red); }
+    .action-summary { font-size: 17px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action-outcome { margin-top: 8px; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    #waiting {
+      position: absolute;
+      right: 42px;
+      bottom: 170px;
+      padding: 9px 12px;
+      color: var(--amber);
+      font-size: 15px;
+      opacity: 0;
+      transition: opacity .2s;
+    }
+
+    #waiting.visible { opacity: 1; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <aside id="rail">
+    <section id="day-card" class="panel">
+      <div class="day-line"><span id="day">Waiting for game</span><span id="time">--:--</span></div>
+      <div id="weather">Feed is starting</div>
+      <div class="meters">
+        <span>Stamina</span><span id="stamina-text">—</span>
+        <div class="bar"><span id="stamina-bar"></span></div><span></span>
+        <span>Money</span><span id="money">—</span>
+      </div>
+    </section>
+
+    <section id="plan-card" class="panel">
+      <div class="eyebrow">Today's plan</div>
+      <div id="theme">No plan yet</div>
+      <ul id="agenda"></ul>
+    </section>
+
+    <section id="now-card" class="panel">
+      <div class="now-head"><div class="eyebrow">Now</div><span id="badge">running</span></div>
+      <div id="goal">Waiting for an objective</div>
+      <div id="milestone"></div>
+    </section>
+
+    <section id="lesson-card" class="panel hidden"><div class="eyebrow">Lesson</div><div id="lesson"></div></section>
+    <footer id="footer" class="panel"><span id="visited">Visited —</span><span id="decisions">0 decisions</span><span id="cost">$0.0000</span></footer>
+  </aside>
+
+  <section id="ticker" class="panel"><div id="actions"></div></section>
+  <div id="waiting" class="panel visible">waiting for feed…</div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const icons = {pending: "☐", active: "▶", done: "✔", carried: "↷", dropped: "✕"};
+    const text = (id, value, fallback = "—") => { $(id).textContent = value ?? fallback; };
+
+    function render(state) {
+      const game = state.game || {};
+      const agenda = state.agenda || {};
+      const stats = state.stats || {};
+      const world = state.world || {};
+      const objective = state.objective;
+      const thinking = state.thinking || {};
+
+      const dayBits = [];
+      if (game.season) dayBits.push(game.season);
+      if (game.day != null) dayBits.push(`Day ${game.day}`);
+      if (game.year != null) dayBits.push(`Year ${game.year}`);
+      text("day", dayBits.join(" · "), "Waiting for game");
+      text("time", game.time, "--:--");
+      text("weather", [game.weather, game.location].filter(Boolean).join(" · "), "Feed connected");
+      text("stamina-text", game.stamina == null ? null : `${Math.round(game.stamina)} / ${game.maxStamina || 270}`);
+      const stamina = game.stamina == null ? 0 : Math.max(0, Math.min(100, game.stamina / (game.maxStamina || 270) * 100));
+      $("stamina-bar").style.width = `${stamina}%`;
+      text("money", game.money == null ? null : `${Number(game.money).toLocaleString()}g`);
+
+      text("theme", agenda.theme, "No plan yet");
+      $("agenda").replaceChildren(...(agenda.items || []).map(item => {
+        const li = document.createElement("li");
+        li.className = `agenda-item ${item.status || "pending"}`;
+        const icon = document.createElement("span");
+        icon.className = "agenda-icon";
+        icon.textContent = icons[item.status] || "☐";
+        const goal = document.createElement("span");
+        goal.textContent = item.goal || "Untitled plan item";
+        li.append(icon, goal);
+        return li;
+      }));
+
+      let badge = state.status || "running";
+      if (badge === "thinking") badge = `thinking ${Math.floor((thinking.sinceMs || 0) / 1000)}s`;
+      text("badge", badge);
+      $("badge").className = state.status || "running";
+      text("goal", objective && objective.goal, "Waiting for an objective");
+      text("milestone", objective && objective.milestone, "");
+
+      const lessons = state.lessons || [];
+      $("lesson-card").classList.toggle("hidden", !lessons.length);
+      text("lesson", lessons[0], "");
+      text("visited", `Visited ${world.visitedCount ?? 0}/${world.totalCount ?? "?"}`);
+      text("decisions", `${stats.decisions || 0} decisions`);
+      text("cost", `$${Number(stats.cost || 0).toFixed(4)}`);
+
+      $("actions").replaceChildren(...(state.actions || []).slice(0, 5).map(item => {
+        const card = document.createElement("div");
+        const outcomeType = String(item.outcome || "").split(":", 1)[0];
+        card.className = `action ${outcomeType}`;
+        const summary = document.createElement("div");
+        summary.className = "action-summary";
+        summary.textContent = item.summary || item.tool || "Action";
+        const outcome = document.createElement("div");
+        outcome.className = "action-outcome";
+        outcome.textContent = item.outcome || `${item.role || "agent"} in progress`;
+        card.append(summary, outcome);
+        return card;
+      }));
+      $("waiting").classList.remove("visible");
+    }
+
+    async function poll() {
+      try {
+        const response = await fetch(`/state.json?t=${Date.now()}`, {cache: "no-store"});
+        if (!response.ok) throw new Error(`feed ${response.status}`);
+        render(await response.json());
+      } catch (_) {
+        $("waiting").classList.add("visible");
+      }
+    }
+
+    poll();
+    setInterval(poll, 500);
+  </script>
+</body>
+</html>
