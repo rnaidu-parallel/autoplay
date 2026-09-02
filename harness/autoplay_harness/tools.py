@@ -67,6 +67,28 @@ ACTOR_TOOLS = [
         ["seed_slot", "tiles"],
     ),
     function_tool(
+        "water_crops",
+        "Water 1 to 6 distinct planted tiles from cropsNearby that are still watered=false in one call. Walks beside each tile, selects the Watering Can, faces the tile, swings, and verifies the watered state and one unit of can water spent. Stops on failure or world changes. Returns blocked with watering_can_empty when the can runs dry; it does not refill.",
+        {"tiles": {"type": "array", "minItems": 1, "maxItems": 6,
+                   "items": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                             "required": ["x", "y"], "additionalProperties": False}}},
+        ["tiles"],
+    ),
+    function_tool(
+        "till_tiles",
+        "Till 1 to 6 distinct tiles from tillableNearby in one call. Walks beside each tile, selects the Hoe, faces the tile, swings, and verifies the tile became empty tilled soil in cropsNearby. Stops on failure or world changes. Only tiles listed in tillableNearby are diggable and unoccupied; it does not plant or water.",
+        {"tiles": {"type": "array", "minItems": 1, "maxItems": 6,
+                   "items": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                             "required": ["x", "y"], "additionalProperties": False}}},
+        ["tiles"],
+    ),
+    function_tool(
+        "go_home_and_sleep",
+        "End the day from the Farm or FarmHouse in one call. Enters the farmhouse, walks onto bedTile, answers the sleep question, waits out the night transition, and dismisses the end-of-day summary. Verifies the next day with the player free in the FarmHouse and reports the day, time, stamina, and money before and after.",
+        {},
+        [],
+    ),
+    function_tool(
         "navigate_to",
         "Walk to any walkable tile in the current location using only W/A/S/D. The game bridge plans a path with the game's real collision rules and stops on a location change, menu, cutscene, or unexpected block. Prefer this over manual holds for any trip longer than one tile.",
         {

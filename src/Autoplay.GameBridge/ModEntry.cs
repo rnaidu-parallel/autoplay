@@ -2,9 +2,11 @@ using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
+using StardewValley.Locations;
 using StardewValley.Menus;
 using StardewValley.Monsters;
 using StardewValley.TerrainFeatures;
+using StardewValley.Tools;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -284,13 +286,15 @@ public sealed class ModEntry : Mod
             || !dialogueBox.isQuestion
             || index < 0
             || index >= dialogueBox.responses.Length
-            || index >= dialogueBox.responseCC.Count)
+            // responseCC stays null until the question box finishes opening; reading it there
+            // threw inside the update tick and left the pipe request permanently unanswered.
+            || index >= (dialogueBox.responseCC?.Count ?? 0))
         {
             this.CompletePipeRequest("rejected", "dialogue_response_unavailable");
             return;
         }
 
-        ClickableComponent component = dialogueBox.responseCC[index];
+        ClickableComponent component = dialogueBox.responseCC![index];
         int x = component.bounds.Center.X;
         int y = component.bounds.Center.Y;
         dialogueBox.receiveLeftClick(x, y, true);
@@ -625,8 +629,10 @@ public sealed class ModEntry : Mod
 
         foreach (var building in location.buildings)
         {
-            GameLocation? indoors = building.indoors.Value;
-            if (indoors is null || !indoors.NameOrUniqueName.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
+            // The main farmhouse keeps its interior as a top-level location, so indoors.Value is
+            // null there and only the building's indoors name identifies the door's destination.
+            string? indoors = building.indoors.Value?.NameOrUniqueName ?? building.GetIndoorsName();
+            if (indoors is null || !indoors.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
                 continue;
             Point door = building.humanDoor.Value;
             return (new Point(building.tileX.Value + door.X, building.tileY.Value + door.Y + 1), true);
@@ -1328,6 +1334,7 @@ public sealed class ModEntry : Mod
         int mapHeight = location.Map.Layers[0].LayerHeight;
         var navigationRows = new List<string>();
         var nearbyActions = new List<BridgeMapAction>();
+        var tillable = new List<BridgeTile>();
         for (int y = navigationOriginY; y <= tile.Y + navigationRadius; y++)
         {
             var row = new StringBuilder();
@@ -1338,6 +1345,25 @@ public sealed class ModEntry : Mod
                 row.Append(passable ? '.' : '#');
                 if (!inBounds)
                     continue;
+
+                // makeHoeDirt's own rules: diggable back tile with no terrain feature or object.
+                // IsTileWalkable adds the game's collision test, so characters, clumps, and
+                // buildings are excluded and the tile is reachable. The player is ignored, so a
+                // tile stays listed while it is being stood on.
+                var tileVector = new Vector2(x, y);
+                if (passable
+                    && location.doesTileHaveProperty(x, y, "Diggable", "Back") is not null
+                    && !location.terrainFeatures.ContainsKey(tileVector)
+                    && !location.Objects.ContainsKey(tileVector))
+                {
+                    tillable.Add(new BridgeTile
+                    {
+                        X = x,
+                        Y = y,
+                        ScreenX = (int)((((x * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.X) * zoom),
+                        ScreenY = (int)((((y * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.Y) * zoom)
+                    });
+                }
 
                 foreach (string layer in new[] { "Buildings", "Back", "Front" })
                 {
@@ -1350,6 +1376,27 @@ public sealed class ModEntry : Mod
                 }
             }
             navigationRows.Add(row.ToString());
+        }
+
+        IReadOnlyList<BridgeTile> tillableNearby = tillable
+            .OrderBy(entry => Math.Abs(entry.X - tile.X) + Math.Abs(entry.Y - tile.Y))
+            .ThenBy(entry => entry.Y)
+            .ThenBy(entry => entry.X)
+            .Take(40)
+            .ToArray();
+
+        WateringCan? wateringCan = Game1.player.Items.OfType<WateringCan>().FirstOrDefault();
+        BridgeTile? bedTile = null;
+        if (location is FarmHouse farmHouse)
+        {
+            Point bed = farmHouse.GetPlayerBedSpot();
+            bedTile = new BridgeTile
+            {
+                X = bed.X,
+                Y = bed.Y,
+                ScreenX = (int)((((bed.X * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.X) * zoom),
+                ScreenY = (int)((((bed.Y * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.Y) * zoom)
+            };
         }
 
         return new GameStateSnapshot
@@ -1401,11 +1448,15 @@ public sealed class ModEntry : Mod
             PlantedCrops = plantedCrops,
             WateredCrops = wateredCrops,
             HarvestableCrops = harvestableCrops,
+            WateringCanWater = wateringCan?.WaterLeft,
+            WateringCanMax = wateringCan?.waterCanMax,
             Inventory = inventory,
             InventoryCounts = inventoryCounts,
             Warps = warps,
             NearbyObjects = nearbyObjects,
             CropsNearby = cropsNearby,
+            TillableNearby = tillableNearby,
+            BedTile = bedTile,
             NpcsNearby = npcsNearby,
             ShopItems = shopItems,
             NearbyActions = nearbyActions,

@@ -84,11 +84,15 @@ internal sealed class GameStateSnapshot
     public int? PlantedCrops { get; init; }
     public int? WateredCrops { get; init; }
     public int? HarvestableCrops { get; init; }
+    public int? WateringCanWater { get; init; }
+    public int? WateringCanMax { get; init; }
     public IReadOnlyList<BridgeInventoryItem> Inventory { get; init; } = Array.Empty<BridgeInventoryItem>();
     public IReadOnlyDictionary<string, int> InventoryCounts { get; init; } = new Dictionary<string, int>();
     public IReadOnlyList<BridgeWarp> Warps { get; init; } = Array.Empty<BridgeWarp>();
     public IReadOnlyList<BridgeWorldObject> NearbyObjects { get; init; } = Array.Empty<BridgeWorldObject>();
     public IReadOnlyList<BridgeCrop> CropsNearby { get; init; } = Array.Empty<BridgeCrop>();
+    public IReadOnlyList<BridgeTile> TillableNearby { get; init; } = Array.Empty<BridgeTile>();
+    public BridgeTile? BedTile { get; init; }
     public IReadOnlyList<BridgeNpc> NpcsNearby { get; init; } = Array.Empty<BridgeNpc>();
     public IReadOnlyList<BridgeShopItem> ShopItems { get; init; } = Array.Empty<BridgeShopItem>();
     public IReadOnlyList<BridgeMapAction> NearbyActions { get; init; } = Array.Empty<BridgeMapAction>();
@@ -108,6 +112,14 @@ internal sealed class BridgeCrop
     public bool Watered { get; init; }
     public bool ReadyToHarvest { get; init; }
     public bool Dead { get; init; }
+}
+
+internal sealed class BridgeTile
+{
+    public int X { get; init; }
+    public int Y { get; init; }
+    public int ScreenX { get; init; }
+    public int ScreenY { get; init; }
 }
 
 internal sealed class BridgeNpc

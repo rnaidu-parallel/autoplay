@@ -11,7 +11,7 @@ from typing import Any
 
 from .bridge import BridgeError, NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
-from .farming import nearest_empty_tiles, plant_seeds
+from .farming import go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
 from .openrouter import OpenRouterClient, OpenRouterError, ToolDecision
 from .prompts import ACTOR_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
@@ -557,6 +557,18 @@ class AutoplayHarness:
                      else arguments["tiles"])
             response = plant_seeds(self.bridge, before_state or {}, arguments["seed_slot"], tiles,
                                    len(tiles) * 3 if self.continuous else self.max_actions - self.game_actions)
+            self.game_actions += response["controls_executed"]
+            return response
+        if name in {"water_crops", "till_tiles"}:
+            skill = water_crops if name == "water_crops" else till_tiles
+            tiles = arguments["tiles"]
+            response = skill(self.bridge, before_state or {}, tiles,
+                             len(tiles) * 5 if self.continuous else self.max_actions - self.game_actions)
+            self.game_actions += response["controls_executed"]
+            return response
+        if name == "go_home_and_sleep":
+            response = go_home_and_sleep(self.bridge, before_state or {},
+                                         30 if self.continuous else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
             return response
         movement_key = self._movement_key(name, arguments, before_state)

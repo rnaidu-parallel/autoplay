@@ -16,12 +16,15 @@ tilled tiles in cropsNearby. Supply the count; do not calculate coordinates. Use
 slot in the first toolbar row. The local controller walks, selects, aims, and verifies a
 live crop plus one seed consumed at each target, stopping on failure, damage, or a world
 change. Existing crops must not be counted as new planting. Do not till or water with it.
+Use till_tiles for up to six tiles listed in tillableNearby, water_crops for up to six
+cropsNearby rows with watered false, and go_home_and_sleep to end the day from the Farm or
+FarmHouse; each selects and verifies its own tool and reports the tiles or steps it proved.
 The harness verifies objective completion; a valid tool call alone proves no progress.
 harnessLastResult explains the last failure. Change tactic after a block; never repeat an
 unchanged failed action. Preserve crops, health, money, inventory, stamina, and the route
 home. At low stamina stop spending energy. Do not use cheats or debug commands.
 Use inspect_scene when the task requires tools outside this list, visual detail, clearing
-an obstacle, a menu, NPC interaction, watering, harvesting, or an uncertain target. It
+an obstacle, a menu, NPC interaction, harvesting, or an uncertain target. It
 requests a full visual decision with all controls; it does not advance the game. Use
 wiki_search for a specific unknown mechanic. Stop only for an unsafe/unrecoverable state.
 Time is frozen between decisions and advances during bounded controls. Do not unpause it.
@@ -47,7 +50,8 @@ collisions and input timing; do not spend reasoning tracing individual movement 
 """
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
-    "plant_nearest_seeds", "navigate_to", "go_to_location", "wiki_search", "stop_session",
+    "plant_nearest_seeds", "till_tiles", "water_crops", "go_home_and_sleep",
+    "navigate_to", "go_to_location", "wiki_search", "stop_session",
 }] + [function_tool("inspect_scene", "Request a fresh screenshot and the full control set for the next decision.", {}, [])]
 
 
@@ -64,11 +68,13 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
               "time", "weather", "menu", "eventUp", "minigame", "tileX", "tileY",
               "health", "stamina", "money", "toolbarIndex", "tool", "tilledTiles",
               "plantedCrops", "wateredCrops", "harvestableCrops", "inventoryCounts",
+              "wateringCanWater", "wateringCanMax", "bedTile",
               "warps", "harnessLastResult", "harnessStaminaLow", "harnessBlockedDirectionsHere")
     result = {key: state[key] for key in fields if key in state}
     for key, columns in (
         ("inventory", ["slot", "name", "qualifiedId", "stack", "isSeed"]),
         ("cropsNearby", ["x", "y", "crop", "watered", "readyToHarvest", "dead"]),
+        ("tillableNearby", ["x", "y"]),
     ):
         result[key] = {"columns": columns, "rows": [[row.get(k) for k in columns] for row in state.get(key, [])]}
     return result
