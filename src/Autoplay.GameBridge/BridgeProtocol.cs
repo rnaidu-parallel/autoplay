@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Autoplay.GameBridge;
 
@@ -100,6 +101,34 @@ internal sealed class GameStateSnapshot
     public int? NavigationOriginY { get; init; }
     public IReadOnlyList<string> NavigationRows { get; init; } = Array.Empty<string>();
     public IReadOnlyList<BridgeDialogueResponse> DialogueResponses { get; init; } = Array.Empty<BridgeDialogueResponse>();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BridgeDiagnostics? Diagnostics { get; init; }
+}
+
+internal sealed class BridgeDiagnostics
+{
+    public bool IsInBed { get; init; }
+    public int FreezePause { get; init; }
+    public bool CanMoveRaw { get; init; }
+    public bool UsingTool { get; init; }
+    public bool HasController { get; init; }
+    public IReadOnlyList<int> MovementDirections { get; init; } = Array.Empty<int>();
+    public bool IsMoving { get; init; }
+    public bool PassedOut { get; init; }
+    public bool GamePaused { get; init; }
+    public bool FreezeControls { get; init; }
+    public bool FadeToBlack { get; init; }
+    public bool GlobalFade { get; init; }
+    public bool DialogueUp { get; init; }
+    public bool EventUp { get; init; }
+    public bool FarmEventActive { get; init; }
+    public bool LocationEventActive { get; init; }
+    public bool IsActive { get; init; }
+    public bool ForegroundIsGame { get; init; }
+    public string? ActiveMenu { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? NewDaySyncActive { get; init; }
+    public IReadOnlyList<string> PressedKeys { get; init; } = Array.Empty<string>();
 }
 
 internal sealed class BridgeCrop

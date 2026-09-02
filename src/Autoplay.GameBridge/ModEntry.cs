@@ -7,6 +7,7 @@ using StardewValley.Menus;
 using StardewValley.Monsters;
 using StardewValley.TerrainFeatures;
 using StardewValley.Tools;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -1463,8 +1464,41 @@ public sealed class ModEntry : Mod
             NavigationOriginX = navigationOriginX,
             NavigationOriginY = navigationOriginY,
             NavigationRows = navigationRows,
-            DialogueResponses = dialogueResponses
+            DialogueResponses = dialogueResponses,
+            Diagnostics = new BridgeDiagnostics
+            {
+                IsInBed = Game1.player.isInBed.Value,
+                FreezePause = Game1.player.freezePause,
+                CanMoveRaw = Game1.player.CanMove,
+                UsingTool = Game1.player.UsingTool,
+                HasController = Game1.player.controller is not null,
+                MovementDirections = Game1.player.movementDirections.ToArray(),
+                IsMoving = Game1.player.isMoving(),
+                PassedOut = Game1.player.passedOut,
+                GamePaused = Game1.paused,
+                FreezeControls = Game1.freezeControls,
+                FadeToBlack = Game1.fadeToBlack,
+                GlobalFade = Game1.globalFade,
+                DialogueUp = Game1.dialogueUp,
+                EventUp = Game1.eventUp,
+                FarmEventActive = Game1.farmEvent is not null,
+                LocationEventActive = Game1.currentLocation.currentEvent is not null,
+                IsActive = Game1.game1.IsActive,
+                ForegroundIsGame = GetForegroundWindow() == Game1.game1.Window.Handle,
+                ActiveMenu = Game1.activeClickableMenu?.GetType().Name,
+                NewDaySyncActive = CaptureNewDaySyncActive(),
+                PressedKeys = Game1.GetKeyboardState().GetPressedKeys().Select(key => key.ToString()).ToArray()
+            }
         };
+    }
+
+    private static bool? CaptureNewDaySyncActive()
+    {
+        var field = typeof(Game1).GetField(
+            "newDaySync",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
+        );
+        return field is null ? null : field.GetValue(null) is not null;
     }
 
     private static IReadOnlyList<BridgeShopItem> CaptureShopItems()
