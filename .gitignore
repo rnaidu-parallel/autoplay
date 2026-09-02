@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+harness/runs/
+harness/state/
+__pycache__/
+*.pyc
+artifacts/harness-capture.jpg
+artifacts/fullscreen-rejected-frame.jpg
+.env
+.env.*
+!.env.example
+.idea/

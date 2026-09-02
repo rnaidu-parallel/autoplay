@@ -1,0 +1,311 @@
+{
+  "qwen_low": {
+    "events": 41,
+    "wall_minutes": 5.1,
+    "actor_decisions": 4,
+    "actor_model_calls": 9,
+    "director_decisions": 0,
+    "providers": {
+      "Alibaba": 7,
+      "unreported": 5
+    },
+    "cost_usd": 0.009007,
+    "recoverable_errors": 5,
+    "model_errors": 8,
+    "physical_attempts": 42,
+    "attempt_outcomes": {
+      "http_error": 29,
+      "accepted": 4,
+      "rejected": 9
+    },
+    "finish_reasons": {
+      "tool_calls": 7,
+      "length": 6
+    },
+    "reasoning_tokens": 5733,
+    "background_reviews_discarded": 0,
+    "objectives_completed": 0,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": false,
+      "final_mismatches": [
+        "plantedCrops expected >= 5 but observed 4"
+      ]
+    },
+    "verified_seed_plantings": 4,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 4
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 610,
+      "plantedCrops": 4,
+      "wateredCrops": 4,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 16,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 4,
+      "p50": 18820.0,
+      "p90": 23287,
+      "max": 23287
+    },
+    "director_model_ms": null,
+    "observe_ms": {
+      "n": 13,
+      "p50": 188,
+      "p90": 429,
+      "max": 28246
+    },
+    "bridge_ms": {
+      "n": 4,
+      "p50": 3677.5,
+      "p90": 5469,
+      "max": 5469
+    },
+    "tool_status": {
+      "completed": 2,
+      "blocked": 1,
+      "partial": 1
+    },
+    "wasted_decision_rate": 0.25,
+    "actor_steps_between_director_reviews_p50": null,
+    "prompt_tokens": 113901,
+    "completion_tokens": 6387,
+    "cache_hit_rate": 0.726,
+    "game_days_elapsed": 0.01,
+    "wall_hours_per_game_day": 16.91,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 610 Farm",
+    "run_id": "5c819efe-d98c-4e1c-9a13-ddca689e1277",
+    "autonomous_seconds": 259.393,
+    "http_429": 29,
+    "initial_state": {
+      "location": "FarmHouse",
+      "day": 10,
+      "time": 600,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 20,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "planting_results": [
+      {
+        "status": "blocked",
+        "reason": "planting_not_verified_by_crop_and_seed_delta",
+        "tiles": [
+          {
+            "x": 71,
+            "y": 27
+          }
+        ],
+        "controls": 5,
+        "bridge_ms": 5469
+      },
+      {
+        "status": "completed",
+        "reason": null,
+        "tiles": [
+          {
+            "x": 72,
+            "y": 23
+          }
+        ],
+        "controls": 2,
+        "bridge_ms": 221
+      },
+      {
+        "status": "partial",
+        "reason": "action_budget_reached",
+        "tiles": [
+          {
+            "x": 68,
+            "y": 25
+          },
+          {
+            "x": 72,
+            "y": 18
+          }
+        ],
+        "controls": 4,
+        "bridge_ms": 4306
+      }
+    ]
+  },
+  "glm_low": {
+    "events": 21,
+    "wall_minutes": 1.1,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 2,
+    "providers": {
+      "Z.AI": 4
+    },
+    "cost_usd": 0.002178,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 4,
+    "attempt_outcomes": {
+      "accepted": 4
+    },
+    "finish_reasons": {
+      "tool_calls": 4
+    },
+    "reasoning_tokens": 136,
+    "background_reviews_discarded": 2,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "p50": 6602.0,
+      "p90": 7244,
+      "max": 7244
+    },
+    "director_model_ms": {
+      "n": 2,
+      "p50": 5812.5,
+      "p90": 6223,
+      "max": 6223
+    },
+    "observe_ms": {
+      "n": 6,
+      "p50": 209.0,
+      "p90": 28114,
+      "max": 28114
+    },
+    "bridge_ms": {
+      "n": 2,
+      "p50": 3109.0,
+      "p90": 3183,
+      "max": 3183
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": 1.0,
+    "prompt_tokens": 27547,
+    "completion_tokens": 447,
+    "cache_hit_rate": 0.0,
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "b09c3d61-574f-4d89-ba4e-84628c45cef6",
+    "autonomous_seconds": 20.215,
+    "http_429": 0,
+    "initial_state": {
+      "location": "FarmHouse",
+      "day": 10,
+      "time": 600,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 20,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "planting_results": [
+      {
+        "status": "completed",
+        "reason": null,
+        "tiles": [
+          {
+            "x": 64,
+            "y": 19
+          },
+          {
+            "x": 62,
+            "y": 18
+          },
+          {
+            "x": 61,
+            "y": 18
+          },
+          {
+            "x": 60,
+            "y": 18
+          },
+          {
+            "x": 58,
+            "y": 18
+          }
+        ],
+        "controls": 11,
+        "bridge_ms": 3183
+      }
+    ]
+  }
+}

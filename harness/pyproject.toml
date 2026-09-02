@@ -1,0 +1,6 @@
+[project]
+name = "autoplay-harness"
+version = "0.1.0"
+description = "Local autonomous Stardew Valley tool-loop harness"
+requires-python = ">=3.11"
+dependencies = ["dxcam[winrt]>=0.3,<1", "imageio-ffmpeg>=0.6,<1", "Pillow>=10,<13"]

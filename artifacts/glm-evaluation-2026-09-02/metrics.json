@@ -1,0 +1,106 @@
+{
+  "events": 71,
+  "wall_minutes": 7.3,
+  "actor_decisions": 20,
+  "director_decisions": 3,
+  "providers": {
+    "Z.AI": 23
+  },
+  "cost_usd": 0.015698,
+  "recoverable_errors": 0,
+  "objectives_completed": 0,
+  "actor_model_ms": {
+    "n": 20,
+    "p50": 9806.5,
+    "p90": 33977,
+    "max": 43734
+  },
+  "director_model_ms": {
+    "n": 3,
+    "p50": 21437,
+    "p90": 87171,
+    "max": 87171
+  },
+  "observe_ms": {
+    "n": 24,
+    "p50": 190.0,
+    "p90": 438,
+    "max": 27973
+  },
+  "bridge_ms": {
+    "n": 20,
+    "p50": 276.5,
+    "p90": 1661,
+    "max": 3056
+  },
+  "tool_status": {
+    "completed": 19,
+    "blocked": 1
+  },
+  "wasted_decision_rate": 0.05,
+  "actor_steps_between_director_reviews_p50": 1,
+  "prompt_tokens": 291612,
+  "completion_tokens": 10314,
+  "cache_hit_rate": 0.5,
+  "game_days_elapsed": 0.01,
+  "wall_hours_per_game_day": 24.36,
+  "start": "day 10 600 FarmHouse",
+  "end": "day 10 610 Farm",
+  "run_id": "f0517bf7-4a9c-4b4e-a562-83b7108d0bfe",
+  "autonomous_loop_seconds": 394.4,
+  "model_time_share": 0.96,
+  "actor_tools": {
+    "go_to_location": 1,
+    "control_sequence": 8,
+    "press": 4,
+    "hold": 3,
+    "navigate_to": 2,
+    "click": 1,
+    "move_cursor": 1
+  },
+  "batch_keyboard_steps": 23,
+  "initial_state": {
+    "location": "FarmHouse",
+    "day": 10,
+    "time": 600,
+    "stamina": 135,
+    "plantedCrops": 0,
+    "tilledTiles": 0,
+    "wateredCrops": 0,
+    "inventoryCounts": {
+      "Axe": 1,
+      "Hoe": 1,
+      "Watering Can": 1,
+      "Pickaxe": 1,
+      "Scythe": 1,
+      "Fiber": 17,
+      "Mixed Seeds": 1,
+      "Wood": 1,
+      "Parsnip Seeds": 20,
+      "Stone": 2,
+      "Clay": 1
+    }
+  },
+  "final_state": {
+    "location": "Farm",
+    "day": 10,
+    "time": 610,
+    "stamina": 135,
+    "plantedCrops": 3,
+    "tilledTiles": 16,
+    "wateredCrops": 3,
+    "inventoryCounts": {
+      "Axe": 1,
+      "Hoe": 1,
+      "Watering Can": 1,
+      "Pickaxe": 1,
+      "Scythe": 1,
+      "Fiber": 17,
+      "Mixed Seeds": 1,
+      "Wood": 1,
+      "Parsnip Seeds": 17,
+      "Stone": 2,
+      "Clay": 1
+    }
+  }
+}

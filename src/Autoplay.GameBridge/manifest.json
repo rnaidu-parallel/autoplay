@@ -1,0 +1,10 @@
+{
+  "Name": "Autoplay Game Bridge",
+  "Author": "Rahul",
+  "Version": "0.1.0",
+  "Description": "Validates deterministic Stardew Valley state observation and controls.",
+  "UniqueID": "Rahul.AutoplayGameBridge",
+  "EntryDll": "Autoplay.GameBridge.dll",
+  "MinimumApiVersion": "4.5.2",
+  "UpdateKeys": []
+}

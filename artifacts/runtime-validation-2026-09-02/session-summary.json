@@ -1,0 +1,13 @@
+{
+  "accomplishments": [],
+  "failures": [],
+  "learned": [],
+  "unresolved": [],
+  "usage": {
+    "calls": 0,
+    "prompt_tokens": 0,
+    "cached_tokens": 0,
+    "completion_tokens": 0,
+    "cost": 0.0
+  }
+}

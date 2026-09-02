@@ -1,0 +1,1499 @@
+{
+  "glm_previous": {
+    "events": 21,
+    "wall_minutes": 1.1,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 2,
+    "providers": {
+      "Z.AI": 4
+    },
+    "cost_usd": 0.002178,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 4,
+    "attempt_outcomes": {
+      "accepted": 4
+    },
+    "finish_reasons": {
+      "tool_calls": 4
+    },
+    "reasoning_tokens": 136,
+    "background_reviews_discarded": 2,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "mean": 6602,
+      "p50": 6602.0,
+      "p90": 7244,
+      "max": 7244
+    },
+    "actor_cycle_ms": null,
+    "director_model_ms": {
+      "n": 2,
+      "mean": 5812.5,
+      "p50": 5812.5,
+      "p90": 6223,
+      "max": 6223
+    },
+    "observe_ms": {
+      "n": 6,
+      "mean": 4888.8,
+      "p50": 209.0,
+      "p90": 28114,
+      "max": 28114
+    },
+    "bridge_ms": {
+      "n": 2,
+      "mean": 3109,
+      "p50": 3109.0,
+      "p90": 3183,
+      "max": 3183
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": 1.0,
+    "prompt_tokens": 27547,
+    "completion_tokens": 447,
+    "cache_hit_rate": 0.0,
+    "cache_by_role": {
+      "actor": {
+        "calls": 2,
+        "prompt_tokens": 15483,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": 0.0,
+        "after_first_call_hit_rate": 0.0
+      },
+      "director": {
+        "calls": 2,
+        "prompt_tokens": 12064,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": 0.0,
+        "after_first_call_hit_rate": 0.0
+      }
+    },
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "b09c3d61-574f-4d89-ba4e-84628c45cef6",
+    "ready_observation_to_completion_seconds": 20.216,
+    "actor_calls": [
+      {
+        "tool": "go_to_location",
+        "arguments": {
+          "location": "Farm"
+        },
+        "model_ms": 5960,
+        "usage": {
+          "prompt_tokens": 6661,
+          "completion_tokens": 30,
+          "total_tokens": 6691,
+          "cost": 0.000507075,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 5959,
+            "response_id": "gen-1788341011-rq1VYQHTnsqhJGgbUfea",
+            "model": "z-ai/glm-5.3-flash",
+            "provider": "Z.AI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "tool_calls",
+            "usage": {
+              "prompt_tokens": 6661,
+              "completion_tokens": 30,
+              "total_tokens": 6691,
+              "cost": 0.000507075,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.000507075,
+                "upstream_inference_prompt_cost": 0.000499575,
+                "upstream_inference_completions_cost": 7.5e-06
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 0,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      },
+      {
+        "tool": "plant_seeds",
+        "arguments": {
+          "seed_slot": 8,
+          "tiles": [
+            {
+              "x": 64,
+              "y": 19
+            },
+            {
+              "x": 62,
+              "y": 18
+            },
+            {
+              "x": 61,
+              "y": 18
+            },
+            {
+              "x": 60,
+              "y": 18
+            },
+            {
+              "x": 58,
+              "y": 18
+            }
+          ]
+        },
+        "model_ms": 7244,
+        "usage": {
+          "prompt_tokens": 8822,
+          "completion_tokens": 249,
+          "total_tokens": 9071,
+          "cost": 0.0007239,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 136,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 7243,
+            "response_id": "gen-1788341020-0SnAW4bqKpHktoNaM3FY",
+            "model": "z-ai/glm-5.3-flash",
+            "provider": "Z.AI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "tool_calls",
+            "usage": {
+              "prompt_tokens": 8822,
+              "completion_tokens": 249,
+              "total_tokens": 9071,
+              "cost": 0.0007239,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.0007239,
+                "upstream_inference_prompt_cost": 0.00066165,
+                "upstream_inference_completions_cost": 6.225e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 136,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      }
+    ],
+    "planting_controls": []
+  },
+  "luna_previous": {
+    "events": 21,
+    "wall_minutes": 1.0,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 2,
+    "providers": {
+      "OpenAI": 4
+    },
+    "cost_usd": 0.005525,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 4,
+    "attempt_outcomes": {
+      "accepted": 4
+    },
+    "finish_reasons": {
+      "tool_calls": 4
+    },
+    "reasoning_tokens": 146,
+    "background_reviews_discarded": 2,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "mean": 4393.5,
+      "p50": 4393.5,
+      "p90": 5078,
+      "max": 5078
+    },
+    "actor_cycle_ms": null,
+    "director_model_ms": {
+      "n": 2,
+      "mean": 4993.5,
+      "p50": 4993.5,
+      "p90": 5593,
+      "max": 5593
+    },
+    "observe_ms": {
+      "n": 6,
+      "mean": 4730.8,
+      "p50": 192.0,
+      "p90": 27213,
+      "max": 27213
+    },
+    "bridge_ms": {
+      "n": 2,
+      "mean": 3484.5,
+      "p50": 3484.5,
+      "p90": 3933,
+      "max": 3933
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": 1.0,
+    "prompt_tokens": 24963,
+    "completion_tokens": 411,
+    "cache_hit_rate": 0.206,
+    "cache_by_role": {
+      "actor": {
+        "calls": 2,
+        "prompt_tokens": 13591,
+        "cached_tokens": 3129,
+        "cache_write_tokens": 10218,
+        "hit_rate": 0.23,
+        "after_first_call_hit_rate": 0.4
+      },
+      "director": {
+        "calls": 2,
+        "prompt_tokens": 11372,
+        "cached_tokens": 2021,
+        "cache_write_tokens": 9107,
+        "hit_rate": 0.178,
+        "after_first_call_hit_rate": 0.301
+      }
+    },
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "10508e09-2055-4a4b-9bb8-e0306aa64f86",
+    "ready_observation_to_completion_seconds": 16.512,
+    "actor_calls": [
+      {
+        "tool": "go_to_location",
+        "arguments": {
+          "location": "Farm"
+        },
+        "model_ms": 3709,
+        "usage": {
+          "prompt_tokens": 5761,
+          "completion_tokens": 41,
+          "total_tokens": 5802,
+          "cost": 0.00148335,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 5639,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 20,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 3708,
+            "response_id": "gen-1788343313-aJwMzNun3j6GTM5PeH5l",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 5761,
+              "completion_tokens": 41,
+              "total_tokens": 5802,
+              "cost": 0.00148335,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 5639,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.00148335,
+                "upstream_inference_prompt_cost": 0.00143415,
+                "upstream_inference_completions_cost": 4.92e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 20,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      },
+      {
+        "tool": "plant_seeds",
+        "arguments": {
+          "seed_slot": 8,
+          "tiles": [
+            {
+              "x": 62,
+              "y": 18
+            },
+            {
+              "x": 64,
+              "y": 19
+            },
+            {
+              "x": 61,
+              "y": 18
+            },
+            {
+              "x": 60,
+              "y": 18
+            },
+            {
+              "x": 58,
+              "y": 18
+            }
+          ]
+        },
+        "model_ms": 5078,
+        "usage": {
+          "prompt_tokens": 7830,
+          "completion_tokens": 124,
+          "total_tokens": 7954,
+          "cost": 0.00138053,
+          "prompt_tokens_details": {
+            "cached_tokens": 3129,
+            "cache_write_tokens": 4579,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 57,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 5075,
+            "response_id": "gen-1788343321-D754Utj9bA09xj0qqK5o",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 7830,
+              "completion_tokens": 124,
+              "total_tokens": 7954,
+              "cost": 0.00138053,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 3129,
+                "cache_write_tokens": 4579,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.00138053,
+                "upstream_inference_prompt_cost": 0.00123173,
+                "upstream_inference_completions_cost": 0.0001488
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 57,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      }
+    ],
+    "planting_controls": []
+  },
+  "state_pilot": {
+    "events": 12,
+    "wall_minutes": 1.0,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 0,
+    "providers": {
+      "OpenAI": 2
+    },
+    "cost_usd": 0.001039,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 2,
+    "attempt_outcomes": {
+      "accepted": 2
+    },
+    "finish_reasons": {
+      "tool_calls": 2
+    },
+    "reasoning_tokens": 150,
+    "background_reviews_discarded": 0,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "mean": 3592,
+      "p50": 3592.0,
+      "p90": 4270,
+      "max": 4270
+    },
+    "actor_cycle_ms": null,
+    "director_model_ms": null,
+    "observe_ms": {
+      "n": 3,
+      "mean": 9447.7,
+      "p50": 442,
+      "p90": 27463,
+      "max": 27463
+    },
+    "bridge_ms": {
+      "n": 2,
+      "mean": 3480.5,
+      "p50": 3480.5,
+      "p90": 3924,
+      "max": 3924
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": null,
+    "prompt_tokens": 3768,
+    "completion_tokens": 238,
+    "cache_hit_rate": 0.0,
+    "cache_by_role": {
+      "actor": {
+        "calls": 2,
+        "prompt_tokens": 3768,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": 0.0,
+        "after_first_call_hit_rate": 0.0
+      },
+      "director": {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": null,
+        "after_first_call_hit_rate": null
+      }
+    },
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "f15aea7c-2a9f-496c-9f14-f01d91f307ef",
+    "ready_observation_to_completion_seconds": 14.599,
+    "actor_calls": [
+      {
+        "tool": "go_to_location",
+        "arguments": {
+          "location": "Farm"
+        },
+        "model_ms": 2914,
+        "usage": {
+          "prompt_tokens": 1649,
+          "completion_tokens": 40,
+          "total_tokens": 1689,
+          "cost": 0.0003778,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 19,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 2913,
+            "request_bytes": 8296,
+            "input_image": false,
+            "system_chars": 2103,
+            "context_chars": 2739,
+            "tools_count": 6,
+            "response_id": "gen-1788345316-B1Hjp5bdW1SNRAtSEo0r",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 1649,
+              "completion_tokens": 40,
+              "total_tokens": 1689,
+              "cost": 0.0003778,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.0003778,
+                "upstream_inference_prompt_cost": 0.0003298,
+                "upstream_inference_completions_cost": 4.8e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 19,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      },
+      {
+        "tool": "plant_seeds",
+        "arguments": {
+          "seed_slot": 8,
+          "tiles": [
+            {
+              "x": 64,
+              "y": 19
+            },
+            {
+              "x": 62,
+              "y": 18
+            },
+            {
+              "x": 61,
+              "y": 18
+            },
+            {
+              "x": 60,
+              "y": 18
+            },
+            {
+              "x": 57,
+              "y": 15
+            }
+          ]
+        },
+        "model_ms": 4270,
+        "usage": {
+          "prompt_tokens": 2119,
+          "completion_tokens": 198,
+          "total_tokens": 2317,
+          "cost": 0.0006614,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 131,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 4270,
+            "request_bytes": 9988,
+            "input_image": false,
+            "system_chars": 2103,
+            "context_chars": 4239,
+            "tools_count": 6,
+            "response_id": "gen-1788345322-84xWGX3BqQn8BAv7YZfx",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 2119,
+              "completion_tokens": 198,
+              "total_tokens": 2317,
+              "cost": 0.0006614,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.0006614,
+                "upstream_inference_prompt_cost": 0.0004238,
+                "upstream_inference_completions_cost": 0.0002376
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 131,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      }
+    ],
+    "planting_controls": [
+      {
+        "control": "navigate",
+        "elapsed_ms": 881,
+        "status": "completed"
+      },
+      {
+        "control": "press",
+        "elapsed_ms": 84,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 176,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 595,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 97,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 266,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 108,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 267,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 1250,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 101,
+        "status": "completed"
+      }
+    ]
+  },
+  "count_skill_pilot": {
+    "events": 14,
+    "wall_minutes": 0.9,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 0,
+    "providers": {
+      "OpenAI": 2
+    },
+    "cost_usd": 0.000847,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 2,
+    "attempt_outcomes": {
+      "accepted": 2
+    },
+    "finish_reasons": {
+      "tool_calls": 2
+    },
+    "reasoning_tokens": 38,
+    "background_reviews_discarded": 0,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "mean": 2723.5,
+      "p50": 2723.5,
+      "p90": 2939,
+      "max": 2939
+    },
+    "actor_cycle_ms": {
+      "n": 2,
+      "mean": 6214.5,
+      "p50": 6214.5,
+      "p90": 6301,
+      "max": 6301
+    },
+    "director_model_ms": null,
+    "observe_ms": {
+      "n": 3,
+      "mean": 9184,
+      "p50": 451,
+      "p90": 26919,
+      "max": 26919
+    },
+    "bridge_ms": {
+      "n": 2,
+      "mean": 3113.5,
+      "p50": 3113.5,
+      "p90": 3178,
+      "max": 3178
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": null,
+    "prompt_tokens": 3708,
+    "completion_tokens": 88,
+    "cache_hit_rate": 0.0,
+    "cache_by_role": {
+      "actor": {
+        "calls": 2,
+        "prompt_tokens": 3708,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": 0.0,
+        "after_first_call_hit_rate": 0.0
+      },
+      "director": {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": null,
+        "after_first_call_hit_rate": null
+      }
+    },
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "eadebe1f-a25b-43db-b466-2167cf7d449b",
+    "ready_observation_to_completion_seconds": 11.979,
+    "actor_calls": [
+      {
+        "tool": "go_to_location",
+        "arguments": {
+          "location": "Farm"
+        },
+        "model_ms": 2508,
+        "usage": {
+          "prompt_tokens": 1619,
+          "completion_tokens": 39,
+          "total_tokens": 1658,
+          "cost": 0.0003706,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 18,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 2507,
+            "request_bytes": 8099,
+            "input_image": false,
+            "system_chars": 2104,
+            "context_chars": 2226,
+            "tools_count": 6,
+            "response_id": "gen-1788345526-8EqrzNYPdtRwABihjLYe",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 1619,
+              "completion_tokens": 39,
+              "total_tokens": 1658,
+              "cost": 0.0003706,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.0003706,
+                "upstream_inference_prompt_cost": 0.0003238,
+                "upstream_inference_completions_cost": 4.68e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 18,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      },
+      {
+        "tool": "plant_nearest_seeds",
+        "arguments": {
+          "seed_slot": 8,
+          "count": 5
+        },
+        "model_ms": 2939,
+        "usage": {
+          "prompt_tokens": 2089,
+          "completion_tokens": 49,
+          "total_tokens": 2138,
+          "cost": 0.0004766,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 20,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 2938,
+            "request_bytes": 9791,
+            "input_image": false,
+            "system_chars": 2104,
+            "context_chars": 3726,
+            "tools_count": 6,
+            "response_id": "gen-1788345531-kcsvYwOt6UXqTfY9NLRj",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 2089,
+              "completion_tokens": 49,
+              "total_tokens": 2138,
+              "cost": 0.0004766,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.0004766,
+                "upstream_inference_prompt_cost": 0.0004178,
+                "upstream_inference_completions_cost": 5.88e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 20,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      }
+    ],
+    "planting_controls": [
+      {
+        "control": "navigate",
+        "elapsed_ms": 878,
+        "status": "completed"
+      },
+      {
+        "control": "press",
+        "elapsed_ms": 83,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 173,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 644,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 101,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 265,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 266,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 467,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      }
+    ]
+  },
+  "final_luna": {
+    "events": 14,
+    "wall_minutes": 1.0,
+    "actor_decisions": 2,
+    "actor_model_calls": 2,
+    "director_decisions": 0,
+    "providers": {
+      "OpenAI": 2
+    },
+    "cost_usd": 0.000587,
+    "recoverable_errors": 0,
+    "model_errors": 0,
+    "physical_attempts": 2,
+    "attempt_outcomes": {
+      "accepted": 2
+    },
+    "finish_reasons": {
+      "tool_calls": 2
+    },
+    "reasoning_tokens": 50,
+    "background_reviews_discarded": 0,
+    "objectives_completed": 1,
+    "initial_goal_evaluation": {
+      "condition": "location is Farm, plantedCrops >= 5, worldReady is true",
+      "satisfied_at_start": false,
+      "satisfied_at_end": true,
+      "final_mismatches": []
+    },
+    "verified_seed_plantings": 5,
+    "crop_change_by_location": {
+      "FarmHouse": 0,
+      "Farm": 5
+    },
+    "final_state": {
+      "location": "Farm",
+      "day": 10,
+      "time": 600,
+      "plantedCrops": 5,
+      "wateredCrops": 5,
+      "stamina": 135,
+      "health": 100,
+      "money": 5,
+      "inventoryCounts": {
+        "Axe": 1,
+        "Hoe": 1,
+        "Watering Can": 1,
+        "Pickaxe": 1,
+        "Scythe": 1,
+        "Fiber": 17,
+        "Mixed Seeds": 1,
+        "Wood": 1,
+        "Parsnip Seeds": 15,
+        "Stone": 2,
+        "Clay": 1
+      }
+    },
+    "actor_model_ms": {
+      "n": 2,
+      "mean": 3035.5,
+      "p50": 3035.5,
+      "p90": 3271,
+      "max": 3271
+    },
+    "actor_cycle_ms": {
+      "n": 2,
+      "mean": 6454.5,
+      "p50": 6454.5,
+      "p90": 6739,
+      "max": 6739
+    },
+    "director_model_ms": null,
+    "observe_ms": {
+      "n": 3,
+      "mean": 9563.3,
+      "p50": 434,
+      "p90": 28080,
+      "max": 28080
+    },
+    "bridge_ms": {
+      "n": 2,
+      "mean": 3110.5,
+      "p50": 3110.5,
+      "p90": 3191,
+      "max": 3191
+    },
+    "tool_status": {
+      "completed": 2
+    },
+    "wasted_decision_rate": 0.0,
+    "actor_steps_between_director_reviews_p50": null,
+    "prompt_tokens": 4212,
+    "completion_tokens": 100,
+    "cache_hit_rate": 0.495,
+    "cache_by_role": {
+      "actor": {
+        "calls": 2,
+        "prompt_tokens": 4212,
+        "cached_tokens": 2086,
+        "cache_write_tokens": 0,
+        "hit_rate": 0.495,
+        "after_first_call_hit_rate": 0.446
+      },
+      "director": {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "hit_rate": null,
+        "after_first_call_hit_rate": null
+      }
+    },
+    "game_days_elapsed": 0.0,
+    "wall_hours_per_game_day": null,
+    "start": "day 10 600 FarmHouse",
+    "end": "day 10 600 Farm",
+    "run_id": "2f7e36d4-0a7c-496e-bad5-5801154d42a1",
+    "ready_observation_to_completion_seconds": 12.477,
+    "actor_calls": [
+      {
+        "tool": "go_to_location",
+        "arguments": {
+          "location": "Farm"
+        },
+        "model_ms": 3271,
+        "usage": {
+          "prompt_tokens": 1871,
+          "completion_tokens": 40,
+          "total_tokens": 1911,
+          "cost": 0.00023446,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 19,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 3270,
+            "request_bytes": 9432,
+            "input_image": false,
+            "system_chars": 3422,
+            "context_chars": 2226,
+            "tools_count": 6,
+            "response_id": "gen-1788345754-ZYszdYV358W1wGEG0CNS",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 1871,
+              "completion_tokens": 40,
+              "total_tokens": 1911,
+              "cost": 0.00023446,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 1043,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.00023446,
+                "upstream_inference_prompt_cost": 0.00018646,
+                "upstream_inference_completions_cost": 4.8e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 19,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      },
+      {
+        "tool": "plant_nearest_seeds",
+        "arguments": {
+          "seed_slot": 8,
+          "count": 5
+        },
+        "model_ms": 2800,
+        "usage": {
+          "prompt_tokens": 2341,
+          "completion_tokens": 60,
+          "total_tokens": 2401,
+          "cost": 0.00035246,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 31,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          },
+          "is_byok": false
+        },
+        "attempts": [
+          {
+            "response_attempt": 1,
+            "http_attempt": 1,
+            "http_status": 200,
+            "latency_ms": 2800,
+            "request_bytes": 11124,
+            "input_image": false,
+            "system_chars": 3422,
+            "context_chars": 3726,
+            "tools_count": 6,
+            "response_id": "gen-1788345760-95upIz73dLI5AquXYX41",
+            "model": "openai/gpt-5.6-luna",
+            "provider": "OpenAI",
+            "finish_reason": "tool_calls",
+            "native_finish_reason": "completed",
+            "usage": {
+              "prompt_tokens": 2341,
+              "completion_tokens": 60,
+              "total_tokens": 2401,
+              "cost": 0.00035246,
+              "is_byok": false,
+              "prompt_tokens_details": {
+                "cached_tokens": 1043,
+                "cache_write_tokens": 0,
+                "audio_tokens": 0,
+                "video_tokens": 0
+              },
+              "cost_details": {
+                "upstream_inference_cost": 0.00035246,
+                "upstream_inference_prompt_cost": 0.00028046,
+                "upstream_inference_completions_cost": 7.2e-05
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 31,
+                "image_tokens": 0,
+                "audio_tokens": 0
+              }
+            },
+            "outcome": "accepted"
+          }
+        ]
+      }
+    ],
+    "planting_controls": [
+      {
+        "control": "navigate",
+        "elapsed_ms": 881,
+        "status": "completed"
+      },
+      {
+        "control": "press",
+        "elapsed_ms": 83,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 177,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 650,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 265,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 267,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      },
+      {
+        "control": "navigate",
+        "elapsed_ms": 466,
+        "status": "completed"
+      },
+      {
+        "control": "click",
+        "elapsed_ms": 100,
+        "status": "completed"
+      }
+    ]
+  },
+  "replay": {
+    "calls": 8,
+    "mean_model_ms": 2562.75,
+    "mean_after_first_ms": 2418.714285714286,
+    "correct_intents": 8,
+    "cache_hit_rate": 0.5010293713972002,
+    "after_first_cache_hit_rate": 0.5653116531165312,
+    "cost_usd": 0.00209037,
+    "providers": {
+      "OpenAI": 8
+    }
+  }
+}

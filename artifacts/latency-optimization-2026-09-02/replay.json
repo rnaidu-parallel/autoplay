@@ -1,0 +1,574 @@
+[
+  {
+    "sample": 1,
+    "location": "FarmHouse",
+    "model_ms": 3571,
+    "tool": "go_to_location",
+    "arguments": {
+      "location": "Farm"
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1657,
+      "completion_tokens": 39,
+      "total_tokens": 1696,
+      "cost": 0.00043035,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 1043,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 18,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 3571,
+        "request_bytes": 8550,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 1463,
+        "tools_count": 6,
+        "response_id": "gen-1788345671-9IqvvSfy3Lf6z7NQjerP",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1657,
+          "completion_tokens": 39,
+          "total_tokens": 1696,
+          "cost": 0.00043035,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 1043,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00043035,
+            "upstream_inference_prompt_cost": 0.00038355,
+            "upstream_inference_completions_cost": 4.68e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 18,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 2,
+    "location": "Farm",
+    "model_ms": 2476,
+    "tool": "plant_nearest_seeds",
+    "arguments": {
+      "seed_slot": 8,
+      "count": 5
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1986,
+      "completion_tokens": 58,
+      "total_tokens": 2044,
+      "cost": 0.00027906,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 29,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 2476,
+        "request_bytes": 9661,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 2466,
+        "tools_count": 6,
+        "response_id": "gen-1788345673-Yo9bBp14oosdNnhWxJiA",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1986,
+          "completion_tokens": 58,
+          "total_tokens": 2044,
+          "cost": 0.00027906,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00027906,
+            "upstream_inference_prompt_cost": 0.00020946,
+            "upstream_inference_completions_cost": 6.96e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 29,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 3,
+    "location": "FarmHouse",
+    "model_ms": 2200,
+    "tool": "go_to_location",
+    "arguments": {
+      "location": "Farm"
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1657,
+      "completion_tokens": 39,
+      "total_tokens": 1696,
+      "cost": 0.00019046,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 18,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 2199,
+        "request_bytes": 8550,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 1463,
+        "tools_count": 6,
+        "response_id": "gen-1788345675-rqMYVm3mBoikyFg207Lw",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1657,
+          "completion_tokens": 39,
+          "total_tokens": 1696,
+          "cost": 0.00019046,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00019046,
+            "upstream_inference_prompt_cost": 0.00014366,
+            "upstream_inference_completions_cost": 4.68e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 18,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 4,
+    "location": "Farm",
+    "model_ms": 2572,
+    "tool": "plant_nearest_seeds",
+    "arguments": {
+      "seed_slot": 8,
+      "count": 5
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1986,
+      "completion_tokens": 56,
+      "total_tokens": 2042,
+      "cost": 0.00027666,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 27,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 2572,
+        "request_bytes": 9661,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 2466,
+        "tools_count": 6,
+        "response_id": "gen-1788345677-jSEjkyhcGdbZz5xZEbKp",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1986,
+          "completion_tokens": 56,
+          "total_tokens": 2042,
+          "cost": 0.00027666,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00027666,
+            "upstream_inference_prompt_cost": 0.00020946,
+            "upstream_inference_completions_cost": 6.72e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 27,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 5,
+    "location": "FarmHouse",
+    "model_ms": 2197,
+    "tool": "go_to_location",
+    "arguments": {
+      "location": "Farm"
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1657,
+      "completion_tokens": 39,
+      "total_tokens": 1696,
+      "cost": 0.00019046,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 18,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 2197,
+        "request_bytes": 8550,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 1463,
+        "tools_count": 6,
+        "response_id": "gen-1788345680-sUYuvjsXnEncjZEZlpsL",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1657,
+          "completion_tokens": 39,
+          "total_tokens": 1696,
+          "cost": 0.00019046,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00019046,
+            "upstream_inference_prompt_cost": 0.00014366,
+            "upstream_inference_completions_cost": 4.68e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 18,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 6,
+    "location": "Farm",
+    "model_ms": 2446,
+    "tool": "plant_nearest_seeds",
+    "arguments": {
+      "seed_slot": 8,
+      "count": 5
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1986,
+      "completion_tokens": 57,
+      "total_tokens": 2043,
+      "cost": 0.00027786,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 28,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 2446,
+        "request_bytes": 9661,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 2466,
+        "tools_count": 6,
+        "response_id": "gen-1788345682-nB2nAoMzgtDowOZbDUlf",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1986,
+          "completion_tokens": 57,
+          "total_tokens": 2043,
+          "cost": 0.00027786,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00027786,
+            "upstream_inference_prompt_cost": 0.00020946,
+            "upstream_inference_completions_cost": 6.84e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 28,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 7,
+    "location": "FarmHouse",
+    "model_ms": 1771,
+    "tool": "go_to_location",
+    "arguments": {
+      "location": "Farm"
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1657,
+      "completion_tokens": 19,
+      "total_tokens": 1676,
+      "cost": 0.00016646,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 1771,
+        "request_bytes": 8550,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 1463,
+        "tools_count": 6,
+        "response_id": "gen-1788345685-s57rglvhy63Bow2RHCLe",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1657,
+          "completion_tokens": 19,
+          "total_tokens": 1676,
+          "cost": 0.00016646,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00016646,
+            "upstream_inference_prompt_cost": 0.00014366,
+            "upstream_inference_completions_cost": 2.28e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  },
+  {
+    "sample": 8,
+    "location": "Farm",
+    "model_ms": 3269,
+    "tool": "plant_nearest_seeds",
+    "arguments": {
+      "seed_slot": 8,
+      "count": 5
+    },
+    "correct_intent": true,
+    "usage": {
+      "prompt_tokens": 1986,
+      "completion_tokens": 58,
+      "total_tokens": 2044,
+      "cost": 0.00027906,
+      "prompt_tokens_details": {
+        "cached_tokens": 1043,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 29,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      },
+      "is_byok": false
+    },
+    "provider": "OpenAI",
+    "attempts": [
+      {
+        "response_attempt": 1,
+        "http_attempt": 1,
+        "http_status": 200,
+        "latency_ms": 3268,
+        "request_bytes": 9661,
+        "input_image": false,
+        "system_chars": 3422,
+        "context_chars": 2466,
+        "tools_count": 6,
+        "response_id": "gen-1788345686-9jBjUBauxAhLCpmmTCBO",
+        "model": "openai/gpt-5.6-luna",
+        "provider": "OpenAI",
+        "finish_reason": "tool_calls",
+        "native_finish_reason": "completed",
+        "usage": {
+          "prompt_tokens": 1986,
+          "completion_tokens": 58,
+          "total_tokens": 2044,
+          "cost": 0.00027906,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 1043,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0.00027906,
+            "upstream_inference_prompt_cost": 0.00020946,
+            "upstream_inference_completions_cost": 6.96e-05
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 29,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        },
+        "outcome": "accepted"
+      }
+    ]
+  }
+]

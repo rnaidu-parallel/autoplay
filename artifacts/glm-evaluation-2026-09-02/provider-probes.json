@@ -1,0 +1,64 @@
+[
+  [
+    {
+      "requested_provider": "novita/fp8",
+      "call": 1,
+      "model_ms": 40236,
+      "provider": "Novita",
+      "tool": "hold",
+      "arguments": {
+        "buttons": [
+          "D"
+        ],
+        "ticks": 120
+      },
+      "usage": {
+        "prompt_tokens": 15030,
+        "completion_tokens": 264,
+        "total_tokens": 15294,
+        "cost": 0.0005942100000000001,
+        "prompt_tokens_details": {
+          "cached_tokens": 9984,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "is_byok": false
+      }
+    },
+    {
+      "requested_provider": "novita/fp8",
+      "call": 2,
+      "model_ms": 17525,
+      "provider": "Novita",
+      "tool": "hold",
+      "arguments": {
+        "buttons": [
+          "D"
+        ],
+        "ticks": 120
+      },
+      "usage": {
+        "prompt_tokens": 5010,
+        "completion_tokens": 19,
+        "total_tokens": 5029,
+        "cost": 8.098e-05,
+        "prompt_tokens_details": {
+          "cached_tokens": 4992,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "is_byok": false
+      }
+    }
+  ],
+  [
+    {
+      "requested_provider": "deepinfra/fp8",
+      "call": 1,
+      "error": "OpenRouter returned HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.3-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"DeepInfra\",\"is_byok\":false,\"provider_error_code\":\"engine_overloaded\",\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provider key (https://openrouter.ai/settings/integrations), or route to another provider with provider routing: https://openrouter.ai/docs/features/provider-routing\"}},\"user_id\":\"user_3IgaekywNKkCA2IeCgLsIUEOpxB\"}",
+      "model_ms": 14140
+    }
+  ]
+]

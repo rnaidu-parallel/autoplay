@@ -1,0 +1,127 @@
+{
+  "events": 127,
+  "wall_minutes": 7.8,
+  "actor_decisions": 37,
+  "director_decisions": 2,
+  "recoverable_errors": 0,
+  "objectives_completed": 0,
+  "actor_model_ms": {
+    "n": 37,
+    "p50": 7959,
+    "p90": 21333,
+    "max": 33587
+  },
+  "director_model_ms": {
+    "n": 2,
+    "p50": 8305.5,
+    "p90": 8781,
+    "max": 8781
+  },
+  "observe_ms": {
+    "n": 42,
+    "p50": 187.0,
+    "p90": 205,
+    "max": 28737
+  },
+  "bridge_ms": {
+    "n": 37,
+    "p50": 286,
+    "p90": 667,
+    "max": 1083
+  },
+  "tool_status": {
+    "completed": 34,
+    "rejected": 1,
+    "recorded": 1,
+    "blocked": 1
+  },
+  "wasted_decision_rate": 0.054,
+  "actor_steps_between_director_reviews_p50": 12.0,
+  "prompt_tokens": 444429,
+  "completion_tokens": 11132,
+  "cache_hit_rate": 0.157,
+  "game_days_elapsed": 0.01,
+  "wall_hours_per_game_day": 13.01,
+  "start": "day 10 600 FarmHouse",
+  "end": "day 10 620 Farm",
+  "autonomous_wall_seconds": 440.9,
+  "model_time_share": 0.938,
+  "initial_game_state": {
+    "location": "Farm",
+    "day": 10,
+    "time": 600,
+    "stamina": 135,
+    "plantedCrops": 0,
+    "tilledTiles": 16,
+    "wateredCrops": 0,
+    "inventoryCounts": {
+      "Axe": 1,
+      "Hoe": 1,
+      "Watering Can": 1,
+      "Pickaxe": 1,
+      "Scythe": 1,
+      "Fiber": 17,
+      "Mixed Seeds": 1,
+      "Wood": 1,
+      "Parsnip Seeds": 20,
+      "Stone": 2,
+      "Clay": 1
+    }
+  },
+  "final_game_state": {
+    "location": "Farm",
+    "day": 10,
+    "time": 620,
+    "stamina": 113,
+    "plantedCrops": 0,
+    "tilledTiles": 16,
+    "wateredCrops": 0,
+    "inventoryCounts": {
+      "Axe": 1,
+      "Hoe": 1,
+      "Watering Can": 1,
+      "Pickaxe": 1,
+      "Scythe": 1,
+      "Fiber": 17,
+      "Mixed Seeds": 1,
+      "Wood": 2,
+      "Parsnip Seeds": 20,
+      "Stone": 3,
+      "Clay": 1
+    }
+  },
+  "navigation_probe": [
+    {
+      "target": "Farm",
+      "raw_status": "blocked",
+      "raw_reason": "no_progress_toward_(3,12)",
+      "raw_error": null,
+      "final_status": "completed",
+      "final_location": "Farm"
+    },
+    {
+      "target": "BusStop",
+      "raw_status": "blocked",
+      "raw_reason": "no_progress_toward_(80,15)",
+      "raw_error": null,
+      "final_status": "completed",
+      "final_location": "BusStop"
+    },
+    {
+      "target": "Farm",
+      "raw_status": "blocked",
+      "raw_reason": "no_progress_toward_(9,23)",
+      "raw_error": null,
+      "final_status": "completed",
+      "final_location": "Farm"
+    },
+    {
+      "target": "FarmHouse",
+      "raw_status": "blocked",
+      "raw_reason": null,
+      "raw_error": "no_exit_to_location",
+      "final_status": "blocked",
+      "final_location": "Farm"
+    }
+  ]
+}
