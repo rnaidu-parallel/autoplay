@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
 
-from autoplay_harness.overlay import OverlayState, action_summary, argument_gist, atomic_write_json, build_state, create_server
+from autoplay_harness.overlay import OverlayState, _state_directory, action_summary, argument_gist, atomic_write_json, build_state, create_server
 from autoplay_harness.openrouter import OpenRouterClient
 from autoplay_harness.telemetry import Telemetry
 
@@ -207,6 +207,23 @@ class OverlayStateTests(unittest.TestCase):
 
 
 class OverlayIOTests(unittest.TestCase):
+    def test_farmer_name_is_exposed_to_overlay(self) -> None:
+        state = build_state([{"type": "observation", "state": {"playerName": "Neon"}}])
+        self.assertEqual("Neon", state["game"]["playerName"])
+
+    def test_isolated_run_state_overrides_shared_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "run"
+            isolated = run / "state"
+            shared = root / "shared"
+            isolated.mkdir(parents=True)
+            shared.mkdir()
+            self.assertEqual(shared, _state_directory(run, shared))
+            for name in ("objectives", "notebook", "world"):
+                (isolated / f"{name}.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(isolated, _state_directory(run, shared))
+
     def test_atomic_write_is_valid_json(self) -> None:
         path = Path(__file__).resolve().parents[1] / f".overlay-state-{uuid.uuid4()}.json"
         try:

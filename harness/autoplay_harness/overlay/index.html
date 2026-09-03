@@ -55,7 +55,7 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
 .hidden { display:none!important; }
 </style></head><body>
   <section id="operator" aria-label="Operator controls">
-    <h2>Farmer controls</h2>
+    <h2 id="control-title">Farmer controls</h2>
     <div id="control-status" role="status">Connecting</div>
     <p id="control-detail">Commands are received at a safe action boundary. A current action or model request may finish first.</p>
     <button id="finish" disabled>Finish &amp; Save</button>
@@ -99,6 +99,8 @@ function publicOutcome(item, status) {
 }
 function render(state) {
   const run = (state.session || {}).runId;
+  const farmerName = (state.game || {}).playerName || 'Farmer';
+  $('control-title').textContent = `${farmerName} controls`;
   if (run !== renderedRun) {
     $('actions').replaceChildren(); previousKey = null; renderedRun = run; renderedGoal = null;
     clearTimeout(goalTimer); $('new-goal').classList.remove('visible');
@@ -142,7 +144,7 @@ function render(state) {
     const current = index === items.length - 1, outcome = String(item.outcome || '');
     card.className = `action ${current ? 'current' : 'previous'} ${outcome.split(':',1)[0].toLowerCase()}`;
     const set = (selector, value) => { const node=card.querySelector(selector); if(node.textContent!==value)node.textContent=value; };
-    set('.action-label', [item.role === 'operator' ? 'Operator' : 'Farmer',item.gameTime].filter(Boolean).join(' · '));
+    set('.action-label', [item.role === 'operator' ? 'Operator' : farmerName,item.gameTime].filter(Boolean).join(' · '));
     set('.action-say', item.say || item.summary || 'Taking the next step.');
     set('.action-tool', [item.toolName || item.tool,item.gist].filter(Boolean).join(' · '));
     set('.action-outcome', publicOutcome(item,status));

@@ -336,6 +336,7 @@ class OverlayState:
             "status": status,
             "updatedAt": now.isoformat(),
             "game": {
+                "playerName": self.game.get("playerName"),
                 "day": self.game.get("day"),
                 "season": self.game.get("season"),
                 "year": self.game.get("year"),
@@ -574,6 +575,13 @@ def _read_changed(path: Path, signatures: dict[Path, tuple[int, int] | None]) ->
         return None
 
 
+def _state_directory(run_directory: Path, shared_directory: Path) -> Path:
+    isolated = run_directory / "state"
+    if all((isolated / f"{name}.json").is_file() for name in ("objectives", "notebook", "world")):
+        return isolated
+    return shared_directory
+
+
 def main(args: Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     runs = root / "harness" / "runs"
@@ -616,8 +624,9 @@ def main(args: Namespace) -> int:
                 except (TypeError, ValueError) as error:
                     print(f"overlay: skipped malformed event: {error}", file=sys.stderr)
             sources = {}
+            active_state_directory = _state_directory(run_directory, state_directory)
             for name in ("objectives", "notebook", "world"):
-                changed = _read_changed(state_directory / f"{name}.json", signatures)
+                changed = _read_changed(active_state_directory / f"{name}.json", signatures)
                 if changed is not None:
                     sources[name] = changed
             state.update_files(**sources)
