@@ -8,8 +8,9 @@ For exact runtime instructions and function schemas, open the companion [prompt 
 
 ## 1. The whole system
 
-Latest additions: the audience feed now keeps only previous/latest actions and public explanations beside a scaled,
-uncropped game frame. It refreshes on completed decisions and tool outcomes; it does not stream private reasoning.
+Latest additions: the audience feed keeps two farmer messages and readable outcomes beside a scaled,
+uncropped game frame, with the objective above the game. Raw tool details appear only in the operator view.
+It refreshes on completed decisions and tool outcomes; it does not stream private reasoning.
 Shared farmer instructions explicitly cover earning income, retaining useful reserves, replenishing supplies, and
 choosing useful crafts/upgrades. The director reviews needs against cash and inventory and requires observed
 economic milestones. Existing visual/menu controls handle these activities; end-to-end economic behavior remains
@@ -408,7 +409,7 @@ The `--forever` wrapper persists a daily cost ledger, waits until local midnight
 
 ## 15. Narration, overlay and recording
 
-The local overlay server binds to `127.0.0.1`, default port 8765. Its 1920×1080 page reserves a 384-pixel column for the previous/latest actor action, public explanation, tool and outcome. The OBS game frame is scaled to 1536×864 at x=0, y=108, preserving the full HUD. Duplicate statistics and agenda panels are removed from the audience view. `/?operator=1` adds Finish & Save, guidance, Hold unsaved, command receipts and checkpoint status. POST commands require the local origin and current run ID.
+The local overlay server binds to `127.0.0.1`, default port 8765. Its 1920×1080 page reserves a 384-pixel column for two farmer messages, their game timestamps, outcomes and a thinking indicator. The objective occupies the band above the game. The OBS game frame is scaled to 1536×864 at x=0, y=108, preserving the full HUD. Duplicate statistics and agenda panels are removed from the audience view. `/?operator=1` adds raw tool details, Finish & Save, guidance, Hold unsaved, command receipts and checkpoint status. POST commands require the local origin and current run ID.
 
 `say` is available only after the action-selection response arrives. The page checks for updates every 500 ms and shows a thinking indicator during requests. It does not stream private reasoning or simulate typing. The general event list holds 8 entries; two actor/operator actions and their outcomes are retained separately so director reviews cannot evict them. A new run clears them. Outcome updates preserve the displayed message instead of replaying its animation.
 

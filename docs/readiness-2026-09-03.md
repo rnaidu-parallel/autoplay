@@ -4,10 +4,12 @@ The local overlay and broadcast setup are prepared for simultaneous Twitch, Kick
 is complete for the next supervised rehearsal. Connect the channels and verify upload capacity before starting it.
 One successful 30-minute recorded rehearsal remains the public-streaming gate.
 
-Latest review: the audience layout now reserves a 384-pixel right column for the previous and latest action,
-public rationale, tool and outcome. The full game is scaled to 1536×864 beside it; duplicated game stats and
-the bottom ticker are removed. The archived-video preview verifies this composition. Earlier OBS recording
-evidence below used the previous layout. See [activity feed](overlay.md).
+Latest review: the audience layout reserves a 384-pixel right column for two farmer messages, public explanations,
+game timestamps and readable outcomes. The objective sits above the full 1536×864 game. Raw tool details appear
+only in the operator view. The archived replay passes browser checks at 1080p and 720p; ten focused overlay tests pass.
+Clock and money remain readable at 720p, but hotbar counts are tiny. Test a larger game UI scale in the next controlled
+session before public streaming. Game resolution/UI scale are unchanged. Earlier OBS recording evidence below used
+the previous layout. See [activity feed](overlay.md).
 
 Farmer and planner prompts now explicitly cover income, useful reserves, replenishment, crafting and upgrades,
 with observed prerequisites and transaction evidence. These are autonomous intentions using existing controls;

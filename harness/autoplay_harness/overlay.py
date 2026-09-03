@@ -178,6 +178,7 @@ class OverlayState:
             if event.get("applied") is not False and isinstance(event.get("tool"), str):
                 action = {
                     "at": event.get("at"),
+                    "gameTime": _game_time(self.game.get("time")),
                     "role": role,
                     "tool": event["tool"],
                     "toolName": event["tool"],
@@ -201,6 +202,7 @@ class OverlayState:
             result = event.get("result")
             if event.get("source") == "operator_finish":
                 self.actions.insert(0, {"at": event.get("at"), "role": "operator", "tool": event["tool"],
+                                       "gameTime": _game_time(self.game.get("time")),
                                        "toolName": "Return home and save", "say": None, "summary": "Finish & Save",
                                        "gist": "", "outcome": action_outcome(result), "_step": event.get("step")})
                 del self.actions[8:]
@@ -310,8 +312,8 @@ class OverlayState:
         end = self.stopped_at or now
         uptime = max(0, int((end - self.started_at).total_seconds())) if self.started_at else 0
         prompt = self.prompt_tokens
-        actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
-        actor_actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actor_actions]
+        actions = [{key: item[key] for key in ("at", "gameTime", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
+        actor_actions = [{key: item[key] for key in ("at", "gameTime", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actor_actions]
         sayings = self.sayings
         return {
             "status": status,

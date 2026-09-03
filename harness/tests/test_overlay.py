@@ -69,6 +69,17 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual({}, state.pending_requests)
         self.assertEqual("fatal error", state.stop_reason)
 
+    def test_action_keeps_observed_game_time_when_result_advances_clock(self) -> None:
+        state = OverlayState("run-1")
+        state.apply({"type": "observation", "state": {"time": 850}})
+        state.apply({"type": "actor_decision", "step": 1, "tool": "travel_to"})
+        state.apply({"type": "tool_result", "step": 1, "tool": "travel_to",
+                     "result": {"status": "completed", "state": {"time": 910}}})
+        snapshot = state.snapshot(now=self.now)
+        self.assertEqual("9:10 AM", snapshot["game"]["time"])
+        self.assertEqual("8:50 AM", snapshot["actorActions"][0]["gameTime"])
+        self.assertEqual("8:50 AM", snapshot["actions"][0]["gameTime"])
+
     def test_speech_survives_director_updates_and_resets_for_a_new_run(self) -> None:
         state = OverlayState("run-1")
         for line in ("The river looks peaceful.", "I wonder who lives up this path."):

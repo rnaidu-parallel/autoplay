@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Autoplay activity feed</title><style>
-:root { color-scheme:dark; --panel:#141b21; --edge:#303b44; --text:#f4f1e9; --muted:#aeb9c3; --green:#a6d7b1; --amber:#e8ba78; --red:#ef9292; --blue:#9bcbdf; }
+:root { color-scheme:dark; --panel:#201e1b; --edge:#413b33; --text:#f4f1e9; --muted:#bbb4a9; --green:#a6d7b1; --amber:#e8ba78; --red:#ef9292; --blue:#9bcbdf; }
 * { box-sizing:border-box; }
 html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:transparent; color:var(--text); font:20px/1.5 "Segoe UI",sans-serif; }
     #operator { display:none; position:fixed; left:22px; top:22px; width:470px; padding:24px; border:1px solid var(--edge); border-radius:16px; background:var(--panel); z-index:5; }
@@ -17,33 +17,38 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
     #control-receipt { overflow-wrap:anywhere; }
     #checkpoint { font-size:13px !important; overflow-wrap:anywhere; }
 
-#rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:32px 24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
-.eyebrow { color:var(--green); font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-h1 { margin:9px 0 18px; font-size:26px; font-weight:600; letter-spacing:-.03em; }
-#badge { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:14px; }
-#badge::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--green); }
+#rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
+#feed-status { min-height:54px; flex-shrink:0; padding-top:24px; }
+#badge { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:18px; }
+#badge::before { content:""; flex-shrink:0; width:8px; height:8px; border-radius:50%; background:var(--green); }
 #badge.thinking::before { background:var(--blue); animation:pulse 1.6s ease-in-out infinite; }
+#badge.stalled,#badge.restarting { color:var(--amber); }
 #badge.stalled::before,#badge.restarting::before { background:var(--amber); }
+#badge.stopped { color:var(--red); }
 #badge.stopped::before { background:var(--red); }
 @keyframes pulse { 50% { opacity:.3; } }
-#objective { margin-top:30px; }
-#objective .eyebrow { color:var(--muted); }
-#goal { margin-top:9px; font-size:19px; line-height:1.45; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden; }
-#actions { display:flex; flex-direction:column; gap:28px; margin-top:28px; overflow:hidden; }
-.action { border-top:1px solid var(--edge); padding-top:20px; overflow-wrap:anywhere; }
-.action.previous { color:#b8c2ca; }
-.action-label { color:var(--muted); font-size:12px; letter-spacing:.09em; text-transform:uppercase; margin-bottom:10px; }
+#objective { position:absolute; left:0; top:0; width:1536px; height:108px; padding:12px 24px; background:var(--panel); display:flex; align-items:center; gap:24px; }
+#objective-label { width:108px; flex-shrink:0; font-size:16px; color:var(--muted); }
+#new-goal { display:block; color:var(--green); visibility:hidden; }
+#new-goal.visible { visibility:visible; }
+#goal { font-size:26px; line-height:1.4; overflow-wrap:anywhere; text-wrap:balance; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+#caption { position:absolute; left:0; top:972px; width:1536px; height:108px; padding:0 24px; display:flex; align-items:center; color:var(--muted); background:var(--panel); font-size:18px; }
+#actions { display:flex; flex-direction:column; gap:36px; margin-top:auto; overflow:hidden; }
+.action { flex-shrink:0; overflow-wrap:anywhere; }
+.action.previous { color:var(--muted); }
+.action-label { color:var(--muted); font-size:16px; margin-bottom:12px; }
 .action.current .action-label { color:var(--green); }
-.action-say { font-size:21px; line-height:1.5; }
-.action.previous .action-say { font-size:18px; }
-.action-tool { margin-top:16px; color:var(--blue); font:13px/1.5 Consolas,monospace; }
-.action-outcome { margin-top:5px; color:var(--muted); font-size:13px; }
+.action-say { font-size:24px; font-weight:500; line-height:1.5; }
+.action-tool { display:none; margin-top:12px; color:var(--blue); font:16px/1.5 Consolas,monospace; }
+.operator-view .action-tool { display:block; }
+.action-outcome { margin-top:12px; color:var(--muted); font-size:18px; transition:color 150ms; }
+.action-outcome::before { content:'●'; margin-right:12px; font-size:16px; }
 .completed .action-outcome { color:var(--green); }
 .blocked .action-outcome { color:var(--amber); }
 .rejected .action-outcome,.error .action-outcome,.timeout .action-outcome { color:var(--red); }
-#empty { color:var(--muted); font-size:16px; margin-top:30px; }
-#waiting { margin-top:auto; padding-top:20px; color:var(--amber); font-size:13px; visibility:hidden; }
-#waiting.visible { visibility:visible; }
+#empty { color:var(--muted); font-size:18px; }
+#waiting { display:none; color:var(--amber); font-size:18px; }
+#waiting.visible { display:block; }
 .hidden { display:none!important; }
 </style></head><body>
   <section id="operator" aria-label="Operator controls">
@@ -59,25 +64,46 @@ h1 { margin:9px 0 18px; font-size:26px; font-weight:600; letter-spacing:-.03em; 
     <p id="checkpoint"></p>
   </section>
 
+<section id="objective" aria-label="Current objective"><div id="objective-label">Objective<span id="new-goal">New goal</span></div><div id="goal">Choosing what to do next.</div></section>
+<div id="caption">An AI farmer lives here and explains each move.</div>
 <aside id="rail" aria-label="Farmer activity">
-  <header><div class="eyebrow">The farmer</div><h1>Thinking aloud</h1><div id="badge">Waiting for the farmer</div></header>
-  <section id="objective" aria-label="Current objective"><div class="eyebrow">Current objective</div><div id="goal">Choosing what to do next.</div></section>
   <div id="actions" role="log" aria-live="polite"></div>
   <div id="empty">The next action will appear here.</div>
-  <div id="waiting" class="visible" role="status">Waiting for the activity feed…</div>
+  <div id="feed-status" role="status"><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for the activity feed…</div></div>
 </aside>
 <script>
 const $ = id => document.getElementById(id);
-let renderedRun = null, previousKey = null;
+let renderedRun = null, previousKey = null, renderedGoal = null, goalTimer;
+function publicOutcome(item, status) {
+  const outcome = String(item.outcome || ''), kind = outcome.split(':',1)[0].toLowerCase();
+  const reason = outcome.includes(':') ? outcome.slice(outcome.indexOf(':')+1).trim() : '';
+  const label = {completed:'Action finished',blocked:'Couldn’t',rejected:'Couldn’t',error:'Something went wrong',timeout:'Took too long',discarded:'Changed plans'}[kind];
+  if (kind === 'discarded') return label;
+  return label ? label + (reason ? ` — ${reason}` : '') : outcome || (status === 'stopped' ? 'No outcome recorded' : 'Working on it');
+}
 function render(state) {
   const run = (state.session || {}).runId;
-  if (run !== renderedRun) { $('actions').replaceChildren(); previousKey = null; renderedRun = run; }
-  const goal = (state.objective || {}).goal || 'Choosing what to do next.';
-  if ($('goal').textContent !== goal) { $('goal').textContent = goal; $('goal').title = goal; }
+  if (run !== renderedRun) {
+    $('actions').replaceChildren(); previousKey = null; renderedRun = run; renderedGoal = null;
+    clearTimeout(goalTimer); $('new-goal').classList.remove('visible');
+  }
   const status = state.status || 'running', thinking = state.thinking || {};
+  const goal = (state.objective || {}).goal || (status === 'thinking' && thinking.role === 'director' ? 'Deciding what to do today.' : 'Choosing what to do next.');
+  if (renderedGoal !== goal) {
+    $('goal').textContent = goal; $('goal').style.fontSize = '26px';
+    if ($('goal').scrollHeight > $('goal').clientHeight) $('goal').style.fontSize = '22px';
+    if (renderedGoal !== null) {
+      $('goal').animate([{opacity:0},{opacity:1}],{duration:220});
+      clearTimeout(goalTimer);
+      $('new-goal').classList.toggle('visible',Boolean((state.objective || {}).goal));
+      goalTimer = setTimeout(()=>$('new-goal').classList.remove('visible'),4000);
+    }
+    renderedGoal = goal;
+  }
   $('badge').className = status;
-  $('badge').textContent = status === 'thinking' ? `${thinking.role === 'director' ? 'Considering the plan' : 'Choosing the next action'} · ${Math.floor((thinking.sinceMs || 0) / 1000)}s` :
-    ({acting:'Acting',running:'Between actions',stalled:'Finding another way',restarting:'Reconnecting',stopped:'Session stopped'}[status] || status);
+  $('badge').classList.toggle('hidden',status === 'acting' || status === 'running');
+  $('badge').textContent = status === 'thinking' ? `Thinking · ${Math.floor((thinking.sinceMs || 0) / 1000)}s` :
+    ({stalled:'Stuck — looking for another way',restarting:'Reconnecting',stopped:'Session stopped'}[status] || status);
   const items = (state.actorActions || (state.actions || []).filter(a => a.role !== 'director')).slice(0,2).reverse();
   const keys = new Set();
   items.forEach((item, index) => {
@@ -92,15 +118,16 @@ function render(state) {
       $('actions').append(card);
     }
     const current = index === items.length - 1, outcome = String(item.outcome || '');
-    card.className = `action ${current ? 'current' : 'previous'} ${outcome.split(':',1)[0]}`;
+    card.className = `action ${current ? 'current' : 'previous'} ${outcome.split(':',1)[0].toLowerCase()}`;
     const set = (selector, value) => { const node=card.querySelector(selector); if(node.textContent!==value)node.textContent=value; };
-    set('.action-label', current ? 'Latest action' : 'Previous action');
-    set('.action-say', item.say || item.summary || item.toolName || item.tool || 'Action');
+    set('.action-label', [item.role === 'operator' ? 'Operator' : 'Farmer',item.gameTime].filter(Boolean).join(' · '));
+    set('.action-say', item.say || item.summary || 'Taking the next step.');
     set('.action-tool', [item.toolName || item.tool,item.gist].filter(Boolean).join(' · '));
-    set('.action-outcome', outcome || (status === 'stopped' ? 'No outcome recorded' : 'In progress'));
+    set('.action-outcome', publicOutcome(item,status));
     if (fresh && previousKey !== null) card.animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:220});
   });
   for (const node of Array.from($('actions').children)) if(!keys.has(node.dataset.key))node.remove();
+  $('actions').scrollTop = $('actions').scrollHeight;
   previousKey = items.length ? items[items.length-1].at : null;
   $('empty').classList.toggle('hidden',items.length>0);
   $('waiting').classList.remove('visible');
@@ -110,7 +137,7 @@ async function poll() {
     const response = await fetch(`/state.json?t=${Date.now()}`, {cache:'no-store'});
     if (!response.ok) throw new Error('Feed unavailable');
     render(await response.json());
-  } catch (_) { $('waiting').classList.add('visible'); }
+  } catch (_) { $('waiting').textContent = 'Reconnecting to the activity feed…'; $('waiting').classList.add('visible'); $('badge').classList.add('hidden'); }
 }
     const operatorView = new URLSearchParams(location.search).get("operator") === "1";
     let controlRun = null;
@@ -147,6 +174,7 @@ async function poll() {
       } catch (error) { $("control-receipt").textContent = error.message; }
     }
     if (operatorView) {
+      document.body.classList.add('operator-view');
       $("operator").style.display = "block";
       $("finish").onclick = () => command("finish_save");
       $("send-guidance").onclick = () => command("steer");
