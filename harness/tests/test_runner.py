@@ -535,6 +535,8 @@ class RunnerTests(unittest.TestCase):
 
     def test_stall_watchdog_detects_resets_recovers_and_stops(self) -> None:
         harness = object.__new__(AutoplayHarness)
+        harness.attach = False
+        harness.supervisor = Mock(launch_if_needed=True)
         harness.bridge = _Bridge()
         harness.telemetry = Mock()
         harness.stalled_decisions = 0
@@ -1572,6 +1574,24 @@ class LongRunIntegrationTests(unittest.TestCase):
             self.assertEqual(ledger, json.dumps(result["objective_ledger"], sort_keys=True))
             self.assertEqual(last_result, result["game_state"]["harnessLastResult"])
         self.assertEqual(original, json.dumps(harness.notebook.data, sort_keys=True))
+
+    def test_harvest_visual_overflow_preserves_ledger_crops_guidance_and_last_result(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "actor-harvest-context-overflow.json").read_text(encoding="utf-8"))
+        for older_history in (False, True):
+            packet = json.loads(json.dumps(fixture))
+            if older_history:
+                packet["memory"]["recent_events"] = (
+                    [{"type": "director_decision", "arguments": {"goal": "old " * 300}}] * 4
+                    + packet["memory"]["recent_events"][-2:]
+                )
+            original = json.loads(json.dumps(packet))
+            trimmed = json.loads(self.harness._budget_context(packet, "actor"))
+            self.assertLessEqual(len(json.dumps(trimmed, ensure_ascii=False, separators=(",", ":"))) / 3.5, ACTOR_CONTEXT_BUDGET)
+            for key in ("objective_ledger", "operator"):
+                self.assertEqual(original[key], trimmed[key])
+            for key in ("cropsNearby", "inventory", "harnessLastResult"):
+                self.assertEqual(original["game_state"][key], trimmed["game_state"][key])
+            self.assertEqual(original["memory"]["recent_events"][-2:], trimmed["memory"]["recent_events"][-2:])
 
     def test_oversized_protected_context_is_not_sent_or_dropped(self):
         harness = self.harness

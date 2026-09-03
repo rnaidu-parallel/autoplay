@@ -111,9 +111,9 @@ class ScreenCapture:
             pixels = camera.grab(region=(top_left.x, top_left.y, bottom_right.x, bottom_right.y))
         except Exception as error:
             self._release_camera()
-            raise CaptureError(f"DXGI capture failed: {error}") from error
+            raise CaptureError(f"Screen capture failed: {error}") from error
         if pixels is None:
-            raise CaptureError("DXGI did not return a frame for the game window.")
+            raise CaptureError("Screen capture did not return a fresh frame for the game window.")
         image = Image.fromarray(pixels)
         center = image.crop(
             (
@@ -160,18 +160,18 @@ class ScreenCapture:
         if self._camera is not None:
             return self._camera
         errors = []
-        for backend in ("dxgi", "winrt"):
-            for _ in range(3):
-                try:
-                    self._camera = dxcam.create(
-                        backend=backend,
-                        output_color="RGB",
-                        processor_backend="numpy",
-                    )
-                    return self._camera
-                except Exception as error:
-                    errors.append(f"{backend}: {error}")
-                    time.sleep(0.5)
+        # WinRT returned an old title splash while the live game was on the farm.
+        for _ in range(3):
+            try:
+                self._camera = dxcam.create(
+                    backend="dxgi",
+                    output_color="RGB",
+                    processor_backend="numpy",
+                )
+                return self._camera
+            except Exception as error:
+                errors.append(str(error))
+                time.sleep(0.5)
         raise CaptureError("Could not initialize screen capture: " + "; ".join(errors))
 
     def _release_camera(self) -> None:

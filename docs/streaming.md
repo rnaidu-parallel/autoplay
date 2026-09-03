@@ -17,6 +17,8 @@ This replaces the earlier six-hour and two-test-stream proposal. No public broad
 | Gameplay preparation | Entrance-aware return/save verified live. New-work and retry guards pass 204 offline tests. Dialogue selection verified live. |
 | 30-minute rehearsal | On hold until preparation is complete. |
 
+The 2026-09-03 [recorded smoke](smoke-2026-09-03.md) completed 10 minutes plus a verified save, with the current overlay and game audio. Its final run had no capture/context/provider errors. Blocked routes and unfinished harvesting remain quality findings; the 30-minute gate is still pending.
+
 Evidence: [broadcast preflight](../broadcast/preflight-2026-09-03.md). The short capture used the title screen and a
 historical overlay feed. It did not load or change the save. A later route/save check advanced Spring 20 to 21.
 See [current readiness and gameplay evidence](readiness-2026-09-03.md).
@@ -101,10 +103,10 @@ The broadcast preflight used no model calls.
 
 1. Confirm the game save matches the latest checkpoint. See [operator controls](operator-controls.md).
 2. Set `$sessionBudget` to the approved model allowance.
-3. Start the harness from the repository root:
+3. Start SMAPI separately, choose **Windowed** mode, and load the matching save. Then start the harness from the repository root:
 
    ```powershell
-   .\harness\run-harness.ps1 run --continuous --resume-checkpoint --budget-usd $sessionBudget --keep-game-open
+   .\harness\run-harness.ps1 run --continuous --resume-checkpoint --no-launch-game --budget-usd $sessionBudget
    ```
 
 4. Start the overlay feed if it is not running.
@@ -119,6 +121,7 @@ The broadcast preflight used no model calls.
 13. Stop the overlay and close OBS after review.
 
 Do not use `--max-minutes 30` as the save signal: it is a deadline, not a request to return home.
+For a mid-day Python repair, use `--attach` instead of `--resume-checkpoint`. See [repair and reattach](operator-controls.md#repair-python-during-a-recording-or-stream). Attached runs preserve the display mode. Fullscreen desktop capture on this machine failed while OBS continued to show the game; the former WinRT fallback could return an old title splash.
 If a limit ends the harness before saving, keep the game open and complete the save before closing it.
 Finish & Save does not stop OBS or the broadcasts.
 

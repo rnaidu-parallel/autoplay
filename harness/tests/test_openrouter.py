@@ -106,10 +106,12 @@ class OpenRouterClientTests(unittest.TestCase):
             "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
         client.choose_tool("static", "state", None, ACTOR_TOOLS)
-        client.choose_tool("static", "state", None, ACTOR_TOOLS, reasoning_effort="medium")
+        client.choose_tool("static", "state", None, ACTOR_TOOLS, reasoning_effort="medium", max_tokens=2400)
+        client.choose_tool("static", "state", None, ACTOR_TOOLS)
         payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
         self.assertEqual({"effort": "low"}, payloads[0]["reasoning"])
         self.assertEqual({"effort": "medium"}, payloads[1]["reasoning"])
+        self.assertEqual([600, 2400, 600], [payload["max_tokens"] for payload in payloads])
 
     @patch("urllib.request.urlopen")
     def test_official_trial_rejects_wrong_or_missing_provider_without_response_retry(self, urlopen):

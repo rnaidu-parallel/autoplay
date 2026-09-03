@@ -65,6 +65,7 @@ class AutoplayHarness:
         max_minutes: int | None = None,
         forever: bool = False,
         resume_checkpoint: bool = False,
+        attach: bool = False,
     ) -> None:
         if max_actions < 1 or max_decisions < 1 or director_interval < 1:
             raise HarnessError("max_actions, max_decisions, and director_interval must be positive.")
@@ -96,7 +97,8 @@ class AutoplayHarness:
         self.objective_decision_id: str | None = None
         self.objective_decisions = 0
         self.stop_reason: str | None = None
-        self.keep_game_open = keep_game_open
+        self.keep_game_open = keep_game_open or not launch_game
+        self.attach = attach
         self.continuous = continuous
         self.title_screen_ready = False
         self.latest_wiki_results: list[dict[str, Any]] = []
@@ -169,11 +171,19 @@ class AutoplayHarness:
         )
         try:
             self.bridge = self.supervisor.connect_bridge()
-            self._observe()
-            display_response = self.bridge.request("set_display_mode", mode="borderless")
-            if display_response.get("status") != "completed":
-                raise HarnessError(f"Could not enable borderless full-screen mode: {display_response}")
-            time.sleep(3)
+            state, _ = self._observe()
+            if self.attach and not state.get("worldReady"):
+                raise HarnessError("Attach requires an already loaded game. Load the save before attaching.")
+            if not self.attach and self.supervisor.launch_if_needed:
+                display_response = self.bridge.request("set_display_mode", mode="borderless")
+                if display_response.get("status") != "completed":
+                    raise HarnessError(f"Could not enable borderless full-screen mode: {display_response}")
+                time.sleep(3)
+            if (self.attach or self.resumed_checkpoint) and (state.get("menu") or "").startswith("GameMenu"):
+                response = self.bridge.request("press", buttons=["Escape"])
+                if response.get("status") != "completed" or (response.get("state", {}).get("menu") or "").startswith("GameMenu"):
+                    raise HarnessError("Could not close the handoff menu while attaching.")
+                self.telemetry.record("handoff_resumed", {"state": response.get("state")}, include_recent=False)
             self._ensure_world_loaded()
             if self.resumed_checkpoint:
                 state, _ = self._observe()
@@ -495,6 +505,10 @@ class AutoplayHarness:
                 raise HarnessError(f"Observation failed: {response}")
             state = response.get("state") or {}
             if state.get("worldReady") and state.get("gameActive") is False:
+                handle = self.capture._find_game_window()
+                if handle:
+                    self.capture._raised_handle = handle
+                    self.capture._activate_window(handle)
                 for focus_attempt in range(1, 3):
                     self.bridge.request("focus")
                     self.bridge.request("wait", field="game_active", value="true", ticks=120)
@@ -1054,7 +1068,8 @@ class AutoplayHarness:
         context = json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         decision = self.client.choose_tool(system_prompt, context, None if tools is STATE_ACTOR_TOOLS else frame.data_url,
                                            tools, cache_namespace=role, stable_context=stable_context,
-                                           reasoning_effort=getattr(self, "director_reasoning_effort", None) if role == "director" else None)
+                                           reasoning_effort=getattr(self, "director_reasoning_effort", None) if role == "director" else None,
+                                           max_tokens=2400 if role == "director" else None)
         model_ms = round((time.perf_counter() - started) * 1000)
         return decision, model_ms
 
@@ -1617,9 +1632,10 @@ class AutoplayHarness:
         if self.bridge is not None:
             self.bridge.close()
         self.bridge = self.supervisor.connect_bridge()
-        display_response = self.bridge.request("set_display_mode", mode="borderless")
-        if display_response.get("status") != "completed":
-            raise HarnessError(f"Could not restore borderless full-screen mode after reconnect: {display_response}")
+        if not self.attach and self.supervisor.launch_if_needed:
+            display_response = self.bridge.request("set_display_mode", mode="borderless")
+            if display_response.get("status") != "completed":
+                raise HarnessError(f"Could not restore borderless full-screen mode after reconnect: {display_response}")
 
     @staticmethod
     def _movement_key(
@@ -1714,7 +1730,9 @@ class AutoplayHarness:
         elif self.stalled_decisions == 16:
             assert self.bridge is not None
             focus = self.bridge.request("focus")
-            display = self.bridge.request("set_display_mode", mode="borderless")
+            display = {"status": "preserved"}
+            if not self.attach and self.supervisor.launch_if_needed:
+                display = self.bridge.request("set_display_mode", mode="borderless")
             self.telemetry.record(
                 "stall_recovery_attempted",
                 {"count": self.stalled_decisions, "focus": focus.get("status"),
@@ -1790,7 +1808,7 @@ class AutoplayHarness:
         initial_tokens = len(context) / 3.5
         cuts = []
         for field in ("wiki_results", "history_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories",
-                      "director_nearby_objects", "director_farm_layout"):
+                      "director_nearby_objects", "director_farm_layout", "actor_tillable_tiles", "older_action_history"):
             if len(context) / 3.5 <= budget:
                 break
             if field in {"wiki_results", "history_results"}:
@@ -1825,6 +1843,13 @@ class AutoplayHarness:
             elif field == "director_farm_layout":
                 if role == "director":
                     packet["game_state"].pop("farmLayout", None)
+            elif field == "actor_tillable_tiles":
+                if role == "actor" and isinstance(packet["game_state"].get("tillableNearby"), list):
+                    packet["game_state"]["tillableNearby"] = packet["game_state"]["tillableNearby"][:6]
+            elif field == "older_action_history":
+                recent = packet["memory"].get("recent_events", [])
+                while len(recent) > 2 and len(serialize()) / 3.5 > budget:
+                    recent.pop(0)
             elif field == "interaction_memories":
                 memories = (packet.get("notebook") or {}).get("interactions", [])
                 while memories and len(serialize()) / 3.5 > budget:

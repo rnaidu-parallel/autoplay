@@ -133,6 +133,7 @@ class OpenRouterClient:
         cache_namespace: str = "agent",
         stable_context: str | None = None,
         reasoning_effort: str | None = None,
+        max_tokens: int | None = None,
     ) -> ToolDecision:
         payload = {
             "model": self.model,
@@ -149,7 +150,7 @@ class OpenRouterClient:
             ],
             "tools": tools,
             "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.LUNA_MODEL} else "auto",
-            "max_tokens": self.max_tokens,
+            "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
             "session_id": f"{self.run_id}:{cache_namespace}",
             "provider": self.PROVIDER_PREFERENCES[self.model],
         }

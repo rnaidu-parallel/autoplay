@@ -42,6 +42,7 @@ def main() -> int:
     run_parser.add_argument("--objective")
     run_parser.add_argument("--success-condition")
     run_parser.add_argument("--resume-checkpoint", action="store_true", help="Resume the latest verified game/harness checkpoint; reject a changed game save.")
+    run_parser.add_argument("--attach", action="store_true", help="Attach one run to an already loaded game using current shared state, without restoring a checkpoint.")
     run_parser.add_argument("--max-actions", type=int, default=10)
     run_parser.add_argument("--max-decisions", type=int, default=15)
     run_parser.add_argument("--director-interval", type=int, default=12)
@@ -136,10 +137,15 @@ def main() -> int:
         return 0
 
     if arguments.command == "run":
+        if arguments.attach:
+            if arguments.resume_checkpoint or arguments.isolated_state or arguments.objective or arguments.success_condition or arguments.forever:
+                parser.error("--attach uses current shared state for one run; omit checkpoint, objective, isolated-state and forever options")
+            if not all((root / "harness" / "state" / name).is_file() for name in ("objectives.json", "notebook.json", "world.json")):
+                parser.error("--attach requires existing shared objectives, notebook and world state")
         if arguments.resume_checkpoint and (arguments.isolated_state or arguments.objective or arguments.success_condition):
             parser.error("--resume-checkpoint uses shared checkpoint objectives; omit --isolated-state, --objective and --success-condition")
-        if not arguments.forever and not arguments.resume_checkpoint and (arguments.objective is None or arguments.success_condition is None):
-            parser.error("run requires --objective and --success-condition unless --forever or --resume-checkpoint is set")
+        if not arguments.forever and not arguments.resume_checkpoint and not arguments.attach and (arguments.objective is None or arguments.success_condition is None):
+            parser.error("run requires --objective and --success-condition unless --forever, --resume-checkpoint or --attach is set")
         if arguments.forever and ((arguments.objective is None) != (arguments.success_condition is None)):
             parser.error("--objective and --success-condition must be provided together")
         if arguments.forever and arguments.isolated_state:
@@ -168,7 +174,7 @@ def main() -> int:
                 max_actions=arguments.max_actions,
                 max_decisions=arguments.max_decisions,
                 director_interval=arguments.director_interval,
-                launch_game=not arguments.no_launch_game,
+                launch_game=not (arguments.no_launch_game or arguments.attach),
                 save_frames=arguments.save_frames,
                 keep_game_open=arguments.keep_game_open and not arguments.forever,
                 continuous=arguments.continuous,
@@ -183,6 +189,7 @@ def main() -> int:
                 max_minutes=arguments.max_minutes,
                 forever=arguments.forever,
                 resume_checkpoint=arguments.resume_checkpoint,
+                attach=arguments.attach,
             )
             # Restoration is a one-time startup operation, not a supervisor retry.
             arguments.resume_checkpoint = False

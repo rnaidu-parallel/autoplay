@@ -43,6 +43,26 @@ Guidance remains in the farmer's context until replaced, until the harness verif
 
 Commands are cooperative. They can wait for a model request or a local multi-step controller. They do not instantly cancel an in-flight input. Each pipe response has a 90-second deadline; a logical model request has a 150-second budget. These are separate limits, not a total command-latency guarantee. Normal gameplay keeps the clock running. The handoff menu can pause it normally after input stops.
 
+## Repair Python during a recording or stream
+
+Start SMAPI separately in **Windowed** mode and load the game before attaching the harness. OBS scales its game-only capture into the existing stream layout. On this machine, fullscreen desktop capture failed and the WinRT fallback returned an old title splash; Windowed DXGI capture was verified against the live farm and menu changes. OBS and the overlay remain separate processes.
+
+1. Select **Hold unsaved** if the harness is still responding.
+2. Wait for the run to close and verify that the game is paused in its normal menu. If the bridge cannot respond, pause the game manually before debugging.
+3. Edit and test the Python code.
+4. Set `$sessionBudget` to the remaining approved allowance. Each new run starts its own cost counter.
+5. Start a fresh Python process from the repository root:
+
+   ```powershell
+   .\harness\run-harness.ps1 run --continuous --attach --budget-usd $sessionBudget
+   ```
+
+6. Verify that the farmer continues from the current game state and that the overlay shows the new run.
+
+`--attach` requires a loaded game and existing shared objectives, notebook and world files. It preserves the chosen display mode, including after a bridge reconnect. It never launches the game or restores checkpoint state. It closes an open handoff GameMenu before requesting model decisions. It leaves the game open and attempts a normal menu pause on exit. A broken bridge or abrupt process termination can prevent that pause; verify it before leaving the farmer unattended. Guidance and in-flight conversations do not carry over; persisted objectives and memories do.
+
+Do not use `--resume-checkpoint` for a mid-day repair. It restores the harness files to the checkpoint even when the live game has unsaved progress. The overlay's `--run latest` follows the replacement run; OBS recording continues and run-specific overlay counters reset. `--forever` retries inside the same Python process and does not load edited Python modules. C# mod changes require a game restart; use the OBS **Break** scene during that repair.
+
 ## Resume a saved session
 
 1. Keep the checkpoint's game save in place. Do not replace it with an older copy.
