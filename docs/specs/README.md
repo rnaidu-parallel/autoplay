@@ -1,21 +1,18 @@
 # Pending work specs
 
-Status 2026-09-03: memory, narration, operator controls, and route/work fixes are implemented; 204 tests pass. Context JSON budgets are accepted. Four recorded
-attempts were evaluated; none passed the 30-minute gate. Continuous time and short retry limits are implemented. See
-[`../memory-narration-review.md`](../memory-narration-review.md) for evidence and the complete run command.
+Status 2026-09-03: memory, narration, operator controls, and capture/attach repairs are implemented; 220 tests pass. The [recorded smoke](../smoke-2026-09-03.md) completed with a verified save. The 30-minute gate remains pending.
 
-Self-contained briefs for the next packages, written 2026-09-03. Each is meant to be handed to a worker
-(Codex `codex exec --sandbox workspace-write "Read and implement docs/specs/<file>"`) and reviewed by the
-session before commit. Order:
+## Current proposed work
 
-1. `longrun-memory-part1.md` — notebook lessons/variety/roll-up, context caps, cache and latency report (no runner changes).
-2. `narration-and-overlay-trace.md` — `say` on every actor tool, speech panel, three-line trace cards (independent of 1).
-3. `longrun-memory-part2.md` — runner integration: variety validation, auto lessons, context budgets, stable block.
-4. After channel connections and upload verification: one 30-minute OBS recording with the overlay feed running.
-   Use the current command, approved budget, Finish & Save procedure, and checklist in [streaming.md](../streaming.md).
-   `--max-minutes` is a deadline, not a graceful save request. The earlier $0.60 allowance has $0.272980 remaining.
+[Continuous farm life](continuous-farm-life.md) incorporates Rahul's VOD feedback: 4–6 visible turns, interruptible travel, encounters, quest/journal/mail handling, persistent intentions and remembered curiosity. It deliberately revises compulsory daily agendas/themes and the two-turn feed limit. It is a plan; runtime changes are not implemented yet.
 
-`longrun-memory.md` is the full parent spec that parts 1 and 2 split.
+Implement and validate its focused scenarios before another full rehearsal. Use the remaining approved allowance, the Windowed attach workflow, and Finish & Save from [streaming.md](../streaming.md). `--max-minutes` is a deadline, not a graceful save request. Channel/upload preparation and reviewed recording remain prerequisites for public output.
 
-Gotcha: when launching `codex exec` from a non-interactive shell, redirect stdin (`< /dev/null` or `< NUL`) or
-Codex waits forever on "Reading additional input from stdin".
+## Earlier implementation briefs
+
+- [Memory part 1](longrun-memory-part1.md): notebook lessons/variety/roll-up, context caps, cache and latency report.
+- [Narration and overlay trace](narration-and-overlay-trace.md): actor narration and initial stream presentation.
+- [Memory part 2](longrun-memory-part2.md): runner integration, variety validation and stable context.
+- [Parent memory spec](longrun-memory.md).
+
+These retain historical design context. The current plan takes precedence where daily quotas and presentation conflict.
