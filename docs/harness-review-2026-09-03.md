@@ -1,6 +1,6 @@
 # Autoplay: implementation review
 
-Source snapshot: `a0919cb`, 3 September 2026. This is a review of the Python harness and C# game bridge, with implementation findings separated from recorded gameplay evidence. No game or model calls were started for this review.
+Source snapshot: `3b4b4a8`, 3 September 2026. Updated after Rahul's feedback: the farmer may interrupt tasks, choose a new objective without director approval, and form preferences autonomously. This is a review of the Python harness and C# game bridge, with implementation findings separated from recorded gameplay evidence. No game or model calls were started for this review or the autonomy update.
 
 **Current assessment:** the core control loop, memory, farmer persona, and readable overlay exist. The system remains a prototype for supervised play. A clean 30-minute autonomous recording and autonomous nightly save are still outstanding.
 
@@ -41,13 +41,13 @@ The model does not receive shell access, arbitrary Python, save-editing commands
 
 | Area | Current state |
 | --- | --- |
-| Runtime revision | `a0919cb`; farmer persona at `5281384`, cursor behavior at `a0919cb` |
+| Runtime revision | `3b4b4a8` farmer autonomy; initial persona at `5281384`, cursor behavior at `a0919cb` |
 | Processes | Game, recorder, overlay and owned helpers stopped after the earlier checks |
 | Last verified game save | Spring 19, 06:00; reached through manual cleanup after the last rehearsal |
 | Persistent harness notebook | Days 17 and 18; 16 lessons, 6 learned facts, 0 weekly summaries, **0 interaction memories** |
 | Objective ledger | No active objective; 55 historical objectives, 74 progress entries, 1 opportunity |
 | World memory | Last harness observation: Farm, day 18; 8 visited names; Farm → FarmHouse blocked on day 18 |
-| Tests | Last completed suite: 181 passing Python tests; no provider/game connection in that suite |
+| Tests | Last completed suite: 185 passing Python tests; no provider/game connection in that suite |
 | Live validation | Four rehearsal attempts; none passed the 30-minute gate |
 
 The game save and harness state are separate persistence systems. Manual play advanced the save to day 19 without running the farmer loop, so day-18 harness state is expected here. A fresh run must observe the game, plan the new day, and select a new objective. It cannot resume a non-existent active ledger goal.
@@ -83,21 +83,23 @@ The Python main thread waits during an actor request. The farmer therefore often
 | --- | --- | --- | --- |
 | Purpose | Choose a verified local skill or travel action | Handle detailed controls, menus and uncertain interactions | Plan the day and preserve a coherent objective |
 | Image sent | No | Yes | Yes |
-| Tools normally sent | 13 | 25 | 6 |
+| Tools normally sent | 15 | 26 | 6 |
 | Can send game input | Through a limited set of controllers | Through controllers and direct controls | No |
-| Can choose a new objective | No | No | Yes, only when none is active |
+| Can choose a new objective | Yes, including interruption | Yes, including interruption | Yes, only when none is active |
 | Writes interaction memories | Yes | Yes | No |
 | Speaks through `say` | Yes | Yes | No dedicated `say` field |
 
-State-only mode is selected when the world is loaded, the player is free and can move, no menu/event/minigame is active, and there are no nearby NPCs or dialogue choices. It is not a confidence score or a semantic assessment of the task.
+State and visual are two modes of the same actor. They share the farmer identity, objective and selected memories; they do not communicate through a separate conversation. State mode avoids sending an image and exposes a smaller tool set to reduce request size. Visual mode supplies the image and full ordinary controls for detailed interaction.
 
-`inspect_scene` asks for a visual decision on the following cycle. It costs a model decision itself. The harness still captures screenshots during ordinary observation even when the image is omitted from the model request.
+State-only mode is selected when the world is loaded, the player is free and can move, no menu/event/minigame is active, and there are no nearby NPCs or dialogue choices. It is not a confidence score or a semantic assessment of the task. Visual details absent from structured state may go unnoticed in state mode.
+
+`inspect_scene` asks for a visual decision on the following cycle. It costs a model decision itself. Python chooses the mode again afterward. The harness still captures screenshots during ordinary observation even when the image is omitted from the model request. A usual action uses one actor call, not three calls through state, visual and director. A state-to-visual inspection uses two actor calls; director calls occur separately for planning/reviews, and transport/validation retries can add physical API attempts.
 
 Routine director reviews start after 12 counted game controls by default. A single background thread performs the model request while the actor continues. The result is accepted only if the snapshot remains compatible and the tool is `continue_objective`. Old reviews, blocking proposals, and other non-routine decisions are discarded. Discarded calls still cost money.
 
 Snapshot compatibility includes objective, location, calendar date, menus/events, inventory, crop counts, money, health, and whether stamina is low. Ordinary position and clock movement do not invalidate routine reviews. New objectives, agenda creation, farm planning, and bedtime reflection use synchronous calls. Special planning calls expose only the relevant single tool, not all six director tools.
 
-Sources: [runner.py](E:/Claude/autoplay/harness/autoplay_harness/runner.py:137), [state_actor.py](E:/Claude/autoplay/harness/autoplay_harness/state_actor.py:76).
+Sources: [runner.py](E:/Claude/autoplay/harness/autoplay_harness/runner.py:137), [state_actor.py](E:/Claude/autoplay/harness/autoplay_harness/state_actor.py:81).
 
 ## 5. Persona and instruction layers
 
@@ -105,7 +107,7 @@ The shared identity begins:
 
 > You are a farmer making a home in Pelican Town. This is your daily life: a patch of land to care for, neighbors to get to know, and a world full of things you have yet to understand.
 
-It asks for curiosity, warmth, a slightly wry voice, and preferences developed through experience. It forbids invented friendships, favorites and memories. A safe nearby interaction can fit an existing commitment; a substantial detour should become a later opportunity.
+It asks for curiosity, warmth, a slightly wry voice, and preferences developed through experience. It forbids invented friendships and memories. Surprise encounters may interrupt work immediately, including unplanned trips. The actor can use `change_objective` to adopt a substantial new pursuit; unfinished work stays in history and linked agenda items return to pending. It chooses which opportunities to postpone.
 
 The actual prompt assembly is:
 
@@ -119,7 +121,7 @@ The full reference includes controls, tool selection, crops, pathfinding, door h
 
 The actor must choose exactly one tool. Every actor tool requires `say`, a first-person, present-tense line of at most 140 characters. The line should describe an observation or intention without tool names, coordinates, or being an AI. This is public narration generated with the action; it is not a transcript of private reasoning. There is no separate narrator model or text-to-speech engine.
 
-Your roleplay direction is represented in the instructions, but the character still operates inside a strict agenda/milestone loop. Enjoyment and curiosity influence model choice through text; no numerical curiosity drive, mood system, preference utility function, or independent exploration scheduler exists.
+The agenda is now a revisable intention. The farmer chooses when to interrupt or resume it and weighs responsibilities, dislikes, health, energy and safe return itself. Preference strength and revision are also autonomous: no forced tentative stage or encounter-count threshold exists. Structured success conditions, honest outcomes and failed-target retry limits still apply. Enjoyment and curiosity influence model choice through text; no numerical curiosity drive or mood system exists.
 
 Sources: [prompts.py](E:/Claude/autoplay/harness/autoplay_harness/prompts.py:1), [state_actor.py](E:/Claude/autoplay/harness/autoplay_harness/state_actor.py:9).
 
@@ -168,9 +170,9 @@ Measured from the current source using the same character estimator:
 
 | Default role request | System characters | Tool-schema characters | Estimated fixed text tokens, before context/image |
 | --- | ---: | ---: | ---: |
-| State actor, 13 tools | 6,239 | 9,642 | 4,537.4 |
-| Visual actor, 25 tools | 11,705 | 18,211 | 8,547.4 |
-| Director, 6 tools | 14,844 | 3,632 | 5,278.9 |
+| State actor, 15 tools | 6,867 | 11,298 | 5,190.0 |
+| Visual actor, 26 tools | 12,883 | 19,343 | 9,207.4 |
+| Director, 6 tools | 15,713 | 3,632 | 5,527.1 |
 
 These are source-size estimates, not billed counts. The former rehearsal's measured token totals predate the latest persona addition, so they are historical evidence rather than a measurement of today's prompts.
 
@@ -189,14 +191,15 @@ The objective ledger and last-result fields remain protected. If allowed cuts ar
 
 Stable prefix construction places objective ledger, notebook and world before dynamic data; nested keys are sorted and audit timestamps removed. Luna requests use an explicit cache key hashed from model, system instructions, schemas and stable context, with a requested 30-minute TTL. The stable block carries the cache breakpoint. This is a request for provider caching, not a guarantee of a hit. Changes to notebook/world/objective content can change the prefix and cache key.
 
-Sources: [context assembly](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1485), [HTTP request construction](E:/Claude/autoplay/harness/autoplay_harness/openrouter.py:126).
+Sources: [context assembly](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1534), [HTTP request construction](E:/Claude/autoplay/harness/autoplay_harness/openrouter.py:126).
 
 ## 8. Complete runtime tool inventory
 
-All actor tools require `say`; it is omitted below for readability. **S+V** means state and visual actors; **V** means visual only; **S** means state only. There are 25 visual tools, 13 state tools, and 26 distinct actor tool names across both modes.
+All actor tools require `say`; it is omitted below for readability. **S+V** means state and visual actors; **V** means visual only; **S** means state only. There are 26 visual tools, 15 state tools, and 27 distinct actor tool names across both modes.
 
 | Tool | Modes | Main arguments | Behavior/proof |
 | --- | --- | --- | --- |
+| `change_objective` | S+V | goal, success_condition, milestone, reason, optional agenda_id | Adopt a new pursuit without director approval; preserve the prior objective as interrupted. |
 | `remember_interaction` | S+V | subject, interaction, outcome, preference, note | Save the last attempted interaction and reaction; no game input. |
 | `plant_nearest_seeds` | S+V | seed_slot 0–11, count 1–6 | Select nearby empty soil; verify each crop and seed decrement. |
 | `plant_seeds` | V | seed_slot 0–11, 1–6 tiles | Same controller, explicit target tiles. |
@@ -219,7 +222,7 @@ All actor tools require `say`; it is omitted below for readability. **S+V** mean
 | `idle` | V | ticks 1–600 | Intentional waiting without input. |
 | `choose_dialogue_response` | V | index 0–20 | Activate the visible game's response component. |
 | `objective_progress` | V | note, evidence | Append a progress claim; does not itself complete an objective. |
-| `record_opportunity` | V | note, reason | Queue a later idea; does not change the objective. |
+| `record_opportunity` | S+V | note, reason | Queue an idea the farmer chooses to postpone; does not change the objective. |
 | `wiki_search` | S+V | query | Search/read Stardew Wiki; cache exact normalized queries in memory. |
 | `stop_session` | S+V | reason | Behavior depends on continuous/forever mode; see below. |
 | `inspect_scene` | S | none | Request a visual actor call next cycle. |
@@ -239,7 +242,7 @@ Allowed keys: W/A/S/D, LeftShift, X, C, E, Escape, F, M, Y, N, Tab, D0–D9, Oem
 
 Schemas reject additional fields and check types, numeric limits, enums, array bounds, and maximum string lengths. The client implements a subset of JSON Schema itself. Some text fields are unbounded, and minimum string length is not generally checked there; the interaction notebook adds its own nonempty validation.
 
-Sources: [tools.py](E:/Claude/autoplay/harness/autoplay_harness/tools.py:1), [execution dispatch](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1049).
+Sources: [tools.py](E:/Claude/autoplay/harness/autoplay_harness/tools.py:1), [execution dispatch](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1051).
 
 ## 9. What “skills” means here
 
@@ -261,13 +264,13 @@ Sources: [farming.py](E:/Claude/autoplay/harness/autoplay_harness/farming.py:14)
 
 ## 10. Objectives, daily plans and completion
 
-Objectives have a human-readable goal, a milestone, and a machine-evaluated success condition. Only one is active. The actor cannot replace it. The harness checks completion before actor decisions and after results, and records evidence automatically.
+Objectives have a human-readable goal, a milestone, and a machine-evaluated success condition. Only one is active. The actor can replace it with `change_objective`, giving a reason and a currently false structured condition. The prior objective is saved as interrupted, not completed or failed; its agenda item becomes pending. The actor can resume an unfinished agenda item by its ID. Short spontaneous interactions require no objective change. The harness checks completion before actor decisions and after results, and records evidence automatically.
 
 Conditions are conjunctions of structured comparisons, separated by commas or `and`. Operators: `is`, `=`, `==`, `!=`, `>`, `>=`, `<`, `<=`. There is no `or`, event-sequence language, temporal logic, or built-in “increase since objective start” operator. Inventory conditions resolve by item name; absent items count as zero.
 
 For example, `inventory.Wood >= 50` proves possession of at least 50 wood. It does not prove 50 wood were gathered during this objective. Likewise, `plantedCrops >= 15` describes observed crops in the current location. Existing crops can satisfy it after travel. This exact distinction caused a false claim of new planting in the rehearsal.
 
-New objective proposals are rejected if already true, unsupported by available fields, tied to an invalid agenda item, or equivalent to a target deferred earlier that day. A necessary bedtime return can reopen a deferred home target. The selected agenda ID is validated, but slot order is primarily directed by prompt/feedback rather than a general scheduling optimizer.
+New objective proposals are rejected if already true, unsupported by available fields, tied to an invalid agenda item, or equivalent to a target deferred earlier that day. Actor changes also cannot reword the current target to reset its retry accounting. Self-chosen objectives without agenda items retain dated retry-deferral evidence in history, so the actor and director cannot reopen them unchanged that day. A necessary bedtime return can reopen a deferred home target. Actor-chosen new pursuits need no agenda ID; the director still follows the existing agenda-selection validation. Slots are suggestions that the farmer may reorder.
 
 Planning asks for 5–8 morning-plan items across day slots, an evening item, exploration while unvisited places remain, accounted-for carried items, and varied categories. Refills request 2–4 more tasks before bedtime. Categories are farming, clearing, exploring, social, shopping, fishing, mining, foraging, crafting, event, home.
 
@@ -275,7 +278,7 @@ Planning asks for 5–8 morning-plan items across day slots, an evening item, ex
 
 Farm zones persist once created. Plant/till controllers reject targets outside a crops zone on the Farm. Other zone purposes mostly guide planning; they are not a universal zoning enforcement system over every generic control.
 
-Sources: [objectives.py](E:/Claude/autoplay/harness/autoplay_harness/objectives.py:161), [planning](E:/Claude/autoplay/harness/autoplay_harness/runner.py:630), [director validation](E:/Claude/autoplay/harness/autoplay_harness/runner.py:946).
+Sources: [objectives.py](E:/Claude/autoplay/harness/autoplay_harness/objectives.py:161), [planning](E:/Claude/autoplay/harness/autoplay_harness/runner.py:633), [director validation](E:/Claude/autoplay/harness/autoplay_harness/runner.py:949).
 
 ## 11. Memory: storage, learning and forgetting
 
@@ -292,7 +295,7 @@ Lessons are either automatic feedback from failures or model-written reflection 
 
 The interaction journal stores location, subject, interaction, possible/unavailable/unknown, liked/disliked/neutral/undecided, note, full date/time, encounter count and compact source evidence. Repeated normalized location+subject+interaction keys update an aggregate, retain the prior report, and increase the encounter count.
 
-The actor can record only after an actual attempted input. Successful recording consumes that pending evidence. Unavailable or unknown requires an undecided preference; a failed control cannot be labeled possible; travel alone cannot establish that an interaction is unavailable.
+The actor can record only after an actual attempted input. Successful recording consumes that pending evidence. The farmer chooses its reaction independently of the factual outcome: an unavailable or uncertain interaction may still be liked or disliked. A failed control cannot be labeled possible; travel alone cannot establish that an interaction is unavailable. No minimum number of experiences or externally chosen confidence threshold governs preferences.
 
 These checks ground the record but do not independently identify the exact object affected. The model supplies the subject and interpretation. `completed` proves the control ran, not the claimed social or emotional effect. A pending interaction is not an immutable screenshot or a full before/after state diff.
 
@@ -303,6 +306,28 @@ Interaction records have no total disk-count cap; unique keys can accumulate. Th
 **Calendar limitation found in code:** agendas and much world history use day-of-month integers, not year/season/day. The sleep controller checks `new day == previous day + 1`. Season boundaries therefore need correction and tests before claiming long-run continuity. This is a source finding, not an observed failure in the Spring 18 rehearsal.
 
 Source: [notebook.py](E:/Claude/autoplay/harness/autoplay_harness/notebook.py:49).
+
+### Long-session context, audit history and restart
+
+**Context growth:** requests do not append every earlier message. Selected history windows and JSON trimming keep model context approximately bounded rather than inherently linear or exponential in session duration. This is not yet a guarantee of indefinite operation: today's agenda and some protected text can grow, and a packet that still exceeds the cap fails before sending. Fixed prompt/tool overhead is additional. The on-disk event archive grows approximately with the number and size of events; it is not injected wholesale into the model.
+
+**Observability:** every returned actor/director decision and tool result is logged, with observations, arguments, timing, errors and returned usage. Controller results include control counts/timings and verified outcomes; this is not necessarily a frame-by-frame or every-key replay. No log can record an API response that never returns. Screenshots require `--save-frames`. Video defaults to rolling retention unless set to zero. Existing run directories have no general automatic retention policy in the harness.
+
+**Agent access:** there is currently no tool for searching old actions, completed/interrupted objectives, logs or arbitrary notebook entries. The actor receives a bounded recent window, objective-history tail and selected memories. The archive is available to developers for debugging, but that does not give the farmer access to it. A future archive-search tool should return a small relevant selection with source IDs, rather than load whole runs into context; that tool is not implemented by this update.
+
+**Restart:** notebook, objective ledger and world knowledge survive a new harness run; recent in-memory events, pending interaction evidence and wiki cache do not. Stardew resumes at its last actual nightly save, not at the last JSON observation. Killing a mid-day game loses unsaved game progress while the independently written harness files may already reflect it. A reliable checkpoint needs a verified game save and a corresponding harness-state snapshot/restore. That coordinated checkpoint mechanism is not present yet. Full calendar bookkeeping must also be corrected before multi-season continuity can be trusted.
+
+### Operator signals: intended behavior versus current capability
+
+Rahul's expected control model is an operator signal to finish a stream by saving/stopping, plus signals to steer the farmer during play. The following is a proposed control contract, not implemented functionality:
+
+| Signal | Intended effect |
+| --- | --- |
+| Finish and save | Stop accepting new activities; return home through normal controls; sleep; verify the game's save count/new-day readiness; capture corresponding harness state; stop only after success. If blocked, report it and keep the game open. |
+| Steer: free-text guidance | Deliver operator guidance at the next safe action boundary, acknowledge it, and let the farmer adjust its current intention. Preserve unfinished work and record the guidance with the resulting decisions. |
+| Emergency stop | Release controls immediately, stop autonomous input, leave the game open and report that current progress may be unsaved. |
+
+Stardew normally saves overnight, so finish-and-save is not an instant mid-day checkpoint. Current bedtime restrictions and route recovery would need an explicit operator-shutdown path. Current `harness/state/STOP` is a supervisor stop request checked between runs; it is not a save instruction, live steering inbox, or guaranteed immediate release. The overlay is currently read-only. Game-save shutdown and ending a public broadcast are also distinct operations; no streaming-platform stop control is implemented here.
 
 ## 12. Perception, bridge and navigation
 
@@ -348,7 +373,7 @@ The live-clock change removes harness-induced simulation pausing. It does not el
 
 `stop_session` also differs from its prompt description: bounded mode stops; ordinary continuous mode requests a director review; forever mode accepts only reasons containing “unsafe” or “unrecoverable,” after which the outer supervisor can restart. There is no unified safety-stop protocol across these layers.
 
-Sources: [retry limits](E:/Claude/autoplay/harness/autoplay_harness/runner.py:523), [watchdog](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1447), [pipe reader](E:/Claude/autoplay/harness/autoplay_harness/bridge.py:139).
+Sources: [retry limits](E:/Claude/autoplay/harness/autoplay_harness/runner.py:523), [watchdog](E:/Claude/autoplay/harness/autoplay_harness/runner.py:1496), [pipe reader](E:/Claude/autoplay/harness/autoplay_harness/bridge.py:139).
 
 ## 14. Model transport, cost and time limits
 
@@ -407,7 +432,7 @@ Other CLI commands: `bridge-test`, `capture-test`, `record-test`, `wiki-test`, `
 
 ## 17. What live evidence proves
 
-The latest recording used an earlier runtime revision than the final dialogue/director fixes, persona and cursor changes. It ran 15.3 wall minutes, produced 14:30.40 of raw 1080p30 video and spent $0.228759. Across all four attempts, spend was $0.327020 of the previously authorized $0.60 cap.
+The latest recording used an earlier runtime revision than the final dialogue/director fixes, persona, cursor and autonomy changes. It ran 15.3 wall minutes, produced 14:30.40 of raw 1080p30 video and spent $0.228759. Across all four attempts, spend was $0.327020 of the previously authorized $0.60 cap.
 
 | Latest rehearsal measurement | Evidence |
 | --- | --- |
@@ -437,14 +462,14 @@ These are review findings and design choices, not changes made during this revie
 | Before unattended play | Success predicates can count existing, location-dependent totals as new work | Capture objective baselines and explicit verified events/deltas; distinguish arriving, attempting and completing. |
 | Before unattended play | Pipe responses have no wall-clock deadline; STOP/caps are cooperative | Add bounded cancellation and a save-aware handoff policy; diagnose a hung game separately from slow inference. |
 | Before multi-season play | Day-of-month keys and `day + 1` sleep check | Use a consistent full calendar identity across notebook, travel history, retry deferrals and sleep verification. |
-| Persona design | Curiosity competes with rigid agenda progression | Decide how much nearby curiosity can interrupt work, and whether a disliked chore remains an obligation. |
+| Persona validation | Autonomous interruption and preference formation are implemented | Observe whether the farmer balances surprises, unfinished responsibilities and personal reactions coherently in live play. |
 | Persona design | A remembered experience requires a separate model call | An action-result reflection step could record memory without requiring a full additional action-selection turn. Keep facts and subjective reaction distinct. |
-| Persona design | State actor lacks `record_opportunity`, despite being told to queue opportunities | Decide whether both modes should share memory/planning utilities. |
+| Persona implementation | Both actor modes now expose `record_opportunity` and `change_objective` | Postponing an interest is optional; a substantial new pursuit does not require director approval. |
 | Capability | Planned categories exceed demonstrated reliable performance | Preserve the saved improvisation policy for interesting activities; improve observation/result feedback and evaluate raw-control behavior. Add chore macros only after relevant observed failures. |
 | Context | Large shared prompt and all visual tools sent every time | Separate role-specific instructions and select tool families by current scene/task; measure total request tokens, latency and visual fallback rate. |
 | Memory | Small exact-name/recent retrieval; no canonical entity identity | Preserve identity across places/names and retrieve relevant old experiences with their conditions and uncertainty. |
 | Tool feedback | `world_map` computes a requested route but its details are dropped by prompt-event compaction | Deliver selected result fields explicitly to the next actor request. Current general world summary still appears, but the requested route itself is not preserved there. |
-| Contract consistency | Some descriptions still claim read-only tools do not advance time; stop behavior differs from prompt; actor prompt refers to farmPlan while actor context supplies cropZones | Audit prompt, schema and executor together. No-input operations still consume wall time while the clock runs. |
+| Contract consistency | Stop behavior still differs from its prompt description | Audit prompt, schema and executor together. State-mode crop-zone references and no-input clock wording were corrected with the autonomy update. |
 | Planning enforcement | Invalid plans can be accepted with gaps after two attempts | Choose which rules are hard requirements and which are preferences; do not silently describe both as hard validation. |
 | Streaming presentation | Last speech can disappear during director loops; raw VOD lacks sound/overlay | Keep a durable last spoken line, show understandable waiting/recovery states, and verify final audiovisual composition. |
 
