@@ -84,6 +84,34 @@ class OpenRouterClientTests(unittest.TestCase):
         self.assertEqual({"type": "text", "text": "state-2"}, content[1])
 
     @patch("urllib.request.urlopen")
+    def test_luna_cache_key_ignores_changing_stable_block_and_marks_both_prefixes(self, urlopen):
+        # Runs 7a81817b/baa41570 hit the cache 32-37% because the key changed with location, time and ledger.
+        urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
+        client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
+        for stable in ("Farm 06:00 plant five", "Town 09:10 visit Pierre"):
+            client.choose_tool("static", "state", None, ACTOR_TOOLS, stable_context=stable)
+        client.choose_tool("other instructions", "state", None, ACTOR_TOOLS, stable_context="Farm 06:00 plant five")
+        payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual(payloads[0]["prompt_cache_key"], payloads[1]["prompt_cache_key"])
+        self.assertNotEqual(payloads[0]["prompt_cache_key"], payloads[2]["prompt_cache_key"])
+        for payload in payloads:
+            self.assertEqual({"mode": "explicit"}, payload["messages"][0]["content"][0]["prompt_cache_breakpoint"])
+            self.assertEqual({"mode": "explicit"}, payload["messages"][1]["content"][0]["prompt_cache_breakpoint"])
+            self.assertNotIn("prompt_cache_breakpoint", payload["messages"][1]["content"][1])
+
+    @patch("urllib.request.urlopen")
+    def test_per_request_reasoning_effort_overrides_client_default(self, urlopen):
+        urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
+        client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
+        client.choose_tool("static", "state", None, ACTOR_TOOLS)
+        client.choose_tool("static", "state", None, ACTOR_TOOLS, reasoning_effort="medium")
+        payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual({"effort": "low"}, payloads[0]["reasoning"])
+        self.assertEqual({"effort": "medium"}, payloads[1]["reasoning"])
+
+    @patch("urllib.request.urlopen")
     def test_official_trial_rejects_wrong_or_missing_provider_without_response_retry(self, urlopen):
         for provider in ("Azure", "Amazon Bedrock", None):
             with self.subTest(provider=provider):

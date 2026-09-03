@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -88,6 +89,39 @@ class RunnerTests(unittest.TestCase):
             self.assertIn('"type":"fatal_error"', events)
             self.assertIn('"error_type":"RuntimeError"', events)
             self.assertIn("unexpected", events)
+
+    @patch("autoplay_harness.runner.time.sleep")
+    @patch("autoplay_harness.runner.ScreenCapture")
+    @patch("autoplay_harness.runner.GameSupervisor")
+    def test_loop_harness_error_is_recoverable_not_fatal(self, supervisor, _capture, _sleep):
+        # Run 7a81817b died on a director context overflow; the stream must survive one instead.
+        supervisor.return_value.connect_bridge.return_value.request.return_value = {"status": "completed"}
+        with tempfile.TemporaryDirectory() as directory:
+            harness = AutoplayHarness(
+                Path(directory), "Plant five", "plantedCrops >= 5",
+                OpenRouterClient.QWEN_MODEL, "secret", continuous=True, isolated_state=True,
+            )
+
+            observations = []
+
+            def observe():
+                observations.append(1)
+                if len(observations) == 2:
+                    raise HarnessError("director context exceeds 8000 estimated tokens after allowed trims (8312); protected fields retained.")
+                if len(observations) == 3:
+                    harness.stop_reason = "test_stop"
+                return {}, self.frame
+
+            harness._observe = observe
+            harness._ensure_world_loaded = Mock()
+
+            self.assertEqual("test_stop", harness.run())
+
+            events = harness.telemetry.events_path.read_text(encoding="utf-8")
+            self.assertIn('"type":"recoverable_error"', events)
+            self.assertIn('"error_type":"HarnessError"', events)
+            self.assertIn("protected fields retained", events)
+            self.assertNotIn('"type":"fatal_error"', events)
 
     @patch("autoplay_harness.runner.time.sleep")
     @patch("autoplay_harness.runner.ScreenCapture")
@@ -1493,6 +1527,31 @@ class LongRunIntegrationTests(unittest.TestCase):
         event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
         self.assertEqual("controller_geometry", event["cuts"][-1])
 
+    def test_director_overflow_past_geometry_trim_falls_back_to_objects_then_layout(self):
+        # Run 7a81817b: the director packet stayed over budget after every existing trim and the run died.
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "director-context-overflow.json").read_text(encoding="utf-8"))
+        for name, inflate_layout, expected_last_cut, layout_kept in (
+            ("objects only", False, "director_nearby_objects", True),
+            ("objects then layout", True, "director_farm_layout", False),
+        ):
+            with self.subTest(name):
+                packet = json.loads(json.dumps(fixture))
+                packet["game_state"]["nearbyObjects"] = packet["game_state"]["nearbyObjects"] * 5
+                if inflate_layout:
+                    packet["game_state"]["farmLayout"]["padding"] = "x" * 12000
+                ledger = packet["objective_ledger"]
+                last_result = packet["game_state"]["harnessLastResult"]
+                context = self.harness._budget_context(packet, "director")
+                self.assertLessEqual(len(context) / 3.5, DIRECTOR_CONTEXT_BUDGET)
+                trimmed = json.loads(context)
+                self.assertEqual(ledger, trimmed["objective_ledger"])
+                self.assertEqual(last_result, trimmed["game_state"]["harnessLastResult"])
+                self.assertEqual(12, len(trimmed["game_state"]["nearbyObjects"]))
+                self.assertEqual(layout_kept, "farmLayout" in trimmed["game_state"])
+                event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
+                self.assertEqual(expected_last_cut, event["cuts"][-1])
+                self.assertTrue(event["within_budget"])
+
     def test_interaction_memories_fit_incident_context_caps_without_losing_persisted_entries(self):
         harness = self.harness
         observed = {"location": "Town", "day": 9, "tool": "press", "status": "completed"}
@@ -1539,6 +1598,54 @@ class LongRunIntegrationTests(unittest.TestCase):
                 self.assertEqual(["objective_ledger", "notebook", "world"], [next(iter(json.loads(block))) for block in blocks])
                 self.assertNotEqual(first.args[1], second.args[1])
                 self.assertNotIn("objective_ledger", json.loads(first.args[1]))
+
+    def test_director_requests_carry_their_own_reasoning_effort(self):
+        harness = self.harness
+        harness.client = Mock()
+        harness.client.choose_tool.return_value = ToolDecision("inspect_scene", {"say": "I look around."}, {}, None)
+        harness.director_reasoning_effort = "medium"
+        for role, tools, expected in (("actor", STATE_ACTOR_TOOLS, None), ("director", DIRECTOR_TOOLS, "medium")):
+            context = harness._context(role, self.state, self.frame, state_only=tools is STATE_ACTOR_TOOLS)
+            harness._choose(STATE_ACTOR_PROMPT, context, self.frame, tools, role)
+            self.assertEqual(expected, harness.client.choose_tool.call_args.kwargs["reasoning_effort"])
+
+    def test_verified_completion_clears_operator_guidance(self):
+        harness = self.harness
+        harness.ledger.complete_objective("Cleared for the test.")
+        harness.operator_mode = "playing"
+        harness.operator_guidance = "Go through town."
+        harness.ledger.set_objective("Reach the farm", "location is Farm", "Walk there", None)
+        self.assertTrue(harness._complete_verified_objective({**self.state, "location": "Farm"}))
+        self.assertEqual("", harness.operator_guidance)
+        self.assertIn('"type":"operator_guidance_cleared"', harness.telemetry.events_path.read_text(encoding="utf-8"))
+
+    def test_rejected_objectives_list_deferred_targets_and_back_off_after_three(self):
+        # Run 7a81817b: ten paid set_objective rejections in fifty seconds, each on a different deferred target.
+        harness = self.harness
+        harness._poll_operator = Mock(return_value=False)
+        harness.ledger.complete_objective("Cleared for the test.")
+        harness.operator_mode = "playing"
+        harness.notebook.set_agenda(9, [
+            {"goal": f"Visit {place}", "success_condition": f"location is {place}", "slot": "morning", "category": "exploring"}
+            for place in ("Farm", "Forest", "Beach", "Mountain")
+        ], "Wander")
+        for item_id in ("d9-1", "d9-2", "d9-3"):
+            harness.notebook.mark(item_id, "deferred", "Blocked path")
+        for index, place in enumerate(("Farm", "Forest", "Beach"), start=1):
+            harness._apply_director_decision(ToolDecision("set_objective", {
+                "goal": f"Visit {place}", "success_condition": f"location == {place}", "milestone": "Walk there"}, {}, None), self.state)
+            self.assertIn("retry limit today", harness.director_feedback)
+            self.assertIn("location=farm", harness.director_feedback)
+            self.assertIn('"id":"d9-4"', harness.director_feedback)
+            self.assertEqual(index, harness.consecutive_objective_rejections)
+        self.assertIsNone(harness.stop_reason)
+        self.assertGreater(harness.director_backoff_until, time.monotonic())
+        self.assertIn('"type":"director_rejection_streak"', harness.telemetry.events_path.read_text(encoding="utf-8"))
+        harness._apply_director_decision(ToolDecision("set_objective", {
+            "goal": "Visit Mountain", "success_condition": "location is Mountain", "milestone": "Walk there",
+            "agenda_id": "d9-4"}, {}, None), self.state)
+        self.assertEqual("Visit Mountain", harness.ledger.snapshot()["active"]["goal"])
+        self.assertEqual(0, harness.consecutive_objective_rejections)
 
 
 if __name__ == "__main__":

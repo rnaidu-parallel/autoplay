@@ -37,7 +37,7 @@ If navigation reaches its retry limit, a configured limit stops the run, or chec
 3. Wait for **Received**.
 4. Review the following actions in the trace.
 
-Guidance remains in the farmer's context until replaced or the run ends. Guidance can help during Finish & Save, but does not cancel that save request. A decision produced before newly received guidance is discarded before execution.
+Guidance remains in the farmer's context until replaced, until the harness verifies the current objective complete, or until the run ends. Guidance can help during Finish & Save, but does not cancel that save request. A decision produced before newly received guidance is discarded before execution.
 
 **Hold unsaved** stops autonomous input at the next safe action boundary and leaves the game open. It does not save. Resume requires a new harness run. Use this for a manual handoff when saving cannot wait for autonomous recovery.
 

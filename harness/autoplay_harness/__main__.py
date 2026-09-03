@@ -56,6 +56,8 @@ def main() -> int:
         default=OpenRouterClient.DEFAULT_MODEL,
     )
     run_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
+    run_parser.add_argument("--director-reasoning-effort", choices=["low", "medium", "high", "max"], default="medium",
+                            help="Reasoning effort for director planning and reviews; the actor keeps --reasoning-effort")
     run_parser.add_argument("--isolated-state", action="store_true", help="Use a fresh per-run objective ledger for comparisons; does not reset or change the game save.")
     run_parser.add_argument("--actor-mode", choices=["state-first", "visual"], default="state-first",
                             help="Use compact structured skills with visual fallback, or always send a screenshot.")
@@ -107,6 +109,8 @@ def main() -> int:
         default=OpenRouterClient.DEFAULT_MODEL,
     )
     cache_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
+    cache_parser.add_argument("--churn", action="store_true",
+                              help="Change the slow-changing block every call to measure reuse of the fixed prefix alone")
     report_parser = subparsers.add_parser("report", help="Summarize a run's events.jsonl (default: most recent run)")
     report_parser.add_argument("run_id", nargs="?")
     overlay_parser = subparsers.add_parser("overlay", help="Serve the stream overlay for a run")
@@ -172,6 +176,7 @@ def main() -> int:
                 video_segment_minutes=arguments.video_segment_minutes,
                 video_retention_segments=arguments.video_retention_segments,
                 reasoning_effort=arguments.reasoning_effort,
+                director_reasoning_effort=arguments.director_reasoning_effort,
                 isolated_state=arguments.isolated_state,
                 actor_mode=arguments.actor_mode,
                 budget_usd=arguments.budget_usd,
@@ -387,12 +392,16 @@ def main() -> int:
             )
             results = []
             for index in range(arguments.calls):
+                stable_context = json.dumps({"objective_ledger": {"active": {"goal": "Cache probe", "milestone": "Hold still"}}})
+                if arguments.churn:
+                    stable_context += "\n" + json.dumps({"world": {"probe_call": index + 1}})
                 decision = client.choose_tool(
                     ACTOR_SYSTEM_PROMPT,
                     context,
                     frame.data_url,
                     ACTOR_TOOLS,
                     cache_namespace="actor",
+                    stable_context=stable_context,
                 )
                 details = decision.usage.get("prompt_tokens_details") or {}
                 results.append(
@@ -412,6 +421,8 @@ def main() -> int:
                 json.dumps(
                     {
                         "calls": results,
+                        "churn": arguments.churn,
+                        "cache_write_tokens": sum(item["cache_write_tokens"] for item in results),
                         "cache_hit_rate": cached_tokens / prompt_tokens if prompt_tokens else 0,
                     },
                     indent=2,

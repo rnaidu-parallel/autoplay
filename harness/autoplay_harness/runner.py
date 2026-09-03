@@ -58,6 +58,7 @@ class AutoplayHarness:
         video_segment_minutes: int = 5,
         video_retention_segments: int = 6,
         reasoning_effort: str | None = "low",
+        director_reasoning_effort: str | None = None,
         isolated_state: bool = False,
         actor_mode: str = "state-first",
         budget_usd: float | None = None,
@@ -147,6 +148,8 @@ class AutoplayHarness:
             run_id=self.run_id,
             reasoning_effort=reasoning_effort,
         )
+        self.director_reasoning_effort = director_reasoning_effort or reasoning_effort
+        OpenRouterClient.validate_effort(model, self.director_reasoning_effort)
 
     def run(self) -> str:
         started_at = time.monotonic()
@@ -157,6 +160,7 @@ class AutoplayHarness:
                 "run_id": self.run_id,
                 "model": self.client.model,
                 "reasoning_effort": self.client.reasoning_effort,
+                "director_reasoning_effort": self.director_reasoning_effort,
                 "actor_mode": self.actor_mode,
                 "provider_policy": self.client.PROVIDER_PREFERENCES[self.client.model],
                 "initial_objective": self.ledger.snapshot().get("active"),
@@ -208,6 +212,9 @@ class AutoplayHarness:
                         # New goal selection needs a result; routine reviews never block the actor.
                         if self.director_future is not None:
                             self._finish_director_review(wait=True)
+                        if time.monotonic() < getattr(self, "director_backoff_until", 0.0):
+                            time.sleep(0.5)
+                            continue
                         self._agenda_feedback(state)
                         self._director_review()
                     elif self.director_future is None and self.game_actions - self.last_director_action_count >= self.director_interval:
@@ -223,7 +230,8 @@ class AutoplayHarness:
                             and time.monotonic() - started_at >= self.max_minutes * 60
                             and self.stop_reason in {None, "max_actions_reached", "max_decisions_reached"}):
                         self.stop_reason = "time_limit_reached"
-                except (BridgeError, CaptureError, OpenRouterError, ObjectiveError, KeyError, TypeError, ValueError) as error:
+                except (BridgeError, CaptureError, OpenRouterError, ObjectiveError, HarnessError,
+                        KeyError, TypeError, ValueError) as error:
                     consecutive_errors += 1
                     self.telemetry.record(
                         "recoverable_error",
@@ -951,6 +959,9 @@ class AutoplayHarness:
                 "objective_completed",
                 {"objective_id": active["id"], "evidence": evidence},
             )
+            if getattr(self, "operator_guidance", ""):
+                self.operator_guidance = ""
+                self.telemetry.record("operator_guidance_cleared", {"objective_id": active["id"]})
             print(f"[{self.telemetry.step}] objective {active['id']} completed by harness", flush=True)
             return True
         return False
@@ -1042,7 +1053,8 @@ class AutoplayHarness:
         )
         context = json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         decision = self.client.choose_tool(system_prompt, context, None if tools is STATE_ACTOR_TOOLS else frame.data_url,
-                                           tools, cache_namespace=role, stable_context=stable_context)
+                                           tools, cache_namespace=role, stable_context=stable_context,
+                                           reasoning_effort=getattr(self, "director_reasoning_effort", None) if role == "director" else None)
         model_ms = round((time.perf_counter() - started) * 1000)
         return decision, model_ms
 
@@ -1166,10 +1178,20 @@ class AutoplayHarness:
                 if agenda_id is not None and hasattr(self, "notebook"):
                     self.notebook.mark(agenda_id, "active")
                 self.invalid_objective_attempts = {}
+                self.consecutive_objective_rejections = 0
             except ObjectiveError as error:
+                # Run 7a81817b cycled through deferred targets one paid call at a time because the
+                # rejection replaced the agenda list; name the deferred keys and remaining items instead.
+                day = calendar_day(state)
+                has_notebook = hasattr(self, "notebook") and isinstance(day, int)
+                remaining = [{key: item.get(key) for key in ("id", "goal", "slot", "status")}
+                             for item in self.notebook.remaining(day)] if has_notebook else []
+                deferred = self._deferred_targets_today(state) if has_notebook else []
                 self.director_feedback = (
                     f"Previous set_objective was rejected: {error} "
-                    f"Rejected condition: {arguments['success_condition']!r}. Propose a different, currently false condition."
+                    f"Rejected condition: {arguments['success_condition']!r}. Propose a different, currently false condition. "
+                    f"Targets already deferred today: {json.dumps(deferred)}. Remaining agenda items: "
+                    + json.dumps(remaining, ensure_ascii=False, separators=(",", ":")) + "."
                 )
                 self.telemetry.record(
                     "objective_update_rejected",
@@ -1181,6 +1203,12 @@ class AutoplayHarness:
                 self.invalid_objective_attempts = attempts
                 if attempts[key] >= 3:
                     self.stop_reason = "director_repeated_invalid_objective"
+                streak = getattr(self, "consecutive_objective_rejections", 0) + 1
+                self.consecutive_objective_rejections = streak
+                if streak >= 3:
+                    delay = min(5 * 2 ** (streak - 3), 30)
+                    self.director_backoff_until = time.monotonic() + delay
+                    self.telemetry.record("director_rejection_streak", {"streak": streak, "backoff_seconds": delay})
         elif decision.name == "plan_day":
             day = calendar_day(state)
             entry = self.notebook.data["days"].get(str(day)) if isinstance(day, int) else None
@@ -1440,15 +1468,17 @@ class AutoplayHarness:
         })
         return {"status": "completed", "reason": "New intention saved; previous work remains unfinished."}
 
-    def _target_deferred_today(self, target: str, state: dict[str, Any]) -> bool:
-        if target == "location=farmhouse" and self._bedtime_allowed(state):
-            return False
+    def _deferred_targets_today(self, state: dict[str, Any]) -> list[str]:
         agenda = self.notebook.data["days"].get(str(calendar_day(state)), {}).get("agenda", [])
         today = [state.get(key) for key in ("year", "season", "day")]
         deferred = [item for item in agenda if item["status"] == "deferred"]
         deferred += [item for item in self.ledger.data["history"] if item.get("retry_deferred_on") == today]
-        return any(item.get("success_condition") and self._retry_condition_key(item["success_condition"]) == target
-                   for item in deferred)
+        return sorted({self._retry_condition_key(item["success_condition"]) for item in deferred if item.get("success_condition")})
+
+    def _target_deferred_today(self, target: str, state: dict[str, Any]) -> bool:
+        if target == "location=farmhouse" and self._bedtime_allowed(state):
+            return False
+        return target in self._deferred_targets_today(state)
 
     def _crop_zone_rejection(
         self, tiles: list[dict[str, Any]], state: dict[str, Any]
@@ -1759,7 +1789,8 @@ class AutoplayHarness:
         context = serialize()
         initial_tokens = len(context) / 3.5
         cuts = []
-        for field in ("wiki_results", "history_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories"):
+        for field in ("wiki_results", "history_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories",
+                      "director_nearby_objects", "director_farm_layout"):
             if len(context) / 3.5 <= budget:
                 break
             if field in {"wiki_results", "history_results"}:
@@ -1787,6 +1818,13 @@ class AutoplayHarness:
                 fields = ("farmLayout", "navigationRows", "diagnostics") if role == "actor" else ("navigationRows", "diagnostics")
                 for key in fields:
                     packet["game_state"].pop(key, None)
+            elif field == "director_nearby_objects":
+                # Last resort for the director, which otherwise keeps every nearby object and the farm layout.
+                if role == "director" and isinstance(packet["game_state"].get("nearbyObjects"), list):
+                    packet["game_state"]["nearbyObjects"] = packet["game_state"]["nearbyObjects"][:12]
+            elif field == "director_farm_layout":
+                if role == "director":
+                    packet["game_state"].pop("farmLayout", None)
             elif field == "interaction_memories":
                 memories = (packet.get("notebook") or {}).get("interactions", [])
                 while memories and len(serialize()) / 3.5 > budget:

@@ -103,14 +103,7 @@ class OpenRouterClient:
             raise OpenRouterError("OPENROUTER_MODEL is required for autonomous runs.")
         if model not in self.PROVIDER_PREFERENCES:
             raise OpenRouterError(f"No provider policy is configured for {model!r}.")
-        if model == self.GLM_MODEL and reasoning_effort not in {"low", "high", "max"}:
-            raise OpenRouterError("GLM 5.3 Flash supports reasoning effort low, high, or max.")
-        if model == self.QWEN_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
-            raise OpenRouterError("Qwen 3.8 Flash requires a supported reasoning effort; use low for gameplay trials.")
-        if model == self.GEMINI_FLASH_MODEL and reasoning_effort not in {"low", "medium", "high"}:
-            raise OpenRouterError("Gemini 3.7 Flash supports low, medium, or high reasoning effort.")
-        if model == self.LUNA_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
-            raise OpenRouterError("Use a supported Luna reasoning effort; low is the gameplay trial default.")
+        self.validate_effort(model, reasoning_effort)
         self.api_key = api_key
         self.model = model
         self.run_id = run_id
@@ -120,6 +113,17 @@ class OpenRouterClient:
         self.reasoning_effort = reasoning_effort if model in {self.GLM_MODEL, self.QWEN_MODEL, self.GEMINI_FLASH_MODEL, self.LUNA_MODEL} else None
         self.cancelled = threading.Event()
 
+    @classmethod
+    def validate_effort(cls, model: str, reasoning_effort: str | None) -> None:
+        if model == cls.GLM_MODEL and reasoning_effort not in {"low", "high", "max"}:
+            raise OpenRouterError("GLM 5.3 Flash supports reasoning effort low, high, or max.")
+        if model == cls.QWEN_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
+            raise OpenRouterError("Qwen 3.8 Flash requires a supported reasoning effort; use low for gameplay trials.")
+        if model == cls.GEMINI_FLASH_MODEL and reasoning_effort not in {"low", "medium", "high"}:
+            raise OpenRouterError("Gemini 3.7 Flash supports low, medium, or high reasoning effort.")
+        if model == cls.LUNA_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
+            raise OpenRouterError("Use a supported Luna reasoning effort; low is the gameplay trial default.")
+
     def choose_tool(
         self,
         system_prompt: str,
@@ -128,6 +132,7 @@ class OpenRouterClient:
         tools: list[dict[str, Any]],
         cache_namespace: str = "agent",
         stable_context: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> ToolDecision:
         payload = {
             "model": self.model,
@@ -151,16 +156,17 @@ class OpenRouterClient:
         if self.model != self.LUNA_MODEL:
             payload["temperature"] = 0.2
         if self.reasoning_effort is not None:
-            payload["reasoning"] = {"effort": self.reasoning_effort}
+            payload["reasoning"] = {"effort": reasoning_effort or self.reasoning_effort}
         if self.model == self.LUNA_MODEL:
-            prefix = json.dumps([self.model, system_prompt, tools, stable_context], sort_keys=True, separators=(",", ":"))
+            # The key only routes to a cache-warm server, so it must not change with the objective or world.
+            # A breakpoint on the fixed instructions lets a changed slow block fall back to that prefix.
+            prefix = json.dumps([self.model, system_prompt, tools], sort_keys=True, separators=(",", ":"))
             payload["prompt_cache_key"] = "autoplay:" + hashlib.sha256(prefix.encode()).hexdigest()[:24]
             payload["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
+            payload["messages"][0]["content"] = [{"type": "text", "text": system_prompt,
+                                                   "prompt_cache_breakpoint": {"mode": "explicit"}}]
             if stable_context:
                 payload["messages"][1]["content"][0]["prompt_cache_breakpoint"] = {"mode": "explicit"}
-            else:
-                payload["messages"][0]["content"] = [{"type": "text", "text": system_prompt,
-                                                       "prompt_cache_breakpoint": {"mode": "explicit"}}]
         body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(
             self.API_URL,
