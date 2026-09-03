@@ -42,6 +42,14 @@ class StateActorTests(unittest.TestCase):
         self.assertEqual({"active": {"goal": "Plant"}, "progress": [{"note": "arrived"}]}, prompt_ledger(ledger))
         self.assertEqual("now", ledger["active"]["created_at"])
 
+    def test_actor_tools_require_a_short_narration(self):
+        for tool in [*ACTOR_TOOLS, *STATE_ACTOR_TOOLS]:
+            with self.subTest(tool=tool["function"]["name"]):
+                parameters = tool["function"]["parameters"]
+                self.assertIn("say", parameters["required"])
+                self.assertEqual("string", parameters["properties"]["say"]["type"])
+                self.assertEqual(140, parameters["properties"]["say"]["maxLength"])
+
     @patch("autoplay_harness.runner.ScreenCapture")
     def test_inspection_spends_one_decision_then_uses_fresh_visual_without_game_input(self, _capture):
         with tempfile.TemporaryDirectory() as directory:

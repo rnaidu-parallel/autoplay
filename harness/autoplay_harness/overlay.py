@@ -66,6 +66,46 @@ def action_summary(tool: str, arguments: dict[str, Any] | None = None) -> str:
     return _humanize(tool)
 
 
+def argument_gist(arguments: dict[str, Any] | None = None) -> str:
+    arguments = arguments if isinstance(arguments, dict) else {}
+    tiles = arguments.get("tiles") or arguments.get("targets")
+    if isinstance(tiles, list) and tiles:
+        points = []
+        for tile in tiles[:3]:
+            if isinstance(tile, dict) and isinstance(tile.get("x"), int) and isinstance(tile.get("y"), int):
+                points.append(f"({tile['x']},{tile['y']})")
+            elif isinstance(tile, (list, tuple)) and len(tile) >= 2:
+                points.append(f"({tile[0]},{tile[1]})")
+        if points:
+            extra = len(tiles) - len(points)
+            return " ".join(points + ([f"+{extra}"] if extra else []))
+    if isinstance(arguments.get("tile_x"), int) and isinstance(arguments.get("tile_y"), int):
+        return f"({arguments['tile_x']},{arguments['tile_y']})"
+    for key in ("location", "destination"):
+        if arguments.get(key):
+            return str(arguments[key])
+    if isinstance(arguments.get("buttons"), list):
+        return "+".join(str(button) for button in arguments["buttons"])
+    for key in ("count", "seed_slot"):
+        if isinstance(arguments.get(key), int):
+            return f"×{arguments[key]}"
+    return ""
+
+
+def _say(event: dict[str, Any]) -> str | None:
+    arguments = event.get("arguments")
+    if isinstance(arguments, dict) and isinstance(arguments.get("say"), str) and arguments["say"].strip():
+        return arguments["say"].strip()
+    content = event.get("content")
+    return content.strip() if isinstance(content, str) and content.strip() else None
+
+
+def _director_summary(tool: str, arguments: dict[str, Any] | None) -> str:
+    arguments = arguments if isinstance(arguments, dict) else {}
+    detail = arguments.get("goal") or arguments.get("milestone") or arguments.get("theme")
+    return f"Director: {detail or action_summary(tool, arguments)}"
+
+
 def action_outcome(result: Any) -> str | None:
     if not isinstance(result, dict):
         return None
@@ -134,7 +174,11 @@ class OverlayState:
                     "at": event.get("at"),
                     "role": role,
                     "tool": event["tool"],
-                    "summary": action_summary(event["tool"], event.get("arguments")),
+                    "toolName": event["tool"],
+                    "say": _say(event),
+                    "summary": (_director_summary(event["tool"], event.get("arguments"))
+                                if role == "director" else action_summary(event["tool"], event.get("arguments"))),
+                    "gist": argument_gist(event.get("arguments")),
                     "outcome": None,
                     "_step": event.get("step"),
                 }
@@ -243,7 +287,8 @@ class OverlayState:
         end = self.stopped_at or now
         uptime = max(0, int((end - self.started_at).total_seconds())) if self.started_at else 0
         prompt = self.prompt_tokens
-        actions = [{key: item[key] for key in ("at", "role", "tool", "summary", "outcome")} for item in self.actions]
+        actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
+        sayings = [item["say"] for item in self.actions if item.get("say")]
         return {
             "status": status,
             "updatedAt": now.isoformat(),
@@ -262,6 +307,7 @@ class OverlayState:
             "agenda": {"theme": agenda.get("theme"), "items": agenda.get("items", []), "reflectionYesterday": reflection},
             "objective": objective,
             "thinking": {"role": thinking_role, "sinceMs": thinking_since},
+            "speech": {"say": sayings[0] if sayings else None, "previous": sayings[1] if len(sayings) > 1 else None},
             "actions": actions,
             "world": {
                 "here": self.game.get("location") or self.world_data.get("last_location"),

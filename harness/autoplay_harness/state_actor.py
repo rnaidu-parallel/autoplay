@@ -52,12 +52,23 @@ destination. navigate_to stays in the current location; reaching a door tile is 
 same as entering its destination. If the next leg is unknown, inspect_scene or search
 the specific location rather than inventing a route. The local controller handles path
 collisions and input timing; do not spend reasoning tracing individual movement ticks.
+
+Include a warm, slightly wry first-person farmer `say` sentence with every action, in present tense and varied phrasing. Say what you see or intend for the audience, never mechanics, tool names, coordinates, an AI, or the harness.
 """
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session",
-}] + [function_tool("inspect_scene", "Request a fresh screenshot and the full control set for the next decision.", {}, [])]
+}] + [function_tool(
+    "inspect_scene",
+    "Request a fresh screenshot and the full control set for the next decision.",
+    {"say": {
+        "type": "string",
+        "maxLength": 140,
+        "description": "One short first-person sentence, in character as the farmer, saying what you are doing or noticing right now for the audience; no tool names, coordinates, or brackets.",
+    }},
+    ["say"],
+)]
 
 
 def can_use_state_actor(state: dict[str, Any]) -> bool:

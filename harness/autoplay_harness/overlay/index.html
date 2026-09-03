@@ -15,6 +15,7 @@
       --amber: #ffd166;
       --red: #ff7777;
       --blue: #79c7ff;
+      --director: #d7a8ff;
     }
 
     * { box-sizing: border-box; }
@@ -43,7 +44,7 @@
       position: absolute;
       top: 22px;
       right: 22px;
-      bottom: 148px;
+      bottom: 170px;
       width: 420px;
       display: flex;
       flex-direction: column;
@@ -103,6 +104,13 @@
 
     #plan-card { flex: 1 1 auto; }
     #theme { margin-bottom: 10px; font-size: 18px; font-weight: 800; }
+    #theme, #goal, #milestone, .agenda-item > span:last-child {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }
+    #goal { -webkit-line-clamp: 3; }
 
     #agenda {
       display: flex;
@@ -164,6 +172,7 @@
 
     #goal { margin-top: 7px; font-size: 19px; font-weight: 900; }
     #milestone { margin-top: 6px; color: var(--muted); font-size: 15px; }
+    #thinking-line { margin-top: 7px; color: var(--blue); font-size: 15px; }
     #lesson { color: var(--muted); font-size: 15px; }
     #lesson::before { content: "✦ "; color: var(--amber); }
 
@@ -180,9 +189,20 @@
       right: 22px;
       bottom: 18px;
       left: 22px;
-      height: 120px;
+      height: 140px;
       padding: 13px 15px;
     }
+
+    #speech-card {
+      flex: 0 0 auto;
+      min-height: 100px;
+      padding: 13px 17px;
+    }
+
+    #speech { font-family: Georgia, serif; font-size: 23px; font-style: italic; line-height: 1.2; }
+    #speech::before { content: "“"; color: var(--amber); }
+    #speech::after { content: "”"; color: var(--amber); }
+    #speech-previous { margin-top: 5px; color: var(--muted); font-family: Georgia, serif; font-size: 14px; opacity: .45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     #actions {
       display: grid;
@@ -203,8 +223,13 @@
     .action.completed { border-color: var(--green); }
     .action.blocked { border-color: var(--amber); }
     .action.rejected, .action.error, .action.timeout { border-color: var(--red); }
-    .action-summary { font-size: 17px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .action-outcome { margin-top: 8px; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action.director { border-color: var(--director); }
+    .action.completed .action-outcome { color: var(--green); }
+    .action.blocked .action-outcome { color: var(--amber); }
+    .action.rejected .action-outcome, .action.error .action-outcome, .action.timeout .action-outcome { color: var(--red); }
+    .action-say { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action-tool { margin-top: 3px; color: var(--blue); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .action-outcome { margin-top: 3px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     #waiting {
       position: absolute;
@@ -243,10 +268,12 @@
       <div class="now-head"><div class="eyebrow">Now</div><span id="badge">running</span></div>
       <div id="goal">Waiting for an objective</div>
       <div id="milestone"></div>
+      <div id="thinking-line" class="hidden"></div>
     </section>
 
     <section id="lesson-card" class="panel hidden"><div class="eyebrow">Lesson</div><div id="lesson"></div></section>
     <footer id="footer" class="panel"><span id="visited">Visited —</span><span id="decisions">0 decisions</span><span id="cost">$0.0000</span></footer>
+    <section id="speech-card" class="panel hidden"><div class="eyebrow">Speech</div><div id="speech"></div><div id="speech-previous"></div></section>
   </aside>
 
   <section id="ticker" class="panel"><div id="actions"></div></section>
@@ -278,7 +305,11 @@
       text("money", game.money == null ? null : `${Number(game.money).toLocaleString()}g`);
 
       text("theme", agenda.theme, "No plan yet");
-      $("agenda").replaceChildren(...(agenda.items || []).map(item => {
+      const agendaItems = agenda.items || [];
+      const activeIndex = agendaItems.findIndex(item => item.status === "active");
+      const pendingIndex = agendaItems.findIndex(item => ["pending", "carried"].includes(item.status));
+      const agendaStart = activeIndex >= 0 ? activeIndex : Math.max(0, pendingIndex);
+      $("agenda").replaceChildren(...agendaItems.slice(agendaStart).map(item => {
         const li = document.createElement("li");
         li.className = `agenda-item ${item.status || "pending"}`;
         const icon = document.createElement("span");
@@ -296,6 +327,9 @@
       $("badge").className = state.status || "running";
       text("goal", objective && objective.goal, "Waiting for an objective");
       text("milestone", objective && objective.milestone, "");
+      const thinkingLine = state.status === "thinking" && thinking.role ? `Thinking… ${thinking.role}` : "";
+      $("thinking-line").classList.toggle("hidden", !thinkingLine);
+      text("thinking-line", thinkingLine, "");
 
       const lessons = state.lessons || [];
       $("lesson-card").classList.toggle("hidden", !lessons.length);
@@ -304,17 +338,30 @@
       text("decisions", `${stats.decisions || 0} decisions`);
       text("cost", `$${Number(stats.cost || 0).toFixed(4)}`);
 
+      const speech = state.speech || {};
+      const speechChanged = $("speech").textContent !== (speech.say || "");
+      $("speech-card").classList.toggle("hidden", !speech.say);
+      text("speech", speech.say, "");
+      text("speech-previous", speech.previous, "");
+      if (speechChanged && speech.say) {
+        $("speech").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450 });
+        $("speech-previous").animate([{ opacity: .8 }, { opacity: .3 }], { duration: 1800, fill: "forwards" });
+      }
+
       $("actions").replaceChildren(...(state.actions || []).slice(0, 5).map(item => {
         const card = document.createElement("div");
         const outcomeType = String(item.outcome || "").split(":", 1)[0];
-        card.className = `action ${outcomeType}`;
-        const summary = document.createElement("div");
-        summary.className = "action-summary";
-        summary.textContent = item.summary || item.tool || "Action";
+        card.className = `action ${outcomeType} ${item.role === "director" ? "director" : ""}`;
+        const say = document.createElement("div");
+        say.className = "action-say";
+        say.textContent = item.role === "director" ? item.summary : (item.say || item.summary || item.toolName || item.tool || "Action");
+        const tool = document.createElement("div");
+        tool.className = "action-tool";
+        tool.textContent = [item.toolName || item.tool, item.gist].filter(Boolean).join(" ");
         const outcome = document.createElement("div");
         outcome.className = "action-outcome";
         outcome.textContent = item.outcome || `${item.role || "agent"} in progress`;
-        card.append(summary, outcome);
+        card.append(say, tool, outcome);
         return card;
       }));
       $("waiting").classList.remove("visible");

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import urlopen
 
-from autoplay_harness.overlay import OverlayState, action_summary, atomic_write_json, build_state, create_server
+from autoplay_harness.overlay import OverlayState, action_summary, argument_gist, atomic_write_json, build_state, create_server
 
 
 class OverlayStateTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class OverlayStateTests(unittest.TestCase):
             "step": 1,
             "type": "actor_decision",
             "tool": "water_crops",
-            "arguments": {"tiles": [[1, 2], [2, 2], [3, 2], [4, 2]]},
+            "arguments": {"tiles": [[1, 2], [2, 2], [3, 2], [4, 2]], "say": "I am giving these thirsty sprouts a good drink."},
             "usage": {
                 "prompt_tokens": 100,
                 "prompt_tokens_details": {"cached_tokens": 40},
@@ -51,6 +51,9 @@ class OverlayStateTests(unittest.TestCase):
         running = state.snapshot(now=self.now)
         self.assertEqual("running", running["status"])
         self.assertEqual("Watering 4 crops", running["actions"][0]["summary"])
+        self.assertEqual("water_crops", running["actions"][0]["toolName"])
+        self.assertEqual("I am giving these thirsty sprouts a good drink.", running["actions"][0]["say"])
+        self.assertEqual("I am giving these thirsty sprouts a good drink.", running["speech"]["say"])
         self.assertEqual("blocked: door closed until 9:00 AM", running["actions"][0]["outcome"])
         self.assertEqual("7:10 AM", running["game"]["time"])
         self.assertEqual(1, running["stats"]["decisions"])
@@ -94,6 +97,17 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual("Planning the day: Spring cleanup", action_summary("plan_day", {"theme": "Spring cleanup"}))
         self.assertEqual("New goal: Meet Robin", action_summary("set_objective", {"goal": "Meet Robin"}))
         self.assertEqual("Taking a closer look", action_summary("inspect_scene"))
+
+    def test_argument_gist_and_director_card(self) -> None:
+        self.assertEqual("(1,2) (3,4) (5,6) +1", argument_gist({"tiles": [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5, "y": 6}, {"x": 7, "y": 8}]}))
+        self.assertEqual("(61,20)", argument_gist({"tile_x": 61, "tile_y": 20}))
+        self.assertEqual("W+LeftShift", argument_gist({"buttons": ["W", "LeftShift"]}))
+        self.assertEqual("×4", argument_gist({"count": 4}))
+        overlay = build_state([{
+            "at": self.start, "step": 1, "type": "director_decision", "tool": "set_objective",
+            "arguments": {"goal": "Meet Robin"},
+        }], now=self.now)
+        self.assertEqual("Director: Meet Robin", overlay["actions"][0]["summary"])
 
 
 class OverlayIOTests(unittest.TestCase):

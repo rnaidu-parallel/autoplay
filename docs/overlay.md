@@ -22,4 +22,4 @@ Replace `latest` with a run ID to replay and follow one run. The feed writes `ha
 4. Leave the browser background transparent.
 5. Place the browser source above the game capture source.
 
-The right column shows the game clock and resources, today's agenda, the active objective, the agent status, one recent lesson, and compact session totals. The bottom strip shows the five latest actor or director actions. Green outcomes completed, amber outcomes were blocked, and red outcomes were rejected or failed. If the feed is unavailable, the page shows `waiting for feed…` and reconnects automatically.
+The right column shows the game clock and resources, today's agenda, the active objective, the agent status, one recent lesson, and compact session totals. The Speech panel above the ticker shows the farmer's latest narration with the preceding line fading behind it. The bottom strip shows the five latest actor or director actions as three-line cards: narration, the tool and compact arguments, then its outcome. Director cards show the goal or milestone, and green outcomes completed, amber outcomes were blocked, and red outcomes were rejected or failed.
