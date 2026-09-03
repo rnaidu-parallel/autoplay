@@ -1127,6 +1127,60 @@ class LongRunIntegrationTests(unittest.TestCase):
                       "playerFree": True, "canMove": True, "menu": "none", "eventUp": False,
                       "minigame": "none", "stamina": 100, "health": 100, "inventoryCounts": {"Wood": 1}}
 
+    def test_actor_can_interrupt_and_resume_work_without_director_or_game_input(self):
+        harness = self.harness
+        harness.bridge = _Bridge()
+        harness.notebook.set_agenda(9, [{"goal": "Gather wood", "success_condition": "inventory.Wood >= 50",
+                                        "slot": "morning", "category": "clearing"}], "A flexible morning")
+        harness.notebook.mark("d9-1", "active")
+        harness.ledger.data["active"]["agenda_id"] = "d9-1"
+        pending_experience = {"subject": "Bench", "status": "completed"}
+        harness.last_interaction = pending_experience
+        harness._observe = Mock(return_value=(dict(self.state), self.frame))
+        arguments = {"goal": "Follow the sound by the lake", "success_condition": "location is Mountain",
+                     "milestone": "Walk to the lake", "reason": "Something caught my attention",
+                     "say": "I wonder what is happening by the water."}
+        harness._decide = Mock(return_value=(ToolDecision("change_objective", arguments, {}, None), 1))
+        harness._actor_step()
+        harness._decide.assert_called_once()
+        self.assertIn("change_objective", [tool["function"]["name"] for tool in harness._decide.call_args.args[3]])
+        self.assertEqual("Follow the sound by the lake", harness.ledger.snapshot()["active"]["goal"])
+        self.assertEqual("interrupted", harness.ledger.snapshot()["history"][-1]["status"])
+        self.assertEqual("pending", Notebook(harness.notebook.path.parent).remaining(9)[0]["status"])
+        self.assertIs(pending_experience, harness.last_interaction)
+        self.assertEqual([], harness.bridge.calls)
+        self.assertEqual(0, harness.game_actions)
+        result = harness._execute_actor_tool(ToolDecision("change_objective", {
+            "goal": "Gather wood", "success_condition": "inventory.Wood >= 50", "milestone": "Find fallen branches",
+            "reason": "I want to return to my wood gathering", "agenda_id": "d9-1"}, {}, None), self.frame, self.state)
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("d9-1", harness.notebook.active_item(9)["id"])
+        self.assertEqual(["interrupted", "interrupted"], [item["status"] for item in harness.ledger.snapshot()["history"]])
+
+    def test_actor_objective_change_cannot_erase_current_work_on_invalid_proposal(self):
+        harness = self.harness
+        arguments = {"goal": "A new idea", "success_condition": "location is Town", "milestone": "Try it", "reason": "Curiosity"}
+        for patch_arguments in ({}, {"success_condition": "friendship >= 10"},
+                                {"success_condition": "inventory.Wood >= 50"},
+                                {"success_condition": "location is Mountain", "agenda_id": "missing"}):
+            with self.subTest(patch_arguments=patch_arguments):
+                result = harness._change_actor_objective({**arguments, **patch_arguments}, self.state)
+                self.assertEqual("rejected", result["status"])
+                self.assertEqual("Gather wood", harness.ledger.snapshot()["active"]["goal"])
+                self.assertEqual([], harness.ledger.data["history"])
+
+    def test_self_chosen_goal_retry_deferral_cannot_be_bypassed_without_an_agenda_item(self):
+        harness = self.harness
+        decision = ToolDecision("clear_debris", {"targets": [{"x": 2, "y": 3}]}, {}, None)
+        for _ in range(3):
+            harness._track_action_retries(decision, {"status": "blocked", "reason": "no_passable_tile_next_to_target"}, self.state, self.state)
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+        harness.ledger.set_objective("Visit the lake", "location is Mountain", "Walk north")
+        arguments = {"goal": "Get some wood", "success_condition": "inventory.Wood >= 50", "milestone": "Try again", "reason": "Another idea"}
+        self.assertEqual("rejected", harness._change_actor_objective(arguments, self.state)["status"])
+        self.assertTrue(harness._target_deferred_today(harness._retry_condition_key(arguments["success_condition"]), self.state))
+        self.assertEqual("completed", harness._change_actor_objective(arguments, {**self.state, "day": 10})["status"])
+
     def test_repeated_rejection_merges_lesson_in_actor_path(self):
         harness = self.harness
         harness.bridge = _Bridge()

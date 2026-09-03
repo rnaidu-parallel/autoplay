@@ -271,8 +271,6 @@ class Notebook:
                 raise ValueError("Interaction subject, action, and note must be non-empty and within their length limits.")
         if outcome not in {"possible", "unavailable", "unknown"} or preference not in {"liked", "disliked", "neutral", "undecided"}:
             raise ValueError("Use a supported interaction outcome and preference.")
-        if outcome != "possible" and preference != "undecided":
-            raise ValueError("An unavailable or uncertain interaction needs an undecided preference.")
         if outcome == "possible" and observed["status"] != "completed":
             raise ValueError("A failed action cannot establish that the interaction was possible; use unknown or unavailable.")
         if outcome == "unavailable" and observed["tool"] in {"navigate_to", "go_to_location", "travel_to"}:

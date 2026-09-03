@@ -51,8 +51,18 @@ def function_tool(name: str, description: str, properties: dict[str, Any], requi
 
 ACTOR_TOOLS = [
     function_tool(
+        "change_objective",
+        "Choose a different pursuit now, without director approval. Preserve the current objective as interrupted and its agenda item as pending. For spontaneous interactions you can simply act; use this only when your substantial intention changes. Supply a currently false structured success condition. Use agenda_id to return to an unfinished agenda item. Retry limits still apply.",
+        {"goal": {"type": "string", "minLength": 1, "maxLength": 400},
+         "success_condition": {"type": "string", "minLength": 1, "maxLength": 300},
+         "milestone": {"type": "string", "minLength": 1, "maxLength": 400},
+         "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+         "agenda_id": {"type": "string", "maxLength": 40}},
+        ["goal", "success_condition", "milestone", "reason"],
+    ),
+    function_tool(
         "remember_interaction",
-        "Remember the most recent attempted interaction and your personal reaction. Requires recent_interaction from an actual action; does not send input. Use unknown/undecided for an unclear effect or an unreached target. A completed control alone does not prove an interaction worked. Record once per meaningful experience, not every routine action.",
+        "Remember an attempted interaction and your own reaction. Requires recent_interaction from an actual action; does not send input. Use unknown for an unclear effect or an unreached target, and choose your preference independently. You decide what is meaningful and when your tastes change. A completed control alone does not prove an interaction worked.",
         {"subject": {"type": "string", "minLength": 1, "maxLength": 80},
          "interaction": {"type": "string", "minLength": 1, "maxLength": 80},
          "outcome": {"type": "string", "enum": ["possible", "unavailable", "unknown"]},
@@ -130,7 +140,7 @@ ACTOR_TOOLS = [
     ),
     function_tool(
         "world_map",
-        "Inspect the shortest route to a known destination and the compact world summary without sending game input or advancing game time.",
+        "Inspect the shortest route to a known destination and the compact world summary without sending game input. The clock continues running while you think.",
         {"destination": {"type": "string", "maxLength": 80}},
         ["destination"],
     ),

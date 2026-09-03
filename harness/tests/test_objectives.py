@@ -40,6 +40,21 @@ class ObjectiveLedgerTests(unittest.TestCase):
             ledger.set_objective("Go fishing", "location is Mountain", "Reach the lake")
             self.assertEqual("Go fishing", ledger.snapshot()["active"]["goal"])
 
+    def test_explicit_interruption_preserves_unfinished_objective_across_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "objectives.json"
+            ledger = ObjectiveLedger(path, "Water crops", "wateredCrops >= 5")
+            with self.assertRaises(ObjectiveError):
+                ledger.set_objective("Look around", "Something interesting", "Follow a sound",
+                                     interruption_reason="I hear something")
+            self.assertEqual("Water crops", ObjectiveLedger(path).snapshot()["active"]["goal"])
+            ledger.set_objective("Visit the lake", "location is Mountain", "Walk to the lake",
+                                 interruption_reason="I want to follow that sound")
+            restored = ObjectiveLedger(path).snapshot()
+            self.assertEqual("Visit the lake", restored["active"]["goal"])
+            self.assertEqual("interrupted", restored["history"][0]["status"])
+            self.assertEqual("Water crops", restored["history"][0]["goal"])
+
     def test_explicit_startup_objective_supersedes_persisted_active_objective(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "objectives.json"

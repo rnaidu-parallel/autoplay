@@ -107,13 +107,18 @@ class ObjectiveLedger:
         success_condition: str,
         milestone: str,
         agenda_id: str | None = None,
+        interruption_reason: str | None = None,
     ) -> None:
-        if self.data.get("active") is not None:
+        active = self.data.get("active")
+        if active is not None and interruption_reason is None:
             raise ObjectiveError("The active objective must be completed or blocked before setting another.")
         if evaluate_state_condition(success_condition, {}) is None:
             raise ObjectiveError(
                 "The success condition must contain only structured game-state comparisons."
             )
+        if active is not None:
+            self.data["history"].append({**active, "status": "interrupted",
+                                         "evidence": interruption_reason, "ended_at": self._now()})
         next_id = len(self.data["history"]) + 1
         self.data["active"] = {
             "id": f"objective-{next_id}",

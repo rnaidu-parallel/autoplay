@@ -47,16 +47,18 @@ class NotebookTests(unittest.TestCase):
             self.assertEqual("disliked", entry["preference"])
             self.assertEqual("liked", entry["previous"]["preference"])
 
-    def test_uncertain_and_unavailable_interactions_do_not_invent_tastes(self):
+    def test_uncertain_interactions_allow_personal_reactions_without_false_outcomes(self):
         with tempfile.TemporaryDirectory() as directory:
             notebook = Notebook(Path(directory))
             observed = {"location": "Town", "day": 1, "tool": "navigate_to", "status": "blocked"}
-            for outcome, preference in (("possible", "liked"), ("unknown", "disliked"), ("unavailable", "undecided")):
+            for outcome, preference in (("possible", "liked"), ("unavailable", "undecided")):
                 with self.subTest(outcome=outcome), self.assertRaises(ValueError):
                     notebook.remember_interaction("Bench", "Sit", outcome, preference, "The path was blocked.", observed)
-            notebook.remember_interaction("Bench", "Sit", "unknown", "undecided", "I could not reach it; I do not know if I can sit there.", observed)
-            notebook.remember_interaction("Shop door", "Open", "unavailable", "undecided", "The sign says closed until 9 AM.", {**observed, "tool": "press", "status": "completed"})
-            self.assertEqual(2, len(notebook.data["interactions"]))
+            notebook.remember_interaction("Bench", "Sit", "unknown", "disliked", "I could not reach it; the attempt frustrated me.", observed)
+            notebook.remember_interaction("Shop door", "Open", "unavailable", "liked", "The door is closed; I enjoy the quiet doorstep.", {**observed, "tool": "press", "status": "completed"})
+            restored = Notebook(Path(directory)).data["interactions"]
+            self.assertEqual([("unknown", "disliked"), ("unavailable", "liked")],
+                             [(entry["outcome"], entry["preference"]) for entry in restored])
 
     def test_visible_person_is_recalled_after_moving_and_global_preferences_remain(self):
         with tempfile.TemporaryDirectory() as directory:

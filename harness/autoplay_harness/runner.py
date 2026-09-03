@@ -465,9 +465,9 @@ class AutoplayHarness:
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
                                          context, frame, STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS, "actor")
         current_state = state
-        game_input = decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "remember_interaction",
+        game_input = decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "remember_interaction", "change_objective",
                                           "wiki_search", "world_map", "stop_session"}
-        if game_input:
+        if game_input or decision.name == "change_objective":
             current_state, _ = self._observe()
         fingerprint = self._action_fingerprint(decision, state)
         execute_started = time.perf_counter()
@@ -525,6 +525,8 @@ class AutoplayHarness:
         active = self.ledger.snapshot().get("active")
         if not self.continuous or active is None or result.get("reason") == "scene_changed_while_thinking":
             return
+        if decision.name == "change_objective" and result.get("status") == "completed":
+            return
         if active["id"] != getattr(self, "retry_objective_id", None):
             self.retry_objective_id = active["id"]
             self.failed_targets = {}
@@ -554,6 +556,7 @@ class AutoplayHarness:
             self.telemetry.record("home_return_blocked", {"objective_id": active["id"], "evidence": evidence})
             return
         evidence += " Deferred until another day; choose a different agenda task."
+        self.ledger.data["active"]["retry_deferred_on"] = [after.get(key) for key in ("year", "season", "day")]
         self.ledger.block_objective(evidence)
         agenda_id = active.get("agenda_id")
         if agenda_id is not None:
@@ -987,8 +990,7 @@ class AutoplayHarness:
                     deferred = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
                     retry_key = self._retry_condition_key(arguments["success_condition"])
                     bedtime_return = retry_key == "location=farmhouse" and self._bedtime_allowed(state)
-                    if not bedtime_return and any(item["status"] == "deferred" and item.get("success_condition")
-                                                  and self._retry_condition_key(item["success_condition"]) == retry_key for item in deferred):
+                    if self._target_deferred_today(retry_key, state):
                         raise ObjectiveError("This target reached its retry limit today; choose a different task.")
                 remaining = (
                     self.notebook.remaining(day)
@@ -1055,6 +1057,8 @@ class AutoplayHarness:
         assert self.bridge is not None
         name = decision.name
         arguments = decision.arguments
+        if name == "change_objective":
+            return self._change_actor_objective(arguments, before_state or {})
         if name == "inspect_scene":
             self.inspect_next_scene = True
             return {"status": "visual_review_requested"}
@@ -1238,6 +1242,51 @@ class AutoplayHarness:
                 "warning": "Movement did not change location or position; choose a different direction.",
             }
         return response
+
+    def _change_actor_objective(self, arguments: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        active = self.ledger.snapshot().get("active")
+        condition = arguments["success_condition"]
+        evaluation = evaluate_state_condition(condition, state)
+        if (not condition.strip() or evaluation is None or evaluation[0]
+                or any(" is unavailable" in item for item in evaluation[1])):
+            return {"status": "rejected", "reason": "Choose a currently false condition using observed state fields."}
+        if any(not arguments[key].strip() for key in ("goal", "milestone", "reason")):
+            return {"status": "rejected", "reason": "Explain your new intention, next step, and reason for changing plans."}
+        target = self._retry_condition_key(condition)
+        if active and target == self._retry_condition_key(active["success_condition"]):
+            return {"status": "rejected", "reason": "This is the current target; act or change tactic without resetting its objective."}
+        day = state.get("day")
+        agenda = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
+        bedtime_return = target == "location=farmhouse" and self._bedtime_allowed(state)
+        if self._target_deferred_today(target, state):
+            return {"status": "rejected", "reason": "This target reached its retry limit today; choose a different pursuit."}
+        agenda_id = arguments.get("agenda_id")
+        if agenda_id is not None and not any(item["id"] == agenda_id and
+                (item["status"] in {"pending", "carried"} or (bedtime_return and item["status"] == "deferred")) for item in agenda):
+            return {"status": "rejected", "reason": "Use an unfinished agenda item or omit agenda_id for a new pursuit."}
+        self.ledger.set_objective(arguments["goal"], condition, arguments["milestone"], agenda_id,
+                                  interruption_reason=arguments["reason"])
+        if active and active.get("agenda_id"):
+            self.notebook.mark(active["agenda_id"], "pending", arguments["reason"])
+        if agenda_id is not None:
+            self.notebook.mark(agenda_id, "active")
+        self.director_feedback = None
+        self.invalid_objective_attempts = {}
+        self.telemetry.record("objective_changed_by_actor", {
+            "interrupted_id": active["id"] if active else None,
+            "objective": self.ledger.snapshot()["active"], "reason": arguments["reason"],
+        })
+        return {"status": "completed", "reason": "New intention saved; previous work remains unfinished."}
+
+    def _target_deferred_today(self, target: str, state: dict[str, Any]) -> bool:
+        if target == "location=farmhouse" and self._bedtime_allowed(state):
+            return False
+        agenda = self.notebook.data["days"].get(str(state.get("day")), {}).get("agenda", [])
+        today = [state.get(key) for key in ("year", "season", "day")]
+        deferred = [item for item in agenda if item["status"] == "deferred"]
+        deferred += [item for item in self.ledger.data["history"] if item.get("retry_deferred_on") == today]
+        return any(item.get("success_condition") and self._retry_condition_key(item["success_condition"]) == target
+                   for item in deferred)
 
     def _crop_zone_rejection(
         self, tiles: list[dict[str, Any]], state: dict[str, Any]

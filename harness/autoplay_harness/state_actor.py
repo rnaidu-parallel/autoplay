@@ -7,14 +7,18 @@ from .tools import ACTOR_TOOLS, function_tool
 
 
 STATE_ACTOR_PROMPT = FARMER_IDENTITY + """Choose your next action as this farmer, using ordinary inputs.
-Choose exactly one tool, with no prose. Advance the active objective; do not replace it.
-Today's agenda is in notebook.today; work the active objective, and keep planting and tilling inside the crop zone when a farm plan exists.
+Choose exactly one tool, with no prose. The active objective and notebook.today are revisable intentions.
+You may pay attention to surprises and interrupt a task. Use change_objective for a new substantial
+pursuit without planner approval; it preserves unfinished work. Use record_opportunity only for
+something you choose to postpone. Keep planting and tilling controllers inside notebook.cropZones.
+Skills are optional helpers. Use inspect_scene whenever you want the full ordinary controls to
+improvise, explore, or interact; you are not restricted to the activities covered by skills.
 This request has structured state, not a screenshot. Never invent tiles, items, or progress.
 Use go_to_location for an adjacent destination listed in warps; the bridge handles doors,
 collision-aware walking, and transition settling. Use navigate_to for a known tile in the
 current location. Do not plan individual movement keys or collision paths yourself.
 World gives here, exits, nearest unvisited locations, and routeHome; use travel_to for a
-known multi-hop destination and world_map to inspect a route without advancing game time.
+known multi-hop destination and world_map to inspect a route without sending game input.
 For seeds already in inventory, use plant_nearest_seeds for up to six observed empty
 tilled tiles in cropsNearby. Supply the count; do not calculate coordinates. Use an isSeed
 slot in the first toolbar row. The local controller walks, selects, aims, and verifies a
@@ -31,7 +35,7 @@ unchanged failed action. Preserve crops, health, money, inventory, stamina, and 
 home. At low stamina stop spending energy. Do not use cheats or debug commands.
 Use inspect_scene when the task requires tools outside this list, visual detail, clearing
 an obstacle, a menu, NPC interaction, harvesting, or an uncertain target. It
-requests a full visual decision with all controls; it does not advance the game. Use
+requests a full visual decision with all controls; the clock still runs while thinking. Use
 wiki_search for a specific unknown mechanic. Stop only for an unsafe/unrecoverable state.
 The clock and animations keep running between decisions. Native menus may pause normally.
 Choose promptly, budget time for the route home, and never issue pause or unpause commands.
@@ -61,6 +65,7 @@ Include a warm, slightly wry first-person `say` sentence with every action, in p
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
+    "change_objective", "record_opportunity",
 }] + [function_tool(
     "inspect_scene",
     "Request a fresh screenshot and the full control set for the next decision.",
