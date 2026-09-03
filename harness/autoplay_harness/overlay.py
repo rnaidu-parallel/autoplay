@@ -137,6 +137,7 @@ class OverlayState:
         self.pending_action: tuple[Any, str] | None = None
         self.actor_decisions = 0
         self.director_reviews = 0
+        self.model_calls = 0
         self.stall_at_decision: int | None = None
         self.stalled_decisions = 0
         self.prompt_tokens = 0
@@ -234,6 +235,7 @@ class OverlayState:
             self.pending_action = None
 
     def _add_usage(self, event: dict[str, Any]) -> None:
+        self.model_calls += 1
         usage = event.get("usage") or {}
         if not isinstance(usage, dict):
             return
@@ -347,6 +349,8 @@ class OverlayState:
             "stats": {
                 "decisions": self.actor_decisions,
                 "directorReviews": self.director_reviews,
+                "modelCalls": self.model_calls,
+                "inputTokens": self.prompt_tokens,
                 "cost": round(self.cost, 4),
                 "cacheHitRate": round(self.cached_tokens / prompt, 4) if prompt else 0,
                 "uptimeSeconds": uptime,

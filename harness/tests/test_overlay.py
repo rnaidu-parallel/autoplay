@@ -80,6 +80,27 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual("8:50 AM", snapshot["actorActions"][0]["gameTime"])
         self.assertEqual("8:50 AM", snapshot["actions"][0]["gameTime"])
 
+    def test_session_stats_include_discarded_director_and_failed_calls(self) -> None:
+        state = OverlayState("run-1")
+        state.apply({"at": self.start, "type": "session_started"})
+        state.apply({"type": "actor_decision", "tool": "inspect_scene",
+                     "usage": {"prompt_tokens": 100, "cost": 0.01,
+                               "prompt_tokens_details": {"cached_tokens": 40}}})
+        state.apply({"type": "director_decision", "applied": False,
+                     "usage": {"prompt_tokens": 80, "cost": 0.02,
+                               "prompt_tokens_details": {"cached_tokens": 60}}})
+        state.apply({"type": "model_error", "role": "actor",
+                     "usage": {"prompt_tokens": 20, "cost": 0.005}})
+        state.apply({"type": "model_request", "role": "actor", "at": self.start})
+        state.apply({"type": "session_stopped", "at": "2026-09-03T10:00:03+00:00", "reason": "done"})
+        stats = state.snapshot(now=self.now)["stats"]
+        self.assertEqual(3, stats["modelCalls"])
+        self.assertEqual(200, stats["inputTokens"])
+        self.assertEqual(0.5, stats["cacheHitRate"])
+        self.assertAlmostEqual(0.035, stats["cost"])
+        self.assertEqual(3, stats["uptimeSeconds"])
+        self.assertEqual(0, OverlayState("new-run").snapshot(now=self.now)["stats"]["modelCalls"])
+
     def test_speech_survives_director_updates_and_resets_for_a_new_run(self) -> None:
         state = OverlayState("run-1")
         for line in ("The river looks peaceful.", "I wonder who lives up this path."):

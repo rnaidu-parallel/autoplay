@@ -32,7 +32,9 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
 #new-goal { display:block; color:var(--green); visibility:hidden; }
 #new-goal.visible { visibility:visible; }
 #goal { font-size:26px; line-height:1.4; overflow-wrap:anywhere; text-wrap:balance; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
-#caption { position:absolute; left:0; top:972px; width:1536px; height:108px; padding:0 24px; display:flex; align-items:center; color:var(--muted); background:var(--panel); font-size:18px; }
+#session-stats { position:absolute; left:0; top:972px; width:1536px; height:108px; margin:0; padding:0 24px; display:grid; grid-template-columns:repeat(5,1fr); align-items:center; gap:24px; background:var(--panel); }
+#session-stats dt { color:var(--muted); font-size:16px; }
+#session-stats dd { margin:0; color:var(--text); font-size:24px; font-weight:500; font-variant-numeric:tabular-nums; }
 #actions { display:flex; flex-direction:column; gap:36px; margin-top:auto; overflow:hidden; }
 .action { flex-shrink:0; overflow-wrap:anywhere; }
 .action.previous { color:var(--muted); }
@@ -65,7 +67,13 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
   </section>
 
 <section id="objective" aria-label="Current objective"><div id="objective-label">Objective<span id="new-goal">New goal</span></div><div id="goal">Choosing what to do next.</div></section>
-<div id="caption">An AI farmer lives here and explains each move.</div>
+<dl id="session-stats" aria-label="Session statistics">
+  <div><dt>Session</dt><dd id="session-duration">—</dd></div>
+  <div><dt>LLM calls</dt><dd id="model-calls">—</dd></div>
+  <div><dt>Reported cost · USD</dt><dd id="model-cost">—</dd></div>
+  <div><dt>Input tokens</dt><dd id="input-tokens">—</dd></div>
+  <div><dt>Cached input</dt><dd id="cached-input">—</dd></div>
+</dl>
 <aside id="rail" aria-label="Farmer activity">
   <div id="actions" role="log" aria-live="polite"></div>
   <div id="empty">The next action will appear here.</div>
@@ -74,6 +82,11 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
 <script>
 const $ = id => document.getElementById(id);
 let renderedRun = null, previousKey = null, renderedGoal = null, goalTimer;
+const compactNumber = new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
+function duration(seconds) {
+  const whole = Math.floor(Math.max(0,seconds));
+  return [Math.floor(whole/3600),Math.floor(whole/60)%60,whole%60].map(n=>String(n).padStart(2,'0')).join(':');
+}
 function publicOutcome(item, status) {
   const outcome = String(item.outcome || ''), kind = outcome.split(':',1)[0].toLowerCase();
   const reason = outcome.includes(':') ? outcome.slice(outcome.indexOf(':')+1).trim() : '';
@@ -88,6 +101,12 @@ function render(state) {
     clearTimeout(goalTimer); $('new-goal').classList.remove('visible');
   }
   const status = state.status || 'running', thinking = state.thinking || {};
+  const stats = state.stats || {};
+  $('session-duration').textContent = Number.isFinite(stats.uptimeSeconds) ? duration(stats.uptimeSeconds) : '—';
+  $('model-calls').textContent = Number.isFinite(stats.modelCalls) ? stats.modelCalls.toLocaleString('en-US') : '—';
+  $('model-cost').textContent = Number.isFinite(stats.cost) ? `$${stats.cost.toFixed(4)}` : '—';
+  $('input-tokens').textContent = Number.isFinite(stats.inputTokens) ? compactNumber.format(stats.inputTokens) : '—';
+  $('cached-input').textContent = stats.inputTokens > 0 && Number.isFinite(stats.cacheHitRate) ? `${Math.round(stats.cacheHitRate*100)}%` : '—';
   const goal = (state.objective || {}).goal || (status === 'thinking' && thinking.role === 'director' ? 'Deciding what to do today.' : 'Choosing what to do next.');
   if (renderedGoal !== goal) {
     $('goal').textContent = goal; $('goal').style.fontSize = '26px';

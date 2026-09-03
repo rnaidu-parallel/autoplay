@@ -34,7 +34,13 @@ See [operator controls](operator-controls.md) for command behavior and save veri
 
 The output canvas stays at 1920×1080. The complete 16:9 game frame occupies 1536×864 at x=0, y=108.
 The activity column occupies x=1536–1920 for the full height. The game is scaled, not cropped.
-The objective fills the top 108 px band; a quiet stream description fills the bottom 108 px band.
+The objective fills the top 108 px band. The bottom 108 px band shows session duration, LLM calls,
+reported AI cost in USD, input tokens and the percentage of input tokens reported as cached.
+Duration measures this harness run, not OBS broadcast time; it stops when the run stops. LLM calls count
+finished actor/director requests, including failed requests and discarded decisions. Retries within one
+request count once. Cost and tokens use recorded provider usage, including usage reported on errors;
+pending requests are added when their result arrives. These totals reset for a new run. No cost is inferred
+for missing provider usage. Cached input displays a dash until input tokens have been reported.
 No feed element covers the farmer, game clock, or hotbar.
 
 Keep the audience Browser source at 1920×1080, above Game Capture. `broadcast/scene.cjs` applies both source
@@ -42,6 +48,6 @@ settings and the game bounds. It requires a running game when rebuilding capture
 
 ## Preview and evidence
 
-The local replay at `harness/runs/integration-qa/stream-preview-fable/preview.html` combines archived Spring 18 video
+The local replay at `harness/runs/integration-qa/stream-preview-stats/preview.html` combines archived Spring 18 video
 and its recorded decisions with this layout. It has play/seek and a disabled operator-view preview. It uses no model
 calls. Historical behavior does not demonstrate the latest gameplay fixes.
