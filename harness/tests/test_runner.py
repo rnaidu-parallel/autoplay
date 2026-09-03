@@ -1304,6 +1304,41 @@ class LongRunIntegrationTests(unittest.TestCase):
         event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
         self.assertEqual(6, event["no_progress_decisions"])
 
+    def test_invalid_objective_feedback_survives_agenda_reminder_and_stops_at_three(self):
+        harness = self.harness
+        harness.notebook.set_agenda(9, [{"goal": "Visit Farm", "slot": "morning", "category": "farming"}], "Farm")
+        decision = ToolDecision("set_objective", {"goal": "Already in Town", "success_condition": "location is Town",
+                                                 "milestone": "Arrive", "agenda_id": "d9-1"}, {}, None)
+        for attempt in range(3):
+            harness._apply_director_decision(decision, self.state)
+            feedback = harness.director_feedback
+            harness._agenda_feedback(self.state)
+            self.assertIn("already satisfied", feedback)
+            self.assertEqual(feedback, harness.director_feedback)
+            self.assertEqual("director_repeated_invalid_objective" if attempt == 2 else None, harness.stop_reason)
+
+    def test_bedtime_can_reopen_deferred_home_but_stops_if_route_stays_blocked(self):
+        harness = self.harness
+        harness.notebook.set_agenda(9, [{"goal": "Go home", "success_condition": "location is FarmHouse",
+                                      "slot": "evening", "category": "home"}], "Return")
+        harness.notebook.mark("d9-1", "deferred")
+        harness.ledger.block_objective("Earlier path blocked")
+        decision = ToolDecision("set_objective", {"goal": "Go home", "success_condition": "location is FarmHouse",
+                                                 "milestone": "Arrive safely", "agenda_id": "d9-1"}, {}, None)
+        harness._apply_director_decision(decision, self.state)
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+        self.assertIn("retry limit", harness.director_feedback)
+        night = {**self.state, "time": 2200}
+        harness._apply_director_decision(decision, night)
+        self.assertEqual("active", harness.notebook.remaining(9)[0]["status"])
+        self.assertEqual({}, harness.invalid_objective_attempts)
+        for _ in range(3):
+            harness._track_action_retries(ToolDecision("travel_to", {"destination": "FarmHouse"}, {}, None),
+                                         {"status": "blocked", "reason": "no_walkable_path"}, night, night)
+        self.assertEqual("home_route_blocked", harness.stop_reason)
+        self.assertIsNotNone(harness.ledger.snapshot()["active"])
+        self.assertEqual("active", harness.notebook.remaining(9)[0]["status"])
+
     def test_advancing_story_dialogue_is_progress_for_both_retry_guards(self):
         harness = self.harness
         before = {**self.state, "menu": "DialogueBox:question=False:selected=-1:responses=0",
@@ -1344,7 +1379,23 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertEqual(last_result, trimmed["game_state"]["harnessLastResult"])
         self.assertNotIn("farmLayout", trimmed["game_state"])
         event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
-        self.assertEqual("actor_geometry", event["cuts"][-1])
+        self.assertEqual("controller_geometry", event["cuts"][-1])
+
+    def test_reconstructed_director_overflow_retains_plan_and_objective(self):
+        # Day 18 fatal context reconstructed from observations, notebook, and recent decisions.
+        packet = json.loads((Path(__file__).parent / "fixtures" / "director-context-overflow.json").read_text(encoding="utf-8"))
+        ledger = packet["objective_ledger"]
+        last_result = packet["game_state"]["harnessLastResult"]
+        layout = packet["game_state"]["farmLayout"]
+        context = self.harness._budget_context(packet, "director")
+        self.assertLessEqual(len(context) / 3.5, DIRECTOR_CONTEXT_BUDGET)
+        trimmed = json.loads(context)
+        self.assertEqual(ledger, trimmed["objective_ledger"])
+        self.assertEqual(last_result, trimmed["game_state"]["harnessLastResult"])
+        self.assertEqual(layout, trimmed["game_state"]["farmLayout"])
+        self.assertNotIn("navigationRows", trimmed["game_state"])
+        event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
+        self.assertEqual("controller_geometry", event["cuts"][-1])
 
     def test_oversized_protected_context_is_not_sent_or_dropped(self):
         harness = self.harness

@@ -5,6 +5,10 @@ with farm zones, guards (bedtime, stall, budget), borderless display with focus 
 overlay v1, and the `--forever` supervisor. Everything below runs on the helios Windows machine that owns the
 game, SMAPI, and the harness.
 
+Latest rehearsal: four attempts evaluated, $0.327020 total; longest raw recording 14:30.40. The continuous
+clock worked, but blocked return-home routing and a director loop failed the viewing gate. Final retry/context
+fixes pass 174 tests and still need another recorded run. See [measured review](memory-narration-review.md).
+
 ## Phase A: private dress rehearsal (no viewers)
 
 1. Fresh save or the current one. Back up `%APPDATA%\StardewValley\Saves\<save>` first.
@@ -64,8 +68,11 @@ any, recovered within a minute with the overlay showing "restarting"; cost withi
 
 ## Known gaps before Phase C
 
-- Narration and the Speech panel are implemented and checked with a 1080p replay. The new recorded gameplay
-  session is still required to verify the farmer's live narration and the complete viewing checklist.
+- Narration and the Speech panel are implemented. Live speech covered all 88 actor decisions in the latest run,
+  but the panel went blank during a prolonged director-only loop. A clean 30-minute run and an OBS recording
+  with audio and overlay are still required.
+- Return-home routing must handle different farm entrances. Nightly save still needed manual post-window
+  recovery in the latest rehearsal; existing-crop totals also produced a misleading planting completion.
 - Progression state (skills, friendship, quests, mail) is not exposed; town social play is shallow until then.
 - Festivals and seasonal events are untested.
 - Fishing, mining, and combat are untested; the director is steered away from them until proven.

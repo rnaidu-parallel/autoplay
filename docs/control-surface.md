@@ -30,7 +30,7 @@ This checklist tracks controls verified through the C# SMAPI bridge. Build succe
 | Capability | Status | Evidence |
 | --- | --- | --- |
 | Deterministic save bootstrap | Verified | A fresh full-screen run opened Load and selected `BridgeTest` with two bridge actions and zero model decisions. |
-| Continuous clock and bounded idle | Live validation in progress | Harness-owned freezing removed on 2026-09-03 at Rahul's request. Native menu pauses remain; `idle` waits without key input. |
+| Continuous clock and bounded idle | Verified in a 14.5-minute recording | Harness-owned freezing removed on 2026-09-03 at Rahul's request. All 368 loaded-world observations reported simulationPaused=false; native menu pauses remain. `idle` waits without key input. |
 | Nearby object metadata | Verified | Farm state reported Weeds, Stone, and Twig tiles with Scythe, Pickaxe, and Axe recommendations. |
 | Keyboard sequence | Verified | The actor selected `control_sequence` and traversed multiple tiles in one model turn. |
 | Collision-aware navigation | Superseded | The harness-side 25x25 grid navigation was verified but failed 75% of calls in the continuous run because `isTilePassable` ignores trees, debris, buildings, and characters. Replaced by bridge-side `navigate` and `go_to_location` using the player's bounding box and `isCollidingPosition`; builds clean, runtime re-test pending. |

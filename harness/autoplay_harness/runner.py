@@ -245,7 +245,12 @@ class AutoplayHarness:
             if self.bridge is not None:
                 if self.keep_game_open:
                     try:
-                        self.bridge.observe()
+                        state = self.bridge.observe().get("state") or {}
+                        if state.get("worldReady") and state.get("playerFree") and state.get("menu") == "none" and not state.get("eventUp"):
+                            response = self.bridge.request("press", buttons=["Escape"])
+                            paused = ((response.get("state") or {}).get("menu") or "").startswith("GameMenu")
+                            self.telemetry.record("paused_for_handoff" if paused else "handoff_pause_failed",
+                                                  {"state": response.get("state")}, include_recent=False)
                     except Exception:
                         pass
                 else:
@@ -529,8 +534,12 @@ class AutoplayHarness:
             return
         evidence = (f"Retry limit reached: {failures} failed attempts at {name}; "
                     f"{self.retry_no_progress} decisions without progress. "
-                    f"Last result: {result.get('reason') or result.get('error') or result.get('status')}. "
-                    "Deferred until another day; choose a different agenda task.")
+                    f"Last result: {result.get('reason') or result.get('error') or result.get('status')}.")
+        if self._retry_condition_key(active["success_condition"]) == "location=farmhouse" and self._bedtime_allowed(after):
+            self.stop_reason = "home_route_blocked"
+            self.telemetry.record("home_return_blocked", {"objective_id": active["id"], "evidence": evidence})
+            return
+        evidence += " Deferred until another day; choose a different agenda task."
         self.ledger.block_objective(evidence)
         agenda_id = active.get("agenda_id")
         if agenda_id is not None:
@@ -740,6 +749,8 @@ class AutoplayHarness:
         self.notebook.set_farm_plan(zones, arguments["notes"], int(state["day"]))
 
     def _agenda_feedback(self, state: dict[str, Any]) -> None:
+        if getattr(self, "director_feedback", None):
+            return
         day = state.get("day")
         if not isinstance(day, int) or self.notebook.current_day != day:
             return
@@ -957,16 +968,20 @@ class AutoplayHarness:
                     raise ObjectiveError("The proposed success condition uses an unavailable state field.")
                 agenda_id = arguments.get("agenda_id")
                 day = state.get("day")
+                bedtime_return = False
                 if hasattr(self, "notebook") and isinstance(day, int):
                     deferred = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
                     retry_key = self._retry_condition_key(arguments["success_condition"])
-                    if any(item["status"] == "deferred" and item.get("success_condition")
-                           and self._retry_condition_key(item["success_condition"]) == retry_key for item in deferred):
+                    bedtime_return = retry_key == "location=farmhouse" and self._bedtime_allowed(state)
+                    if not bedtime_return and any(item["status"] == "deferred" and item.get("success_condition")
+                                                  and self._retry_condition_key(item["success_condition"]) == retry_key for item in deferred):
                         raise ObjectiveError("This target reached its retry limit today; choose a different task.")
                 remaining = (
                     self.notebook.remaining(day)
                     if hasattr(self, "notebook") and isinstance(day, int) else []
                 )
+                if bedtime_return:
+                    remaining += [item for item in deferred if item["status"] == "deferred" and item["id"] == agenda_id]
                 if remaining and agenda_id is None:
                     raise ObjectiveError("An agenda_id is required while agenda items remain.")
                 if agenda_id is not None and not any(item["id"] == agenda_id for item in remaining):
@@ -979,6 +994,7 @@ class AutoplayHarness:
                 )
                 if agenda_id is not None and hasattr(self, "notebook"):
                     self.notebook.mark(agenda_id, "active")
+                self.invalid_objective_attempts = {}
             except ObjectiveError as error:
                 self.director_feedback = (
                     f"Previous set_objective was rejected: {error} "
@@ -988,6 +1004,12 @@ class AutoplayHarness:
                     "objective_update_rejected",
                     {"reason": str(error), "arguments": arguments},
                 )
+                attempts = getattr(self, "invalid_objective_attempts", {})
+                key = self._retry_condition_key(arguments["success_condition"])
+                attempts[key] = attempts.get(key, 0) + 1
+                self.invalid_objective_attempts = attempts
+                if attempts[key] >= 3:
+                    self.stop_reason = "director_repeated_invalid_objective"
         elif decision.name == "plan_day":
             day = state.get("day")
             entry = self.notebook.data["days"].get(str(day)) if isinstance(day, int) else None
@@ -1495,7 +1517,7 @@ class AutoplayHarness:
         context = serialize()
         initial_tokens = len(context) / 3.5
         cuts = []
-        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "actor_geometry"):
+        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry"):
             if len(context) / 3.5 <= budget:
                 break
             if field == "wiki_results":
@@ -1519,10 +1541,10 @@ class AutoplayHarness:
                             items.append({**item, "goal": item.get("goal", "")[:40]})
                     if key in today:
                         today[key] = items
-            elif field == "actor_geometry":
-                if role == "actor":
-                    for key in ("farmLayout", "navigationRows", "diagnostics"):
-                        packet["game_state"].pop(key, None)
+            elif field == "controller_geometry":
+                fields = ("farmLayout", "navigationRows", "diagnostics") if role == "actor" else ("navigationRows", "diagnostics")
+                for key in fields:
+                    packet["game_state"].pop(key, None)
             elif field != "nearbyObjects" or role == "actor":
                 limit = 12 if field == "nearbyObjects" else 24
                 value = packet["game_state"].get(field)
