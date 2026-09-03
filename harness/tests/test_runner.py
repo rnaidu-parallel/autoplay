@@ -1304,6 +1304,22 @@ class LongRunIntegrationTests(unittest.TestCase):
         event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
         self.assertEqual(6, event["no_progress_decisions"])
 
+    def test_advancing_story_dialogue_is_progress_for_both_retry_guards(self):
+        harness = self.harness
+        before = {**self.state, "menu": "DialogueBox:question=False:selected=-1:responses=0",
+                  "eventUp": True, "playerFree": False, "canMove": False, "dialogueText": "Why is it locked?"}
+        harness.last_progress_fingerprint = harness._progress_fingerprint(before)
+        for line in ["I think Gunther has the key.", "Professor Gunther?", "I saw a big rusty old key.",
+                     "A creepy sewer door...", "There's something moving around in there!", "Let's go!", ""]:
+            after = {**before, "dialogueText": line}
+            harness._track_action_retries(ToolDecision("press", {"buttons": ["X"]}, {}, None),
+                                         {"status": "completed"}, before, after)
+            harness._update_stall_watchdog("press", after)
+            before = after
+        self.assertIsNotNone(harness.ledger.snapshot()["active"])
+        self.assertEqual(0, harness.retry_no_progress)
+        self.assertEqual(0, harness.stalled_decisions)
+
     def test_retry_limit_allows_deliberate_waits_and_real_tool_progress(self):
         harness = self.harness
         for _ in range(8):

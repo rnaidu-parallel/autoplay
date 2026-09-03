@@ -1392,6 +1392,7 @@ class AutoplayHarness:
         return tuple(state.get(field) for field in (
             "location", "tileX", "tileY", "day", "time", "money", "stamina",
             "plantedCrops", "wateredCrops", "tilledTiles", "harvestableCrops",
+            "dialogueText", "eventUp", "playerFree", "canMove",
         )) + (inventory_counts, state.get("menu"))
 
     def _update_stall_watchdog(self, tool_name: str, state: dict[str, Any]) -> None:
