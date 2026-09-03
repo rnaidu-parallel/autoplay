@@ -183,6 +183,10 @@ class AutoplayHarness:
                 time.sleep(3)
             if (self.attach or self.resumed_checkpoint) and (state.get("menu") or "").startswith("GameMenu"):
                 response = self.bridge.request("press", buttons=["Escape"])
+                if (response.get("state", {}).get("menu") or "").startswith("GameMenu"):
+                    close = next((entry for entry in response["state"].get("menuEntries", []) if entry["label"] == "Close menu"), None)
+                    if close:
+                        response = self.bridge.request("click", x=close["screenX"], y=close["screenY"], button="left")
                 if response.get("status") != "completed" or (response.get("state", {}).get("menu") or "").startswith("GameMenu"):
                     raise HarnessError("Could not close the handoff menu while attaching.")
                 self.telemetry.record("handoff_resumed", {"state": response.get("state")}, include_recent=False)
@@ -1249,8 +1253,7 @@ class AutoplayHarness:
             entry = next((entry for entry in state.get("menuEntries", []) if entry["label"].casefold() == "tab: " + arguments["tab"].casefold()), None)
             if entry is None:
                 return {"status": "rejected", "reason": "That tab is not currently available.", "state": state}
-            self.game_actions += 1
-            return self.bridge.request("click", x=entry["screenX"], y=entry["screenY"], button="left")
+            return self._click_visible_menu_entry(entry, state)
         if getattr(self, "operator_mode", None) == "finishing":
             return {"status": "rejected", "reason": "Finish & Save has priority."}
         active = self.ledger.snapshot().get("active")
@@ -1266,7 +1269,9 @@ class AutoplayHarness:
             for item in deferred:
                 condition = evaluate_state_condition(item["revisit_when"], state)
                 if not item["reason"].strip() or not condition or condition[0] or any("unavailable" in error for error in condition[1]):
-                    return {"status": "rejected", "reason": "Each deferred quest needs a reason and a currently false revisit condition using available state."}
+                    return {"status": "rejected", "reason": f"Quest {item['quest_id']} has an invalid revisit_when: {item['revisit_when']!r}. "
+                            "Use a currently false structured condition, e.g. location is Town, inventory.Cauliflower > 0, or time >= 1700. "
+                            "Use exact observed location names, not prose or future actions. Keep next_step and each deferred reason under 100 characters."}
             if active and active.get("agenda_id"):
                 self.notebook.mark(active["agenda_id"], "pending", arguments["reason"])
             if selected:
@@ -1376,8 +1381,7 @@ class AutoplayHarness:
             if not isinstance(index, int) or not 0 <= index < len(entries):
                 return {"status": "rejected", "reason": "Choose a currently visible menu entry index."}
             entry = entries[index]
-            self.game_actions += 1
-            return self.bridge.request("click", x=entry["screenX"], y=entry["screenY"], button="left")
+            return self._click_visible_menu_entry(entry, before_state or {})
         if finishing and name in {"change_objective", "stop_session", "objective_progress", "plant_seeds", "plant_nearest_seeds", "till_tiles", "water_crops"}:
             return {"status": "rejected", "reason": "Operator requested saving. Return home and sleep; the harness verifies the save before stopping."}
         if name == "change_objective":
@@ -1877,6 +1881,19 @@ class AutoplayHarness:
         elif self.stalled_decisions == 24:
             self.stop_reason = "stalled"
 
+    def _click_visible_menu_entry(self, entry: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        self.game_actions += 1
+        result = self.bridge.request("click", x=entry["screenX"], y=entry["screenY"], button="left")
+        actual = result.get("state", {}).get("menu", "")
+        label = entry["label"]
+        if label.startswith("Tab: "):
+            expected = label[5:].capitalize() + "Page"
+            if actual.rsplit(":", 1)[-1] != expected:
+                return {**result, "status": "interrupted", "reason": f"Requested {label}, but observed {actual}. Read the current targets before retrying."}
+        elif label.startswith("Close ") and actual == state.get("menu"):
+            return {**result, "status": "blocked", "reason": "The menu did not close. Check cursor-held items and current controls before retrying."}
+        return result
+
     def _context(self, role: str, state: dict[str, Any], frame: Frame, state_only: bool = False) -> str:
         blocked_here = sorted(
             "+".join(buttons)
@@ -1885,6 +1902,7 @@ class AutoplayHarness:
         )
         harness_state = {
             **{key: value for key, value in state.items() if key not in {"notices", "quests"}},
+            "menuEntries": [{**entry, "index": index} for index, entry in enumerate(state.get("menuEntries", []))],
             "harnessBlockedDirectionsHere": blocked_here,
             "harnessLastResult": self.last_result,
             "harnessStaminaLow": (state.get("stamina") or 0) < 30 if state.get("worldReady") else False,

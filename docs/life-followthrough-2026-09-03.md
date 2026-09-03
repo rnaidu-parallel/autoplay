@@ -44,9 +44,9 @@ No paid GLM request was made for this change. Payload tests verify configuration
 
 Validation: 251 offline tests pass. The C# bridge builds with zero errors and the existing compiler/analyzer version warning. Headless browser checks show seven complete turns at 1080p and 720p. No paid gameplay was run after this revision.
 
-The updated bridge builds without deployment. The running game remains on the previous mod, held at Spring 24, 11:30 on the Farm with unsaved progress. Do not restore the stale Spring 23 harness checkpoint. Preserve or deliberately settle the current day before restarting to load the new mod.
+Later validation deployed the updated bridge after a verified save. GLM was trialed and stopped; Rahul restored Luna (actor low, director medium, OpenAI only). The subsequent5m11s recording found improved NPC/quest awareness and continuing dialogue/quest-policy defects. Current game: held unsavedSpring25,11:30,Beach; latest paired checkpoint is that morning. See [GLM findings](glm-validation-2026-09-03.md) and [Luna validation and streaming readiness](luna-validation-2026-09-03.md).
 
-For the next authorized recording:
+The original pre-validation procedure was:
 
 1. Protect the current game state before restarting the game.
 2. Deploy the updated bridge while the game is closed.

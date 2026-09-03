@@ -46,7 +46,7 @@ class OpenRouterClient:
     QWEN_MODEL = "qwen/qwen3.8-flash"
     GEMINI_FLASH_MODEL = "google/gemini-3.7-flash"
     LUNA_MODEL = "openai/gpt-5.6-luna"
-    DEFAULT_MODEL = GLM_MODEL
+    DEFAULT_MODEL = LUNA_MODEL
     OFFICIAL_PROVIDERS = {
         GEMINI_FLASH_MODEL: "Google AI Studio",
         LUNA_MODEL: "OpenAI",
@@ -254,6 +254,13 @@ class OpenRouterClient:
                             )
             diagnostic.update({"outcome": "rejected", "error": last_error})
             if response_attempt < 2:
+                # A retry must explain the observed failure; an identical prompt repeats it.
+                payload["messages"][1]["content"].append({"type": "text", "text":
+                    "Your previous response was rejected: " + last_error +
+                    " Return one valid tool call. Follow the schema exactly; keep text well below maxLength. "
+                    "Do not repeat the invalid arguments."})
+                body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                request = urllib.request.Request(self.API_URL, data=body, method="POST", headers=dict(request.header_items()))
                 time.sleep(1)
         raise OpenRouterError(f"{last_error} Three response attempts failed.", attempts, aggregate_usage)
 

@@ -22,12 +22,29 @@ class _Response:
 
 
 class OpenRouterClientTests(unittest.TestCase):
+    @patch("autoplay_harness.openrouter.time.sleep")
     @patch("urllib.request.urlopen")
-    def test_glm_default_routing_cache_prefix_and_low_reasoning(self, urlopen):
+    def test_invalid_argument_retry_explains_error_without_changing_cached_prefix(self, urlopen, _sleep):
+        def reply(say, cost):
+            return _Response({"provider":"DeepInfra", "usage":{"cost":cost}, "choices":[{"message":{"tool_calls":[{"function":{
+                "name":"press","arguments":json.dumps({"buttons":["D"],"say":say})}}]}}]})
+        urlopen.side_effect=[reply('x'*200, .001), reply('I head outside.', .0004)]
+        client=OpenRouterClient('secret',OpenRouterClient.GLM_MODEL,'run')
+        decision=client.choose_tool('fixed system','dynamic state',None,ACTOR_TOOLS,stable_context='notes')
+        first,second=[json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual(first['messages'][0],second['messages'][0])
+        self.assertEqual(first['prompt_cache_key'],second['prompt_cache_key'])
+        self.assertEqual(first['tools'],second['tools'])
+        self.assertIn('say is longer than',second['messages'][1]['content'][-1]['text'])
+        self.assertEqual(first['messages'][1]['content'],second['messages'][1]['content'][:-1])
+        self.assertAlmostEqual(.0014,decision.usage['cost'])
+
+    @patch("urllib.request.urlopen")
+    def test_optional_glm_routing_cache_prefix_and_low_reasoning(self, urlopen):
         urlopen.return_value = _Response({"provider": "DeepInfra", "usage": {"prompt_tokens_details": {"cached_tokens": 1024}},
             "choices": [{"message": {"tool_calls": [{"function": {"name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
-        self.assertEqual(OpenRouterClient.GLM_MODEL, OpenRouterClient.DEFAULT_MODEL)
-        client = OpenRouterClient("secret", OpenRouterClient.DEFAULT_MODEL, "run")
+        self.assertEqual(OpenRouterClient.LUNA_MODEL, OpenRouterClient.DEFAULT_MODEL)
+        client = OpenRouterClient("secret", OpenRouterClient.GLM_MODEL, "run")
         for context in ("Farm 9:00", "Town 10:00"):
             decision = client.choose_tool("static", context, None, ACTOR_TOOLS, stable_context="long lived notes")
         payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]

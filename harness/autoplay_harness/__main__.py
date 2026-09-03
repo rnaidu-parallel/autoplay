@@ -58,7 +58,7 @@ def main() -> int:
     )
     run_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
     run_parser.add_argument("--director-reasoning-effort", choices=["low", "medium", "high", "max"], default=None,
-                            help="Reasoning effort for director planning and reviews; defaults to --reasoning-effort")
+                            help="Reasoning effort for director planning and reviews; defaults to medium for Luna, otherwise --reasoning-effort")
     run_parser.add_argument("--isolated-state", action="store_true", help="Use a fresh per-run objective ledger for comparisons; does not reset or change the game save.")
     run_parser.add_argument("--actor-mode", choices=["state-first", "visual"], default="state-first",
                             help="Use compact structured skills with visual fallback, or always send a screenshot.")
@@ -182,7 +182,7 @@ def main() -> int:
                 video_segment_minutes=arguments.video_segment_minutes,
                 video_retention_segments=arguments.video_retention_segments,
                 reasoning_effort=arguments.reasoning_effort,
-                director_reasoning_effort=arguments.director_reasoning_effort,
+                director_reasoning_effort=arguments.director_reasoning_effort or ("medium" if arguments.model == OpenRouterClient.LUNA_MODEL else None),
                 isolated_state=arguments.isolated_state,
                 actor_mode=arguments.actor_mode,
                 budget_usd=arguments.budget_usd,

@@ -168,6 +168,16 @@ class LifePolicyTests(unittest.TestCase):
         self.assertEqual("completed", result['status'])
         self.harness.bridge.request.assert_called_with("click",x=222,y=111,button="left")
 
+    def test_wrong_tab_and_failed_close_are_not_successes(self):
+        state = {**STATE, "menu": "GameMenu:3:MapPage"}
+        self.harness.bridge.request.return_value = {"status": "completed", "state": {**STATE, "menu": "GameMenu:2:SocialPage"}}
+        result = self.harness._click_visible_menu_entry({"label": "Tab: crafting", "screenX": 400, "screenY": 50}, state)
+        self.assertEqual("interrupted", result["status"])
+        self.assertIn("SocialPage", result["reason"])
+        self.harness.bridge.request.return_value = {"status": "completed", "state": state}
+        result = self.harness._click_visible_menu_entry({"label": "Close menu", "screenX": 900, "screenY": 30}, state)
+        self.assertEqual("blocked", result["status"])
+
     def test_overlay_prioritizes_actual_mail_and_full_inventory(self):
         overlay = OverlayState("test")
         overlay.update_files(objectives=self.harness.ledger.data, notebook=self.notebook.data)

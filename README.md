@@ -41,15 +41,17 @@ dotnet build .\src\Autoplay.GameBridge\Autoplay.GameBridge.csproj
 
 ## Configure OpenRouter
 
-Gameplay defaults to `z-ai/glm-5.3-flash` with `--reasoning-effort low` for actor and director. OpenRouter tries DeepInfra FP8, then NextBit FP8, then Baseten FP8; the allowlist excludes other providers. This is a paid route. GLM supports low, high and max; medium is rejected before a request. See [model and caching configuration](docs/life-followthrough-2026-09-03.md).
+Gameplay defaults to `openai/gpt-5.6-luna` through OpenAI only, with actor reasoning low and director reasoning medium. Provider fallback is disabled. This restores the previous Luna configuration after the interrupted GLM trial. See [validation findings](docs/glm-validation-2026-09-03.md).
 
 For free local iteration, pass `--model minimax/minimax-m3:free`. That profile remains restricted to `gmicloud/fp8` with fallback disabled. The launcher never broadens either provider allowlist.
 
-DeepInfra applies prefix caching automatically. System instructions and tool definitions stay stable; quest contents, notifications and current observations are dynamic context. A stable prefix key and an actor/director `session_id` accompany requests. Explicit provider order takes priority over OpenRouter sticky routing. Cache hit rate uses reported cached input tokens; it is not the fraction of calls served from cache. The footer sums API-reported costs, including retries, and displays USD to six decimal places.
+System instructions and tool definitions stay stable; quest contents, notifications and current observations are dynamic context. Luna retains explicit cache boundaries, a stable prefix key and separate actor/director session IDs. Cache hit rate uses reported cached input tokens; it is not the fraction of calls served from cache. The footer sums API-reported costs, including retries, and displays USD to six decimal places.
+
+The optional `--model z-ai/glm-5.3-flash --reasoning-effort low` profile retains DeepInfra FP8 → NextBit FP8 → Baseten FP8 routing and automatic prefix caching. GLM supports low, high and max; medium is rejected before a request. High was interrupted during validation; the current 600-token actor allowance can truncate its reasoning before an action. Do not treat that trial as a completed quality comparison.
 
 For a bounded speed comparison, `--model google/gemini-2.5-flash-lite` selects only Google AI Studio, without fallback or a thinking override.
 
-The Gemini trial uses `--model google/gemini-3.7-flash --reasoning-effort low`, restricted to Google AI Studio through OpenRouter, with fallback disabled. Both Gemini 3.7 Flash and the optional Luna profile reject responses with a different or missing provider attribution before game control.
+The Gemini trial uses `--model google/gemini-3.7-flash --reasoning-effort low`, restricted to Google AI Studio through OpenRouter, with fallback disabled. Both Gemini 3.7 Flash and Luna reject responses with a different or missing provider attribution before game control.
 
 `--model qwen/qwen3.8-flash --reasoning-effort low` selects the Alibaba route only, with no fallback. Qwen also supports `medium`; GLM rejects that setting. Use `--isolated-state` for a fresh per-run objective ledger during comparisons. This does not reset the game save. See [gameplay evaluation](docs/evaluation.md) for current checks and missing acceptance coverage.
 
@@ -67,7 +69,7 @@ Put that line in the repository-root `.env`. The launcher loads it without print
 
 ```powershell
 .\harness\run-harness.ps1 run `
-  --model z-ai/glm-5.3-flash `
+  --model openai/gpt-5.6-luna `
   --reasoning-effort low `
   --objective 'Load the existing BridgeTest save and reach the Farm exterior' `
   --success-condition 'worldReady is true, location is Farm, and playerFree is true' `
