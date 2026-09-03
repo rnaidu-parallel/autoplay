@@ -26,7 +26,10 @@ h1 { margin:9px 0 18px; font-size:26px; font-weight:600; letter-spacing:-.03em; 
 #badge.stalled::before,#badge.restarting::before { background:var(--amber); }
 #badge.stopped::before { background:var(--red); }
 @keyframes pulse { 50% { opacity:.3; } }
-#actions { display:flex; flex-direction:column; gap:32px; margin-top:48px; overflow:hidden; }
+#objective { margin-top:30px; }
+#objective .eyebrow { color:var(--muted); }
+#goal { margin-top:9px; font-size:19px; line-height:1.45; overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:4; overflow:hidden; }
+#actions { display:flex; flex-direction:column; gap:28px; margin-top:28px; overflow:hidden; }
 .action { border-top:1px solid var(--edge); padding-top:20px; overflow-wrap:anywhere; }
 .action.previous { color:#b8c2ca; }
 .action-label { color:var(--muted); font-size:12px; letter-spacing:.09em; text-transform:uppercase; margin-bottom:10px; }
@@ -58,6 +61,7 @@ h1 { margin:9px 0 18px; font-size:26px; font-weight:600; letter-spacing:-.03em; 
 
 <aside id="rail" aria-label="Farmer activity">
   <header><div class="eyebrow">The farmer</div><h1>Thinking aloud</h1><div id="badge">Waiting for the farmer</div></header>
+  <section id="objective" aria-label="Current objective"><div class="eyebrow">Current objective</div><div id="goal">Choosing what to do next.</div></section>
   <div id="actions" role="log" aria-live="polite"></div>
   <div id="empty">The next action will appear here.</div>
   <div id="waiting" class="visible" role="status">Waiting for the activity feed…</div>
@@ -68,6 +72,8 @@ let renderedRun = null, previousKey = null;
 function render(state) {
   const run = (state.session || {}).runId;
   if (run !== renderedRun) { $('actions').replaceChildren(); previousKey = null; renderedRun = run; }
+  const goal = (state.objective || {}).goal || 'Choosing what to do next.';
+  if ($('goal').textContent !== goal) { $('goal').textContent = goal; $('goal').title = goal; }
   const status = state.status || 'running', thinking = state.thinking || {};
   $('badge').className = status;
   $('badge').textContent = status === 'thinking' ? `${thinking.role === 'director' ? 'Considering the plan' : 'Choosing the next action'} · ${Math.floor((thinking.sinceMs || 0) / 1000)}s` :

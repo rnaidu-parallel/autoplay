@@ -1,6 +1,8 @@
 # Stream activity feed
 
-The audience view shows the farmer's previous and latest action. Each entry contains a short public explanation,
+The audience view keeps the current objective above the farmer's previous and latest action. Long objective text
+uses at most four lines; its full text is available on hover in the browser. A missing objective shows
+"Choosing what to do next." The objective updates with the active ledger. Each action contains a short public explanation,
 the tool with compact arguments, and its recorded outcome. The header shows when the actor is choosing an action,
 when the director is planning, and when the session is acting, stopped, or reconnecting.
 
