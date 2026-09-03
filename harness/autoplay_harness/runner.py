@@ -298,10 +298,10 @@ class AutoplayHarness:
                         time.sleep(1)
                     except Exception:
                         pass
-                    try:
-                        self.bridge.request("stop")
-                    except Exception:
-                        pass
+                try:
+                    self.bridge.request("stop")
+                except Exception:
+                    pass
                 try:
                     self.bridge.close()
                 except Exception:
