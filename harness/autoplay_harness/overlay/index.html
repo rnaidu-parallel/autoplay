@@ -19,6 +19,7 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
 
 #rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
 #feed-status { min-height:54px; flex-shrink:0; padding-top:24px; }
+#brand { margin-top:8px; color:var(--muted); font-size:13px; letter-spacing:.08em; text-transform:uppercase; }
 #badge { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:18px; }
 #badge::before { content:""; flex-shrink:0; width:8px; height:8px; border-radius:50%; background:var(--green); }
 #badge.thinking::before { background:var(--blue); animation:pulse 1.6s ease-in-out infinite; }
@@ -78,7 +79,7 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
 <aside id="rail" aria-label="Farmer activity">
   <div id="actions" role="log" aria-live="polite"></div>
   <div id="empty">The next action will appear here.</div>
-  <div id="feed-status" role="status"><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for the activity feed…</div></div>
+  <div id="feed-status" role="status"><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for the activity feed…</div><div id="brand">Neon · @can_we_reverse_entropy</div></div>
 </aside>
 <script>
 const $ = id => document.getElementById(id);
