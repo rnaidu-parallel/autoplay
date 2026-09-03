@@ -82,6 +82,27 @@ Locked-door hours are enforced for both direct `go_to_location` hops and `travel
 
 ## Daily planning and the notebook
 
+Both actor modes and the daily planner share a farmer identity: a resident of Pelican Town who cares for the
+farm, notices unfamiliar people and objects, and develops tastes through experience. Brief safe nearby
+interactions can fit the current task; larger detours become future plans. Planning balances responsibilities,
+remembered preferences, and curiosity. Existing control, clock, retry, and objective-verification rules still apply.
+
+The actor can use `remember_interaction` after a real attempted action. Each journal entry records the subject,
+interaction, location, calendar/time, outcome (`possible`, `unavailable`, or `unknown`), preference (`liked`,
+`disliked`, `neutral`, or `undecided`), and a short observation/reaction note. The harness attaches the source
+tool result, observed changes, dialogue excerpt, and run/step reference. Availability is the farmer's
+interpretation of that evidence; preferences are the character's subjective reactions. A completed control
+alone does not establish that the intended interaction happened. Unavailable or uncertain interactions need
+an undecided preference; travel alone cannot prove an object is unusable. Each attempted action can be
+remembered once. Failed memory validation sends no game input and leaves the attempt available for correction.
+
+Entries merge by normalized location, subject, and interaction, keeping the latest experience, encounter count,
+and previous report. They persist in `notebook.json` across restarts and weekly summaries. Nothing is invented
+to initialize tastes. Actor prompts retrieve up to four entries and director prompts up to six, prioritizing
+visible subjects and the current location while retaining other recent experiences for future planning. Context
+limits can omit lower-priority retrieved entries without deleting saved memories. Later encounters can revise a
+preference; a shop being closed at one hour does not make it permanently unavailable or disliked.
+
 The harness stores a per-save notebook at `harness/state/notebook.json`, or in the isolated run state directory. On each new day, the director creates a five-to-eight item agenda with morning, midday, afternoon, and evening work. Every item has one category: farming, clearing, exploring, social, shopping, fishing, mining, foraging, crafting, event, or home. Morning themes cannot repeat any of the last three days. The plan adds at least two categories outside yesterday's top two, has no more than three items in one category, and has at most one refill item in yesterday's dominant category. Pending work from the prior day must be carried into the new plan or dropped with a recorded reason. While reachable unvisited locations remain, the morning agenda includes a verifiable exploration item. If the agenda finishes before bedtime, the director appends two to four new items without changing completed or dropped entries. Before sleep, the director records a reflection and learned facts, and the harness carries unfinished work forward. The notebook also stores farm-use zones derived from the bridge's cached `farmLayout`; planting and tilling on the Farm are rejected outside a crops zone.
 
 ## Control boundary

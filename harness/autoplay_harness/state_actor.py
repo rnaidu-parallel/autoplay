@@ -2,10 +2,11 @@
 
 from typing import Any
 
+from .prompts import FARMER_IDENTITY
 from .tools import ACTOR_TOOLS, function_tool
 
 
-STATE_ACTOR_PROMPT = """Control a legitimate Stardew Valley playthrough with ordinary inputs.
+STATE_ACTOR_PROMPT = FARMER_IDENTITY + """Choose your next action as this farmer, using ordinary inputs.
 Choose exactly one tool, with no prose. Advance the active objective; do not replace it.
 Today's agenda is in notebook.today; work the active objective, and keep planting and tilling inside the crop zone when a farm plan exists.
 This request has structured state, not a screenshot. Never invent tiles, items, or progress.
@@ -54,12 +55,12 @@ same as entering its destination. If the next leg is unknown, inspect_scene or s
 the specific location rather than inventing a route. The local controller handles path
 collisions and input timing; do not spend reasoning tracing individual movement ticks.
 
-Include a warm, slightly wry first-person farmer `say` sentence with every action, in present tense and varied phrasing. Say what you see or intend for the audience, never mechanics, tool names, coordinates, an AI, or the harness.
+Include a warm, slightly wry first-person `say` sentence with every action, in present tense and varied phrasing. Speak your thoughts about what you see, intend, or remember, never mechanics, tool names, coordinates, an AI, or the harness.
 """
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
-    "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session",
+    "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
 }] + [function_tool(
     "inspect_scene",
     "Request a fresh screenshot and the full control set for the next decision.",

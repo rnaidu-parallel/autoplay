@@ -1143,6 +1143,46 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertIn("SeedShop is closed until 9:00 AM", lessons[0]["text"])
         self.assertEqual([], harness.bridge.calls)
 
+    def test_actor_remembers_a_real_encounter_once_and_both_roles_recall_it(self):
+        harness = self.harness
+        harness.bridge = _Bridge()
+        after = {**self.state, "dialogueText": "Good morning, farmer!"}
+        harness._observe = Mock(side_effect=[(self.state, self.frame), (self.state, self.frame), (after, self.frame)])
+        memory = ToolDecision("remember_interaction", {
+            "subject": "Jas", "interaction": "Talk", "outcome": "possible", "preference": "liked",
+            "note": "She greeted me warmly. I enjoy talking to her.", "say": "That greeting brightens my morning."}, {}, None)
+        harness._decide = Mock(side_effect=[(ToolDecision("press", {"buttons": ["X"], "say": "I say hello."}, {}, None), 1), (memory, 1)])
+        execute = harness._execute_actor_tool
+        harness._execute_actor_tool = lambda decision, frame, state: (
+            {"status": "completed", "state": after} if decision.name == "press" else execute(decision, frame, state))
+        harness._actor_step()
+        self.assertIn("dialogueText", harness.last_interaction["changes"])
+        self.assertEqual("Good morning, farmer!", harness.last_interaction["dialogue"])
+        harness._actor_step()
+        self.assertEqual(3, harness._observe.call_count)
+        self.assertEqual([], harness.bridge.calls)
+        self.assertIsNone(harness.last_interaction)
+        duplicate = execute(memory, self.frame, after)
+        self.assertEqual("rejected", duplicate["status"])
+        self.assertEqual(1, len(harness.notebook.data["interactions"]))
+        harness.notebook = Notebook(harness.notebook.path.parent)
+        for role in ("actor", "director"):
+            context = json.loads(harness._context(role, after, self.frame, state_only=role == "actor"))
+            self.assertEqual("liked", context["notebook"]["interactions"][0]["preference"])
+            self.assertEqual("Jas", context["notebook"]["interactions"][0]["subject"])
+
+    def test_interaction_memory_requires_an_attempt_and_cannot_relabel_a_failure(self):
+        harness = self.harness
+        harness.bridge = _Bridge()
+        arguments = {"subject": "Bench", "interaction": "Sit", "outcome": "possible", "preference": "liked", "note": "It was restful."}
+        decision = ToolDecision("remember_interaction", arguments, {}, None)
+        self.assertEqual("rejected", harness._execute_actor_tool(decision, self.frame, self.state)["status"])
+        harness.last_interaction = {"location": "Town", "day": 9, "tool": "navigate_to", "status": "blocked"}
+        result = harness._execute_actor_tool(decision, self.frame, self.state)
+        self.assertEqual("rejected", result["status"])
+        self.assertEqual([], harness.notebook.data["interactions"])
+        self.assertEqual([], harness.bridge.calls)
+
     def test_speech_does_not_change_action_identity(self):
         first = ToolDecision("navigate_to", {"tile_x": 1, "tile_y": 2, "say": "I try the path."}, {}, None)
         repeated = ToolDecision("navigate_to", {"tile_x": 1, "tile_y": 2, "say": "I try it again."}, {}, None)
@@ -1396,6 +1436,27 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertNotIn("navigationRows", trimmed["game_state"])
         event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
         self.assertEqual("controller_geometry", event["cuts"][-1])
+
+    def test_interaction_memories_fit_incident_context_caps_without_losing_persisted_entries(self):
+        harness = self.harness
+        observed = {"location": "Town", "day": 9, "tool": "press", "status": "completed"}
+        for index in range(10):
+            harness.notebook.remember_interaction(f"Object {index}", "Inspect", "possible", "neutral", "n" * 180, observed)
+        original = json.dumps(harness.notebook.data, sort_keys=True)
+        for role, fixture, budget in (("actor", "visual-context-overflow.json", ACTOR_CONTEXT_BUDGET),
+                                      ("director", "director-context-overflow.json", DIRECTOR_CONTEXT_BUDGET)):
+            packet = json.loads((Path(__file__).parent / "fixtures" / fixture).read_text(encoding="utf-8"))
+            ledger = json.dumps(packet["objective_ledger"], sort_keys=True)
+            last_result = packet["game_state"]["harnessLastResult"]
+            packet["notebook"]["interactions"] = harness.notebook.interaction_context(self.state, 4 if role == "actor" else 6)
+            if role == "actor":
+                packet["recent_interaction"] = {**observed, "reason": "r" * 180, "dialogue": "d" * 180}
+            context = harness._budget_context(packet, role)
+            self.assertLessEqual(len(context) / 3.5, budget)
+            result = json.loads(context)
+            self.assertEqual(ledger, json.dumps(result["objective_ledger"], sort_keys=True))
+            self.assertEqual(last_result, result["game_state"]["harnessLastResult"])
+        self.assertEqual(original, json.dumps(harness.notebook.data, sort_keys=True))
 
     def test_oversized_protected_context_is_not_sent_or_dropped(self):
         harness = self.harness

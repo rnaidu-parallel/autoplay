@@ -465,7 +465,9 @@ class AutoplayHarness:
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
                                          context, frame, STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS, "actor")
         current_state = state
-        if decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "wiki_search", "world_map", "stop_session"}:
+        game_input = decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "remember_interaction",
+                                          "wiki_search", "world_map", "stop_session"}
+        if game_input:
             current_state, _ = self._observe()
         fingerprint = self._action_fingerprint(decision, state)
         execute_started = time.perf_counter()
@@ -481,6 +483,18 @@ class AutoplayHarness:
         else:
             self.last_action_fingerprint = fingerprint
             result = self._execute_actor_tool(decision, frame, current_state)
+            if game_input and current_state.get("worldReady"):
+                after = result.get("state") or current_state
+                self.last_interaction = {
+                    **{key: current_state.get(key) for key in ("location", "year", "season", "day", "time")},
+                    "tool": decision.name, "status": result.get("status"),
+                    "reason": str(result.get("reason") or result.get("error") or "")[:180],
+                    "changes": [key for key in ("location", "menu", "dialogueText", "inventoryCounts", "stamina", "health",
+                                               "plantedCrops", "wateredCrops", "harvestableCrops")
+                                if current_state.get(key) != after.get(key)],
+                    "dialogue": (after.get("dialogueText") or "")[:180],
+                    "run_id": getattr(self, "run_id", None), "step": self.telemetry.step,
+                }
         bridge_ms = round((time.perf_counter() - execute_started) * 1000)
         self.last_result = {"tool": decision.name, "status": result.get("status")}
         for key in ("error", "warning", "reason"):
@@ -1177,6 +1191,19 @@ class AutoplayHarness:
         elif name == "record_opportunity":
             self.ledger.record_opportunity(arguments["note"], arguments["reason"])
             return {"status": "recorded"}
+        elif name == "remember_interaction":
+            observed = getattr(self, "last_interaction", None)
+            if observed is None:
+                return {"status": "rejected", "reason": "No new attempted interaction to remember. Try or observe a real interaction first."}
+            try:
+                entry = self.notebook.remember_interaction(
+                    **{key: arguments[key] for key in ("subject", "interaction", "outcome", "preference", "note")},
+                    observed=observed,
+                )
+            except ValueError as error:
+                return {"status": "rejected", "reason": str(error)}
+            self.last_interaction = None
+            return {"status": "recorded", "subject": entry["subject"], "outcome": entry["outcome"], "preference": entry["preference"]}
         elif name == "wiki_search":
             self.latest_wiki_results = self.wiki.search(arguments["query"])
             return {"status": "completed", "results": self.latest_wiki_results}
@@ -1474,7 +1501,7 @@ class AutoplayHarness:
             "role": role,
             "objective_ledger": prompt_ledger(self.ledger.snapshot()),
             "notebook": (
-                self.notebook.context(state.get("day"), role) if hasattr(self, "notebook") else None
+                self.notebook.context(state.get("day"), role, state) if hasattr(self, "notebook") else None
             ),
             "world": self.world.summary(state.get("location"), state.get("time")),
             "memory": self.telemetry.context(),
@@ -1505,6 +1532,8 @@ class AutoplayHarness:
                 }
             ),
         }
+        if role == "actor" and getattr(self, "last_interaction", None):
+            packet["recent_interaction"] = {key: value for key, value in self.last_interaction.items() if key != "run_id"}
         return self._budget_context(packet, role)
 
     def _budget_context(self, packet: dict[str, Any], role: str) -> str:
@@ -1517,7 +1546,7 @@ class AutoplayHarness:
         context = serialize()
         initial_tokens = len(context) / 3.5
         cuts = []
-        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry"):
+        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories"):
             if len(context) / 3.5 <= budget:
                 break
             if field == "wiki_results":
@@ -1545,6 +1574,10 @@ class AutoplayHarness:
                 fields = ("farmLayout", "navigationRows", "diagnostics") if role == "actor" else ("navigationRows", "diagnostics")
                 for key in fields:
                     packet["game_state"].pop(key, None)
+            elif field == "interaction_memories":
+                memories = (packet.get("notebook") or {}).get("interactions", [])
+                while memories and len(serialize()) / 3.5 > budget:
+                    memories.pop()
             elif field != "nearbyObjects" or role == "actor":
                 limit = 12 if field == "nearbyObjects" else 24
                 value = packet["game_state"].get(field)

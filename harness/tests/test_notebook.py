@@ -19,6 +19,62 @@ def agenda(count=5):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_interaction_memory_survives_reload_and_weekly_rollup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            observed = {"location": "Town", "year": 1, "season": "spring", "day": 1, "time": 900,
+                        "tool": "press", "status": "completed", "dialogue": "Good morning!"}
+            notebook.remember_interaction("Jas", "Talk", "possible", "liked", "She greeted me. I enjoy her cheerfulness.", observed)
+            for day in range(1, 9):
+                notebook.start_day(day)
+            notebook.rollup_week()
+            restored = Notebook(Path(directory))
+            self.assertEqual(1, len(restored.data["interactions"]))
+            entry = restored.context(8, "actor", {"location": "Town"})["interactions"][0]
+            self.assertEqual("liked", entry["preference"])
+            self.assertEqual(1, entry["when"]["year"])
+            self.assertEqual(observed, restored.data["interactions"][0]["evidence"])
+
+    def test_new_experience_updates_preference_without_duplicate_subject(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            observed = {"location": "Town", "day": 1, "tool": "press", "status": "completed"}
+            notebook.remember_interaction("Fountain", "Listen", "possible", "liked", "The water sounds peaceful.", observed)
+            notebook.remember_interaction(" fountain ", "LISTEN", "possible", "disliked", "Today the splashing irritates me.", {**observed, "day": 2})
+            self.assertEqual(1, len(notebook.data["interactions"]))
+            entry = notebook.data["interactions"][0]
+            self.assertEqual(2, entry["encounters"])
+            self.assertEqual("disliked", entry["preference"])
+            self.assertEqual("liked", entry["previous"]["preference"])
+
+    def test_uncertain_and_unavailable_interactions_do_not_invent_tastes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            observed = {"location": "Town", "day": 1, "tool": "navigate_to", "status": "blocked"}
+            for outcome, preference in (("possible", "liked"), ("unknown", "disliked"), ("unavailable", "undecided")):
+                with self.subTest(outcome=outcome), self.assertRaises(ValueError):
+                    notebook.remember_interaction("Bench", "Sit", outcome, preference, "The path was blocked.", observed)
+            notebook.remember_interaction("Bench", "Sit", "unknown", "undecided", "I could not reach it; I do not know if I can sit there.", observed)
+            notebook.remember_interaction("Shop door", "Open", "unavailable", "undecided", "The sign says closed until 9 AM.", {**observed, "tool": "press", "status": "completed"})
+            self.assertEqual(2, len(notebook.data["interactions"]))
+
+    def test_visible_person_is_recalled_after_moving_and_global_preferences_remain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            observed = {"location": "Forest", "day": 1, "tool": "press", "status": "completed"}
+            notebook.remember_interaction("Jas", "Talk", "possible", "liked", "I enjoy her stories.", observed)
+            notebook.remember_interaction("Ocean", "Listen", "possible", "liked", "The waves calm me.", {**observed, "location": "Beach"})
+            for index in range(8):
+                notebook.remember_interaction(f"Object {index}", "Inspect", "unknown", "undecided", "Nothing clear happened.", {**observed, "location": "Town"})
+            state = {"location": "Town", "npcsNearby": [{"name": "Jas"}]}
+            actor = notebook.context(1, "actor", state)["interactions"]
+            director = notebook.context(1, "director", state)["interactions"]
+            self.assertEqual(4, len(actor))
+            self.assertEqual(6, len(director))
+            self.assertEqual("Jas", actor[0]["subject"])
+            self.assertIn("Ocean", [entry["subject"] for entry in director])
+            self.assertEqual(10, len(Notebook(Path(directory)).data["interactions"]))
+
     def test_deferred_items_survive_refill_and_return_as_carried_next_day(self):
         with tempfile.TemporaryDirectory() as directory:
             notebook = Notebook(Path(directory))

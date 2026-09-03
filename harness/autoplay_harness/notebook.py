@@ -59,6 +59,7 @@ class Notebook:
         self.data.setdefault("learned", [])
         self.data.setdefault("lessons", [])
         self.data.setdefault("weeks", [])
+        self.data.setdefault("interactions", [])
         self.current_day: int | None = None
         if self.data["days"]:
             self.current_day = int(next(reversed(self.data["days"])))
@@ -263,13 +264,51 @@ class Notebook:
             for zone in plan["zones"]
         )
 
-    def context(self, day: int | None, role: str = "director") -> dict[str, Any]:
+    def remember_interaction(self, subject: str, interaction: str, outcome: str, preference: str,
+                             note: str, observed: dict[str, Any]) -> dict[str, Any]:
+        for value, limit in ((subject, 80), (interaction, 80), (note, 180)):
+            if not value.strip() or len(value) > limit:
+                raise ValueError("Interaction subject, action, and note must be non-empty and within their length limits.")
+        if outcome not in {"possible", "unavailable", "unknown"} or preference not in {"liked", "disliked", "neutral", "undecided"}:
+            raise ValueError("Use a supported interaction outcome and preference.")
+        if outcome != "possible" and preference != "undecided":
+            raise ValueError("An unavailable or uncertain interaction needs an undecided preference.")
+        if outcome == "possible" and observed["status"] != "completed":
+            raise ValueError("A failed action cannot establish that the interaction was possible; use unknown or unavailable.")
+        if outcome == "unavailable" and observed["tool"] in {"navigate_to", "go_to_location", "travel_to"}:
+            raise ValueError("Travel alone cannot establish interaction availability; use unknown until you reach and try the target.")
+        key = [" ".join(value.split()).casefold() for value in (observed["location"], subject, interaction)]
+        entries = self.data["interactions"]
+        previous = next((entry for entry in entries if entry["key"] == key), None)
+        entry = {"key": key, "subject": subject.strip(), "interaction": interaction.strip(),
+                 "location": observed["location"], "outcome": outcome, "preference": preference,
+                 "note": note.strip(), "when": {k: observed.get(k) for k in ("year", "season", "day", "time")},
+                 "encounters": (previous["encounters"] if previous else 0) + 1, "evidence": observed}
+        if previous:
+            entry["previous"] = {k: previous[k] for k in ("outcome", "preference", "note", "when")}
+            entries.remove(previous)
+        entries.append(entry)
+        self._save()
+        return entry
+
+    def interaction_context(self, state: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+        names = {str(item.get("name", "")).casefold() for key in ("npcsNearby", "nearbyObjects") for item in state.get(key, [])}
+        recent = list(reversed(self.data["interactions"]))
+        nearby = [entry for entry in recent if entry["subject"].casefold() in names or entry["location"] == state.get("location")]
+        nearby.sort(key=lambda entry: entry["subject"].casefold() not in names)
+        elsewhere = [entry for entry in recent if entry not in nearby]
+        selected = (nearby[:limit // 2] + elsewhere + nearby[limit // 2:])[:limit]
+        return [{k: entry[k] for k in ("subject", "interaction", "location", "outcome", "preference", "note", "when", "encounters")}
+                for entry in selected]
+
+    def context(self, day: int | None, role: str = "director", state: dict[str, Any] | None = None) -> dict[str, Any]:
         entry = self.data["days"].get(str(day)) if day is not None else None
         today = entry or {"theme": "", "agenda": []}
         agenda = today["agenda"]
+        interactions = self.interaction_context(state or {}, 4 if role == "actor" else 6)
         if role == "actor":
             zones = [] if self.farm_plan is None else [f"{zone['x1']},{zone['y1']}-{zone['x2']},{zone['y2']}" for zone in self.farm_plan["zones"] if zone["purpose"] == "crops"]
-            return {"today": {"theme": today["theme"], "agenda": [f"{item['id']}|{item['slot']}|{item['status']}|{item['goal'][:70]}" for item in agenda]}, "cropZones": zones, "lessons": self.top_lessons(3)}
+            return {"today": {"theme": today["theme"], "agenda": [f"{item['id']}|{item['slot']}|{item['status']}|{item['goal'][:70]}" for item in agenda]}, "cropZones": zones, "lessons": self.top_lessons(3), "interactions": interactions}
         keys = list(self.data["days"])
         previous = None
         previous_mix: dict[str, int] = {}
@@ -277,7 +316,7 @@ class Notebook:
             previous_key = keys[keys.index(str(day)) - 1]
             previous = self.data["days"][previous_key].get("reflection")
             previous_mix = self.category_mix(int(previous_key))
-        return {"farmPlan": ({"zones": self.farm_plan["zones"], "notes": self.farm_plan["notes"]} if self.farm_plan is not None else None),
+        return {"interactions": interactions, "farmPlan": ({"zones": self.farm_plan["zones"], "notes": self.farm_plan["notes"]} if self.farm_plan is not None else None),
             "today": {"theme": today["theme"], "agenda": [{key: item.get(key) for key in ("id", "goal", "slot", "status", "category")} for item in agenda], "carried": [{key: item.get(key) for key in ("id", "goal", "slot")} for item in agenda if item["status"] == "carried"]},
             "yesterday": previous[:400] if previous else previous, "lessons": self.top_lessons(6), "learned": self.data["learned"][-8:], "categoryMixYesterday": previous_mix, "recentThemes": self.recent_themes(3), "week": self.data["weeks"][-1]["summary"][:300] if self.data["weeks"] else None}
 

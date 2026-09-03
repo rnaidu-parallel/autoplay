@@ -63,6 +63,8 @@ def action_summary(tool: str, arguments: dict[str, Any] | None = None) -> str:
         return f"New goal: {arguments.get('goal') or 'choose the next objective'}"
     if tool == "inspect_scene":
         return "Taking a closer look"
+    if tool == "remember_interaction":
+        return f"Remembering {arguments.get('subject') or 'an encounter'}"
     return _humanize(tool)
 
 
@@ -81,7 +83,7 @@ def argument_gist(arguments: dict[str, Any] | None = None) -> str:
             return " ".join(points + ([f"+{extra}"] if extra else []))
     if isinstance(arguments.get("tile_x"), int) and isinstance(arguments.get("tile_y"), int):
         return f"({arguments['tile_x']},{arguments['tile_y']})"
-    for key in ("location", "destination"):
+    for key in ("location", "destination", "preference"):
         if arguments.get(key):
             return str(arguments[key])
     if isinstance(arguments.get("buttons"), list):

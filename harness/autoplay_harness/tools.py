@@ -51,6 +51,17 @@ def function_tool(name: str, description: str, properties: dict[str, Any], requi
 
 ACTOR_TOOLS = [
     function_tool(
+        "remember_interaction",
+        "Remember the most recent attempted interaction and your personal reaction. Requires recent_interaction from an actual action; does not send input. Use unknown/undecided for an unclear effect or an unreached target. A completed control alone does not prove an interaction worked. Record once per meaningful experience, not every routine action.",
+        {"subject": {"type": "string", "minLength": 1, "maxLength": 80},
+         "interaction": {"type": "string", "minLength": 1, "maxLength": 80},
+         "outcome": {"type": "string", "enum": ["possible", "unavailable", "unknown"]},
+         "preference": {"type": "string", "enum": ["liked", "disliked", "neutral", "undecided"]},
+         "note": {"type": "string", "minLength": 1, "maxLength": 180,
+                  "description": "Observed response and conditions, plus why you felt this way. Keep facts separate from your personal reaction."}},
+        ["subject", "interaction", "outcome", "preference", "note"],
+    ),
+    function_tool(
         "plant_nearest_seeds",
         "Plant a count of seeds on the nearest observed empty tilled tiles. The local controller selects a short walking order and verifies every crop and seed decrement. Use when exact target tiles do not matter. Stops on failure or world changes; does not till or water.",
         {"seed_slot": {"type": "integer", "minimum": 0, "maximum": 11},
