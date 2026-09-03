@@ -1,78 +1,145 @@
-# Going live: step-by-step plan
+# Broadcast setup and acceptance gate
 
-Status as of 2026-09-03. Prerequisites shipped: verified farm-day skills, world map and travel, daily planner
-with farm zones, guards (bedtime, stall, budget), borderless display with focus watchdog, recorder restart,
-overlay v1, and the `--forever` supervisor. Everything below runs on the helios Windows machine that owns the
-game, SMAPI, and the harness.
+Updated 2026-09-03. Target: simultaneous Twitch, Kick, and YouTube. Twitch and Kick are the priorities.
+Rahul's gate is **finish preparation → one successful 30-minute recorded rehearsal → public streaming**.
+This replaces the earlier six-hour and two-test-stream proposal. No public broadcast has started.
 
-Latest rehearsal: four attempts evaluated, $0.327020 total; longest raw recording 14:30.40. The continuous
-clock worked, but blocked return-home routing and a director loop failed the viewing gate. Final retry/context
-fixes pass 174 tests and still need another recorded run. See [measured review](memory-narration-review.md).
+## Current readiness
 
-## Phase A: private dress rehearsal (no viewers)
+| Item | Status |
+| --- | --- |
+| Audience overlay and operator controls | Implemented; last two narration lines now survive director-only updates. |
+| OBS composition | Verified at 1920×1080: game capture, audience overlay, game-process audio. Cursor capture disabled. |
+| Local recording | Verified: H.264 High, 1080p30, stereo AAC 48 kHz; 11.93 seconds with audible game music. |
+| Three simultaneous outputs | Verified against three local RTMP receivers for 14.9 seconds; one shared encoder. Actual platform ingest remains untested. |
+| Twitch, Kick, YouTube connections | Empty local fields; connect each channel before the rehearsal. |
+| Upload capacity | Not measured. Three outputs need about 18.5 Mbps before protocol overhead. |
+| Gameplay preparation | Entrance-aware home routing and truthful new-work completion remain open. |
+| 30-minute rehearsal | On hold until preparation is complete. |
 
-1. Fresh save or the current one. Back up `%APPDATA%\StardewValley\Saves\<save>` first.
-2. Start the harness forever mode with a daily budget and the recorder:
+Evidence: [broadcast preflight](../broadcast/preflight-2026-09-03.md). The short capture used the title screen and a
+historical overlay feed. It did not load or change the Spring 20 save. The harness has 198 passing offline tests.
+
+## Prepare OBS
+
+This repository uses a separate portable OBS installation. Downloads, profiles, keys, logs, and recordings stay
+under ignored `broadcast/local/`. Keep that directory private.
+
+1. Open PowerShell at `E:\Claude\autoplay`.
+2. Close this portable OBS instance before installing or updating its files.
+3. Install the pinned packages if they are missing:
+
    ```powershell
-   cd E:\Claude\autoplay\harness
-   .\run-harness.ps1 run --forever --budget-usd 3.00 --record-video --video-retention-segments 0
-   ```
-   The daily budget is the tripwire; the harness sleeps until local midnight when it is hit.
-3. Start the overlay feed in a second terminal:
-   ```powershell
-   cd E:\Claude\autoplay\harness
-   .\run-harness.ps1 overlay --run latest --port 8765
-   ```
-4. Open OBS. Scene "Autoplay": Game Capture (Stardew Valley window, borderless) + Browser Source
-   `http://127.0.0.1:8765/`, 1920×1080, transparent, refresh on scene activation. Add Audio Output Capture for
-   game audio. Set OBS to record locally (NVENC, 1080p30, 6 Mbps) and let it run for 6 hours.
-5. Review the recording against the checklist below. Fix what fails. Repeat until two consecutive sessions pass.
-
-Checklist per session: zero pass-outs; zero stalls over two minutes; zero manual interventions; at least three
-distinct locations per in-game day; agenda visible and updating on the overlay; narration readable; restarts, if
-any, recovered within a minute with the overlay showing "restarting"; cost within budget.
-
-## Phase B: unlisted test stream
-
-1. Twitch: create the channel, enable VOD storage, set category Stardew Valley, title "AI plays Stardew Valley
-   (autonomous agent, test stream)". Keep the channel unpromoted.
-2. OBS Stream settings: Twitch, server auto, NVENC H.264, 1080p30, 6000 kbps CBR, keyframe 2 s, audio 160 kbps.
-   Enable "Automatically reconnect" with 10 s delay and 20 retries.
-3. Start the harness and the overlay as in Phase A, then Start Streaming. Run for 3 to 6 hours.
-4. Watch the stream from a phone for the first 15 minutes: overlay legible, audio present, no desktop leaks when
-   the harness restarts the game (the hold scene should cover it).
-5. After the session, read the VOD at 2× and the harness report:
-   ```powershell
-   .\run-harness.ps1 report
+   .\broadcast\setup.ps1
    ```
 
-## Phase C: public stream
+4. Seed the profile if it is missing. Existing local configuration is preserved.
 
-1. Only after two clean Phase B sessions. Announce a fixed daily window (for example 18:00 to 00:00 local) and
-   keep to it; the harness runs 24/7 but the stream window is what viewers learn.
-2. Chat stays read-only for the agent; chat interaction is a later design.
-3. Moderation: enable Twitch AutoMod level 2, follower-only chat for the first week.
-4. Weekly: rotate the save backup, archive VODs, review the lessons store and the cost ledger, and prune the
-   notebook if the weekly roll-up did not fire.
+   ```powershell
+   $broadcastPython = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+   & $broadcastPython .\broadcast\configure.py
+   ```
 
-## Operations
+5. Open `broadcast\local\obs-studio\bin\64bit\obs64.exe` in File Explorer.
+6. Confirm profile **Autoplay** and scene collection **Autoplay**.
+7. Start the overlay in another terminal:
 
-- Finish the session: use **Finish & Save** in `http://127.0.0.1:8765/?operator=1`. Wait for **Saved and stopped**. The active-run STOP file requests the same flow. See [operator controls](operator-controls.md) for steering, handoff and checkpoint resume.
-- Emergency stop: close OBS streaming first, then Ctrl+C the harness; the finally block restores the display
-  mode and closes the game.
-- Status: `harness/state/forever_status.json` (running, restarting, sleeping_budget, stopped) and
-  `harness/state/cost_ledger.json` (today's spend).
-- Logs: `harness/runs/<run>/events.jsonl`, `harness/state/forever.log`, SMAPI log in
-  `%APPDATA%\StardewValley\ErrorLogs\SMAPI-latest.txt`.
-- Secrets: the OpenRouter key lives in `.env` only; never show a terminal on stream.
+   ```powershell
+   cd E:\Claude\autoplay
+   .\harness\run-harness.ps1 overlay --run latest --port 8765
+   ```
 
-## Known gaps before Phase C
+8. If the capture scene needs rebuilding, open the game first. Then run:
 
-- Narration and the Speech panel are implemented. Live speech covered all 88 actor decisions in the latest run,
-  but the panel went blank during a prolonged director-only loop. A clean 30-minute run and an OBS recording
-  with audio and overlay are still required.
-- Return-home routing must handle different farm entrances. Nightly save still needed manual post-window
-  recovery in the latest rehearsal; existing-crop totals also produced a misleading planting completion.
-- Progression state (skills, friendship, quests, mail) is not exposed; town social play is shallow until then.
-- Festivals and seasonal events are untested.
-- Fishing, mining, and combat are untested; the director is steered away from them until proven.
+   ```powershell
+   $broadcastNode = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+   & $broadcastNode .\broadcast\scene.cjs
+   ```
+
+The scene script configures capture only. It does not start gameplay, recording, or streaming.
+Use `http://127.0.0.1:8765/` in OBS. Open `http://127.0.0.1:8765/?operator=1` separately for controls.
+The **Break** scene provides a holding screen; switching to it is manual.
+For a short local recording check, run `& $broadcastNode .\broadcast\preflight.cjs` with the game and overlay open.
+It records 15 seconds and prints the file path. Play the file to check sound and picture.
+
+## Connect the channels locally
+
+1. In OBS **Settings → Stream**, connect Twitch or enter its key locally.
+2. Open the **Multiple output** dock. Edit **Kick**.
+3. Copy Kick's server URL and key from its Creator Dashboard into the local fields.
+4. Edit **YouTube**. Copy its server URL and key from YouTube Studio into the local fields.
+5. For both extra outputs, retain **Get from OBS** video/audio and synchronized start/stop.
+6. Set the title and Stardew Valley category on each platform.
+7. Leave all outputs stopped until the rehearsal passes.
+
+Never paste keys into chat or commit the local profile. Enable YouTube Live early if needed; first-time activation
+can take up to 24 hours. [YouTube setup](https://support.google.com/youtube/answer/2907883?hl=en)
+Kick's dashboard supplies both its URL and key. [Kick setup](https://help.kick.com/en/articles/7066931-how-to-stream-on-kick-com)
+
+All outputs use NVENC H.264, 1920×1080 at 30 FPS, CBR 6000 kbps, two-second keyframes, and stereo AAC 160 kbps.
+Local MKV recording shares that encoder. This keeps encoding load low.
+The configuration fits Kick's H.264/CBR requirements. YouTube recommends 10 Mbps for H.264 1080p30;
+the shared 6 Mbps setting is a compromise for the priority platforms and needs visual evaluation.
+[Kick requirements](https://help.kick.com/en/articles/7066931-how-to-stream-on-kick-com),
+[YouTube recommendations](https://support.google.com/youtube/answer/2853702?hl=en)
+
+Three copies of 6000+160 kbps equal 18.48 Mbps before overhead. Aim for a stable 25–30 Mbps upload as an
+engineering margin. Local loopback does not measure internet upload or platform ingest. No paid relay is configured.
+
+Keep Twitch's picture and experience at least equal to the other destinations. Do not put merged cross-platform
+chat on Twitch or direct Twitch viewers away to another simultaneous stream.
+[Twitch simulcasting terms](https://legal.twitch.com/en/legal/terms-of-service/#11-simulcasting)
+If the channel belongs to the Kick Partner Program, check its multistream toggle and payout terms.
+[Kick partner multistreaming](https://help.kick.com/en/articles/11091744-multistreaming-on-the-kick-partner-program)
+
+## Run the rehearsal after preparation
+
+Do not run this section yet. Resolve the two gameplay defects, connect the channels, and verify upload capacity first.
+The earlier $0.60 model allowance has $0.272980 remaining. A larger allowance needs Rahul's approval.
+The broadcast preflight used no model calls.
+
+1. Confirm the game save matches the latest checkpoint. See [operator controls](operator-controls.md).
+2. Set `$sessionBudget` to the approved model allowance.
+3. Start the harness from the repository root:
+
+   ```powershell
+   .\harness\run-harness.ps1 run --continuous --resume-checkpoint --budget-usd $sessionBudget --keep-game-open
+   ```
+
+4. Start the overlay feed if it is not running.
+5. Check the OBS preview and **Game audio** meter.
+6. Select **Start Recording**. Leave streaming stopped.
+7. Record 30 minutes of autonomous play. Note every operator intervention.
+8. After the measured window, select **Finish & Save** in the operator panel.
+9. Wait for **Saved and stopped** and its checkpoint ID.
+10. Stop OBS recording. Report the save tail separately from the measured 30 minutes.
+11. Review the recording, event log, control receipts, and model cost report.
+12. Stop the overlay and close OBS after review.
+
+Do not use `--max-minutes 30` as the save signal: it is a deadline, not a request to return home.
+If a limit ends the harness before saving, keep the game open and complete the save before closing it.
+Finish & Save does not stop OBS or the broadcasts.
+
+Acceptance checks:
+
+- At least 30 continuous minutes with readable narration/action trace and audible game sound.
+- No artificial clock freezing, pass-outs, or repeated failed-action loop lasting over two minutes.
+- Blocked travel leads to an alternative route or activity; the farmer returns home and saves autonomously.
+- New-work claims use evidence of new work. Existing crops do not prove new planting.
+- Curiosity and remembered experiences appear naturally; skills do not confine the farmer's choices.
+- Guidance and Finish & Save receive acknowledgements and produce the expected behavior.
+- No unplanned manual gameplay rescue. Deliberate control checks and the save tail are reported separately.
+- No sustained recording/rendering skips, desktop capture, or white OS cursor.
+- Spend stays within the approved allowance; the next session loads the matching checkpoint.
+
+## Go live after the rehearsal passes
+
+1. Review the acceptance result with Rahul.
+2. Start the game, harness, and overlay with the approved session settings.
+3. Check the OBS preview, game audio, and all three destinations.
+4. Select **Start Streaming**. The two plugin outputs start with Twitch.
+5. Verify picture and audio on each platform. Local preflight does not prove platform acceptance.
+6. At session end, select **Finish & Save** and wait for the checkpoint.
+7. Select **Stop Streaming** in OBS. Confirm all three outputs stopped.
+
+Public chat control, progression-state expansion, and fishing/mining/combat coverage remain separate work.

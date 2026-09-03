@@ -8,7 +8,7 @@ Implemented in runtime `45526a3`. The control panel shares the overlay's game st
 2. Start the overlay from the repository root:
 
    ```powershell
-   .\run-harness.ps1 overlay --run latest --port 8765
+   .\harness\run-harness.ps1 overlay --run latest --port 8765
    ```
 
 3. Open [the operator view](http://127.0.0.1:8765/?operator=1).
@@ -51,7 +51,7 @@ Commands are cooperative. They can wait for a model request or a local multi-ste
 4. Start the next session:
 
    ```powershell
-   .\run-harness.ps1 run --continuous --resume-checkpoint --budget-usd $sessionBudget
+   .\harness\run-harness.ps1 run --continuous --resume-checkpoint --budget-usd $sessionBudget
    ```
 
 5. Start the overlay if it is not running.
@@ -85,4 +85,4 @@ The STOP file now requests Finish & Save during an active run. Before a supervis
 - Live save run `23d519a3-699b-4317-a1eb-66643c285de5`: FarmHouse, Spring 19 → Spring 20, checkpoint `aec76ef4c7174c46ac82d627a5d52f56`, stop reason `finish_saved`. Zero model calls and $0 cost.
 - Live reload run `3f1286e8-9646-4409-8865-6e3b09c0a573`: restored and loaded the same Spring 20 checkpoint, verified identity/date, then closed without farm actions. Zero model calls and $0 cost.
 
-The live save test started in FarmHouse. Recovery from blocked routes elsewhere remains unproven. A clean 30-minute autonomous rehearsal and an OBS recording with audio and overlay are still required before the streaming gate is met.
+The live save test started in FarmHouse. Recovery from blocked routes elsewhere remains unproven. A short OBS recording now verifies audio and overlay, and three concurrent outputs passed a local test. The clean 30-minute autonomous rehearsal remains required. See [broadcast setup and acceptance](streaming.md).

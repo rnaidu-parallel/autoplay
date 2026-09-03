@@ -2,6 +2,7 @@
 **/obj/
 harness/runs/
 harness/state/
+broadcast/local/
 __pycache__/
 *.pyc
 artifacts/harness-capture.jpg

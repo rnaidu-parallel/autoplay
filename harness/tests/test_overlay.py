@@ -69,6 +69,19 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual({}, state.pending_requests)
         self.assertEqual("fatal error", state.stop_reason)
 
+    def test_speech_survives_director_updates_and_resets_for_a_new_run(self) -> None:
+        state = OverlayState("run-1")
+        for line in ("The river looks peaceful.", "I wonder who lives up this path."):
+            state.apply({"type": "actor_decision", "tool": "inspect_scene", "arguments": {"say": line}})
+        for _ in range(12):
+            state.apply({"type": "director_decision", "tool": "continue_objective", "arguments": {"milestone": "Explore"}})
+        state.apply({"type": "actor_decision", "tool": "inspect_scene", "applied": False,
+                     "arguments": {"say": "Discarded line."}})
+        snapshot = state.snapshot(now=self.now)
+        self.assertEqual(8, len(snapshot["actions"]))
+        self.assertEqual({"say": "I wonder who lives up this path.", "previous": "The river looks peaceful."}, snapshot["speech"])
+        self.assertEqual({"say": None, "previous": None}, OverlayState("run-2").snapshot(now=self.now)["speech"])
+
     def test_build_state_maps_notebook_objective_world_and_lessons(self) -> None:
         notebook = {
             "days": {

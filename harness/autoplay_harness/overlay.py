@@ -131,6 +131,7 @@ class OverlayState:
         self.world_data: dict[str, Any] = {}
         self.world_summary: dict[str, Any] = {}
         self.actions: list[dict[str, Any]] = []
+        self.sayings: list[str] = []
         self.pending_requests: dict[str, datetime] = {}
         self.pending_action: tuple[Any, str] | None = None
         self.actor_decisions = 0
@@ -189,6 +190,9 @@ class OverlayState:
                 self.actions.insert(0, action)
                 del self.actions[8:]
                 if role == "actor":
+                    if action["say"]:
+                        self.sayings.insert(0, action["say"])
+                        del self.sayings[2:]
                     self.pending_action = (event.get("step"), event["tool"])
         elif event_type == "tool_result":
             result = event.get("result")
@@ -302,7 +306,7 @@ class OverlayState:
         uptime = max(0, int((end - self.started_at).total_seconds())) if self.started_at else 0
         prompt = self.prompt_tokens
         actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
-        sayings = [item["say"] for item in self.actions if item.get("say")]
+        sayings = self.sayings
         return {
             "status": status,
             "updatedAt": now.isoformat(),

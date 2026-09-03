@@ -402,7 +402,7 @@ The `--forever` wrapper persists a daily cost ledger, waits until local midnight
 
 The local overlay server binds to `127.0.0.1`, default port 8765. The transparent 1920×1080 page shows objective, agenda, game status, cost/cache statistics, speech and action trace. `/?operator=1` adds Finish & Save, guidance, Hold unsaved, command receipts and checkpoint status. POST commands require the local origin and current run ID.
 
-`say` is available only after the action-selection response arrives. There is a thinking indicator, but no streaming narration while the actor is thinking. The recent action list holds 8 entries. Speech is derived from actor lines still in that list, so enough director-only events can evict the last spoken line; that happened during the stalled rehearsal.
+`say` is available only after the action-selection response arrives. There is a thinking indicator, but no streaming narration while the actor is thinking. The recent action list holds 8 entries. The overlay now retains the last two applied actor lines separately, so director-only events cannot evict the last narration. A new run clears them. This fixes the speech loss observed during the stalled rehearsal.
 
 Provider-returned content/reasoning can be logged, truncated to 2,000 characters, but the audience narration is the explicit `say` field. The overlay is not evidence that a narrated intention succeeded; the action result is separate.
 
@@ -477,7 +477,7 @@ These are review findings and design choices, not changes made during this revie
 | Tool feedback | `world_map` computes a requested route but its details are dropped by prompt-event compaction | Deliver selected result fields explicitly to the next actor request. Current general world summary still appears, but the requested route itself is not preserved there. |
 | Contract consistency | Stop behavior still differs from its prompt description | Audit prompt, schema and executor together. State-mode crop-zone references and no-input clock wording were corrected with the autonomy update. |
 | Planning enforcement | Invalid plans can be accepted with gaps after two attempts | Choose which rules are hard requirements and which are preferences; do not silently describe both as hard validation. |
-| Streaming presentation | Last speech can disappear during director loops; raw VOD lacks sound/overlay | Keep a durable last spoken line, show understandable waiting/recovery states, and verify final audiovisual composition. |
+| Streaming presentation | Durable speech fixed; short OBS video/audio and three local outputs verified | Connect channels, check upload, and pass the 30-minute rehearsal. See [broadcast setup](streaming.md). |
 
 My suggested review order is: **reliable return/save and truthful progress → the farmer's freedom/obligations/preferences → reliable improvised interactions and necessary chore support → smaller, clearer prompts/context → full recorded rehearsal.** Your feedback on character behavior should shape the capability work, rather than simply increasing the number of planner rules.
 

@@ -1,6 +1,6 @@
 # Pending work specs
 
-Status 2026-09-03: parts 1, narration, and part 2 are implemented; 174 tests pass. Context JSON budgets are accepted. Four recorded
+Status 2026-09-03: parts 1, narration, part 2, and operator controls are implemented; 198 tests pass. Context JSON budgets are accepted. Four recorded
 attempts were evaluated; none passed the 30-minute gate. Continuous time and short retry limits are implemented. See
 [`../memory-narration-review.md`](../memory-narration-review.md) for evidence and the complete run command.
 
@@ -11,8 +11,9 @@ session before commit. Order:
 1. `longrun-memory-part1.md` — notebook lessons/variety/roll-up, context caps, cache and latency report (no runner changes).
 2. `narration-and-overlay-trace.md` — `say` on every actor tool, speech panel, three-line trace cards (independent of 1).
 3. `longrun-memory-part2.md` — runner integration: variety validation, auto lessons, context budgets, stable block.
-4. Then: a 30-minute recorded session (`run --max-minutes 30 --record-video --video-retention-segments 0 --budget-usd 0.60`
-   with the overlay feed running) and the evaluation checklist in `docs/streaming.md`.
+4. After the remaining gameplay fixes and broadcast preparation: one 30-minute OBS recording with the overlay feed running.
+   Use the current command, approved budget, Finish & Save procedure, and checklist in [streaming.md](../streaming.md).
+   `--max-minutes` is a deadline, not a graceful save request. The earlier $0.60 allowance has $0.272980 remaining.
 
 `longrun-memory.md` is the full parent spec that parts 1 and 2 split.
 
