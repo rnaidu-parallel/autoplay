@@ -1,8 +1,8 @@
 # Autoplay: implementation review
 
-Source snapshot: `45526a3`, 3 September 2026. Farmer autonomy, overlay operator commands, verified save/checkpoint/resume, bounded history search, and full-calendar bookkeeping are implemented. See [operator controls](E:/Claude/autoplay/docs/operator-controls.md) for procedures and live evidence. Model calls were disabled in the save/reload verification.
+Source snapshot: `ad203b1`, 3 September 2026. Farmer autonomy, overlay operator commands, checkpoint/resume, history search, entrance-aware routing and new-work validation are implemented. See [current readiness](E:/Claude/autoplay/docs/readiness-2026-09-03.md) and [operator controls](E:/Claude/autoplay/docs/operator-controls.md). Model calls were disabled in the targeted live checks.
 
-**Current assessment:** the core loop, memory, farmer persona, narration, operator controls and checkpoint resume exist. Save/reload passed from FarmHouse. The system remains a prototype for supervised play; a clean 30-minute autonomous recording, blocked-route return-home recovery, and final OBS composition remain outstanding.
+**Current assessment:** the harness and local broadcast setup are prepared for a supervised rehearsal. South-entrance return/save, checkpoint reload, dialogue selection, and short OBS audio/video checks passed. Channel connections, upload verification, and one clean 30-minute autonomous recording remain before public streaming.
 
 For exact runtime instructions and function schemas, open the companion [prompt and tool explorer](E:/Claude/autoplay/docs/harness-reference-2026-09-03.html) or [JSON export](E:/Claude/autoplay/docs/harness-reference-2026-09-03.json). These contain the application prompts from this repository, not the instructions of the Codex development session.
 
@@ -28,7 +28,8 @@ flowchart TD
     Verify --> Harness
     Harness --> Logs[Events and usage]
     Logs --> Overlay[Local browser overlay]
-    Game --> Video[Separate desktop video recorder]
+    Game --> Video[OBS game capture and audio]
+    Overlay --> Video
 ```
 
 There are two model roles, using the same configured model. They are fresh requests with different instructions and tools. They are not persistent conversational agents, and they do not talk directly to each other. Python carries their plans and observations between requests.
@@ -41,16 +42,16 @@ The model does not receive shell access, arbitrary Python, save-editing commands
 
 | Area | Current state |
 | --- | --- |
-| Runtime revision | `45526a3` operator controls/checkpoints/history; autonomy `3b4b4a8`, persona `5281384`, cursor `a0919cb` |
+| Runtime revision | `ad203b1` route/work/dialogue/retried-save fixes; `b3bf9f7` OBS and durable narration; earlier operator runtime `45526a3` |
 | Processes | Game, recorder, overlay and owned helpers stopped after the earlier checks |
-| Last verified game save | Spring 20, 06:00; operator Finish & Save completed and checkpoint reload verified |
+| Last verified game save | Spring 21, 06:00; south-entrance return/save and checkpoint reload verified; cat Dudley adopted during manual setup |
 | Persistent harness notebook | Days 17 and 18; 16 lessons, 6 learned facts, 0 weekly summaries, **0 interaction memories** |
-| Objective ledger | No active objective; 56 historical objectives, 74 progress entries, 1 opportunity |
-| World memory | Last observation FarmHouse, day 20; 8 visited names; day-18 blocked route expired |
-| Tests | 197 passing offline Python tests; separate live save and reload checks made zero model calls |
+| Objective ledger | No active objective; 59 historical objectives, 74 progress entries, 1 opportunity |
+| World memory | Last observation FarmHouse, day 21; 8 visited names; entrance-scoped daily blocks expired after saving |
+| Tests | 204 passing offline Python tests; targeted route/save/reload/dialogue checks made zero model calls |
 | Live validation | Four rehearsal attempts; none passed the 30-minute gate |
 
-The game and harness remain separate persistence systems. Finish & Save now pairs their state in checkpoint `aec76ef4c7174c46ac82d627a5d52f56`. The notebook retains its earlier days; next-session planning starts a new day from the observed date. If no objective was interrupted, normal planning chooses the next goal.
+The game and harness remain separate persistence systems. Their current paired checkpoint is `6394d027d2db4de480309f852d5668c6`. The notebook retains its earlier days; next-session planning starts a new day from the observed date. If no objective was interrupted, normal planning chooses the next goal. Retried save requests retain the original interrupted intent without nesting save-only goals.
 
 The experience system is implemented but has not yet accumulated real autonomous memories. An empty journal does not mean the farmer has already formed likes and dislikes.
 
@@ -171,9 +172,9 @@ Measured from the current source using the same character estimator:
 
 | Default role request | System characters | Tool-schema characters | Estimated fixed text tokens, before context/image |
 | --- | ---: | ---: | ---: |
-| State actor, 16 tools | 7,518 | 12,002 | 5,577.1 |
-| Visual actor, 27 tools | 13,534 | 20,047 | 9,594.6 |
-| Director, 7 tools | 16,364 | 4,106 | 5,848.6 |
+| State actor, 16 tools | 7,799 | 12,002 | 5,657.4 |
+| Visual actor, 27 tools | 13,803 | 20,047 | 9,671.4 |
+| Director, 7 tools | 16,659 | 4,106 | 5,932.9 |
 
 These are source-size estimates, not billed counts. The former rehearsal's measured token totals predate the latest persona addition, so they are historical evidence rather than a measurement of today's prompts.
 
@@ -271,7 +272,7 @@ Objectives have a human-readable goal, a milestone, and a machine-evaluated succ
 
 Conditions are conjunctions of structured comparisons, separated by commas or `and`. Operators: `is`, `=`, `==`, `!=`, `>`, `>=`, `<`, `<=`. There is no `or`, event-sequence language, temporal logic, or built-in “increase since objective start” operator. Inventory conditions resolve by item name; absent items count as zero.
 
-For example, `inventory.Wood >= 50` proves possession of at least 50 wood. It does not prove 50 wood were gathered during this objective. Likewise, `plantedCrops >= 15` describes observed crops in the current location. Existing crops can satisfy it after travel. This exact distinction caused a false claim of new planting in the rehearsal.
+For example, `inventory.Wood >= 50` proves possession of at least 50 wood, not that 50 were gathered during this objective. The planting incident is now addressed: new model objectives cannot use `plantedCrops`, which includes existing local crops. They use `seedsSown` above its observed cumulative value. Other crop-work clauses must be unfinished now and explicitly name the current observed location. This prevents arrival or another false clause from masquerading as that work. Existing historical or explicitly supplied user predicates are not rewritten; broader intent still depends on a correctly chosen predicate.
 
 New objective proposals are rejected if already true, unsupported by available fields, tied to an invalid agenda item, or equivalent to a target deferred earlier that day. Actor changes also cannot reword the current target to reset its retry accounting. Self-chosen objectives without agenda items retain dated retry-deferral evidence in history, so the actor and director cannot reopen them unchanged that day. A necessary bedtime return can reopen a deferred home target. Actor-chosen new pursuits need no agenda ID; the director still follows the existing agenda-selection validation. Slots are suggestions that the farmer may reorder.
 
@@ -342,7 +343,7 @@ This is privileged structured perception of the game, combined with a screenshot
 
 The C# pathfinder uses breadth-first search against game collision checks, up to 8,000 expansions. It moves through ordinary W/A/S/D effects, uses 6-pixel arrival tolerance and a 20-tick navigation stall limit. A requested 600-tick walk can receive an adaptive budget `min(3600, max(600, path_length × 24 + 240))`. Those ticks depend on a progressing game update loop; they are not an independent wall-clock watchdog.
 
-World travel uses a graph of location names. It first searches directed edges, then may try an undirected interpretation if no directed route exists. It checks door hours and verifies each actual hop. A route can therefore be proposed from incomplete/reversed graph information and still fail at execution. The graph does not represent connected regions within one location or entrance-specific reachability. That is why a blocked path across the Farm can require a route out through Forest/Town/BusStop and back through a different Farm entrance.
+World travel searches location plus incoming-location states. It first uses directed edges, then may try an undirected interpretation. Failed paths are scoped to the incoming location; search can leave Farm through Forest/Town/BusStop and re-enter from the east. Each actual hop is verified, and observed blocked/missing exits trigger another route within the action budget. Entrance identity uses the previous location, not a full tile-component map; multiple entrances from the same source can still share a key. Legacy unscoped blocks remain conservative until expiry.
 
 Temporarily blocked paths clear on a new day; some unavailable edges persist without an automatic expiry/unlock retry. That can matter when progression later opens an initially unavailable route.
 
@@ -408,7 +409,7 @@ Provider-returned content/reasoning can be logged, truncated to 2,000 characters
 
 The raw recorder uses FFmpeg Desktop Duplication for display 0 at 30 FPS, with native cursor capture disabled. It tries H.264 NVENC and falls back to software x264. Default segments are 5 minutes; default retention is 6 segments, approximately a 30-minute rolling window. Retention 0 keeps the full run.
 
-It captures the primary desktop, not a dedicated OBS game source. Focus changes could therefore appear in raw video. It records no audio and does not burn in the overlay. The overlay feed, raw recording and final broadcast composition are separate pieces. Game audio, a complete OBS scene and a clean continuous overlay/VOD still need verification.
+The fallback recorder captures the primary desktop, so focus changes could appear in its raw video. It records no audio and does not burn in the overlay. The prepared OBS scene instead captures the game process, its audio, and the audience overlay. Short composition/audio and three-output local tests passed. The clean 30-minute OBS recording remains required; see [broadcast setup](streaming.md).
 
 Sources: [overlay.py](E:/Claude/autoplay/harness/autoplay_harness/overlay.py), [recording.py](E:/Claude/autoplay/harness/autoplay_harness/recording.py).
 
@@ -436,7 +437,7 @@ Other CLI commands: `bridge-test`, `capture-test`, `record-test`, `wiki-test`, `
 
 ## 17. What live evidence proves
 
-Current save/reload checks: run `23d519a3-699b-4317-a1eb-66643c285de5` automatically completed bedtime from FarmHouse, saved Spring 20, created checkpoint `aec76ef4c7174c46ac82d627a5d52f56`, and stopped. Run `3f1286e8-9646-4409-8865-6e3b09c0a573` restored and loaded that checkpoint, verified identity/date, and closed without farm actions. Both used zero model calls and $0. This proves the local save/reload path; it does not prove return-home recovery from distant blocked routes.
+Earlier save/reload checks `23d519a3-699b-4317-a1eb-66643c285de5` and `3f1286e8-9646-4409-8865-6e3b09c0a573` verified Spring 20 from FarmHouse. Later run `ccfe4c57-b2fb-43bd-8f95-1abeb15b7529` returned from the south entrance and saved Spring 21; `faf9a20f-1876-44a1-938a-81404fc07e56` verified checkpoint reload and one-call dialogue selection. All used zero model calls/$0. Setup required manual cat-adoption recovery and an earlier route fix; this is targeted evidence, not a clean autonomous rehearsal. [Full evidence](readiness-2026-09-03.md)
 
 The latest recording used an earlier runtime revision than the final dialogue/director fixes, persona, cursor and autonomy changes. It ran 15.3 wall minutes, produced 14:30.40 of raw 1080p30 video and spent $0.228759. Across all four attempts, spend was $0.327020 of the previously authorized $0.60 cap.
 

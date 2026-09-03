@@ -85,4 +85,8 @@ The STOP file now requests Finish & Save during an active run. Before a supervis
 - Live save run `23d519a3-699b-4317-a1eb-66643c285de5`: FarmHouse, Spring 19 → Spring 20, checkpoint `aec76ef4c7174c46ac82d627a5d52f56`, stop reason `finish_saved`. Zero model calls and $0 cost.
 - Live reload run `3f1286e8-9646-4409-8865-6e3b09c0a573`: restored and loaded the same Spring 20 checkpoint, verified identity/date, then closed without farm actions. Zero model calls and $0 cost.
 
-The live save test started in FarmHouse. Recovery from blocked routes elsewhere remains unproven. A short OBS recording now verifies audio and overlay, and three concurrent outputs passed a local test. The clean 30-minute autonomous rehearsal remains required. See [broadcast setup and acceptance](streaming.md).
+The later south-entrance check returned through Forest → Town → BusStop → Farm → FarmHouse and saved Spring 21.
+The current checkpoint is `6394d027d2db4de480309f852d5668c6`; reload and one-call dialogue selection passed.
+Runtime `ad203b1` also retains the original interrupted intention when an unfinished save request is retried after restart.
+204 offline tests pass. Short OBS audio/overlay and three local outputs are verified; the clean 30-minute rehearsal remains.
+See [current evidence](readiness-2026-09-03.md) and [broadcast setup](streaming.md).

@@ -18,7 +18,8 @@ test, not the 30-minute autonomous rehearsal. No public endpoints, keys, or mode
 
 Artifacts remain under ignored `broadcast/local/`: `composition.png`, recordings, receiver logs, and OBS logs.
 The overlay replayed run `7a81817b-f9eb-46a3-ad39-47a0e48982c9` without paid calls. Its Spring 18 state was historical;
-the real save remains Spring 20 at checkpoint `aec76ef4c7174c46ac82d627a5d52f56`.
+that check left the real save at Spring 20, checkpoint `aec76ef4c7174c46ac82d627a5d52f56`.
+The later [gameplay check](../docs/readiness-2026-09-03.md) saved Spring 21.
 
 OBS's first-run wizard initially blocked recording despite a successful API acknowledgement. The seeded profile now
 marks that step complete. Recording checks verify that output actually becomes active.

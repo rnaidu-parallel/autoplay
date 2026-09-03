@@ -14,11 +14,12 @@ This replaces the earlier six-hour and two-test-stream proposal. No public broad
 | Three simultaneous outputs | Verified against three local RTMP receivers for 14.9 seconds; one shared encoder. Actual platform ingest remains untested. |
 | Twitch, Kick, YouTube connections | Empty local fields; connect each channel before the rehearsal. |
 | Upload capacity | Not measured. Three outputs need about 18.5 Mbps before protocol overhead. |
-| Gameplay preparation | Entrance-aware home routing and truthful new-work completion remain open. |
+| Gameplay preparation | Entrance-aware return/save verified live. New-work and retry guards pass 204 offline tests. Dialogue selection verified live. |
 | 30-minute rehearsal | On hold until preparation is complete. |
 
 Evidence: [broadcast preflight](../broadcast/preflight-2026-09-03.md). The short capture used the title screen and a
-historical overlay feed. It did not load or change the Spring 20 save. The harness has 198 passing offline tests.
+historical overlay feed. It did not load or change the save. A later route/save check advanced Spring 20 to 21.
+See [current readiness and gameplay evidence](readiness-2026-09-03.md).
 
 ## Prepare OBS
 
@@ -94,7 +95,7 @@ If the channel belongs to the Kick Partner Program, check its multistream toggle
 
 ## Run the rehearsal after preparation
 
-Do not run this section yet. Resolve the two gameplay defects, connect the channels, and verify upload capacity first.
+Do not run this section yet. Connect the channels and verify upload capacity first.
 The earlier $0.60 model allowance has $0.272980 remaining. A larger allowance needs Rahul's approval.
 The broadcast preflight used no model calls.
 
@@ -114,7 +115,8 @@ The broadcast preflight used no model calls.
 9. Wait for **Saved and stopped** and its checkpoint ID.
 10. Stop OBS recording. Report the save tail separately from the measured 30 minutes.
 11. Review the recording, event log, control receipts, and model cost report.
-12. Stop the overlay and close OBS after review.
+12. Close the game after the checkpoint is verified. `--keep-game-open` leaves it open for handoff.
+13. Stop the overlay and close OBS after review.
 
 Do not use `--max-minutes 30` as the save signal: it is a deadline, not a request to return home.
 If a limit ends the harness before saving, keep the game open and complete the save before closing it.
