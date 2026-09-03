@@ -222,7 +222,7 @@ ACTOR_TOOLS = [
     ),
     function_tool(
         "idle",
-        "Advance the game for a bounded number of ticks without pressing any key, then freeze it again. Use for intentional time passage or ambient waiting.",
+        "Wait for a bounded number of ticks without pressing any key; the game continues running afterward. Use for intentional time passage or ambient waiting.",
         {"ticks": {"type": "integer", "minimum": 1, "maximum": 600}},
         ["ticks"],
     ),

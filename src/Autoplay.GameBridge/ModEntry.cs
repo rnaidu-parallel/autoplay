@@ -81,8 +81,6 @@ public sealed class ModEntry : Mod
     private int idleTicksRemaining;
     private bool focusPending;
     private bool? originalPauseWhenOutOfFocus;
-    private bool? originalSimulationPaused;
-    private bool simulationOwned;
     private string? delayedStatus;
     private List<Point>? navigationPath;
     private int navigationIndex;
@@ -219,9 +217,8 @@ public sealed class ModEntry : Mod
 
             case "stop":
                 this.RestorePauseWhenOutOfFocus();
-                this.RestoreSimulationPause();
                 this.StopOperation("stopped");
-                this.CompletePipeRequest("stopped", pauseAfter: false);
+                this.CompletePipeRequest("stopped");
                 break;
 
             default:
@@ -442,7 +439,6 @@ public sealed class ModEntry : Mod
         }
         int effectiveMaxTicks = Math.Min(3600, Math.Max(maxTicks, (path.Count * 24) + 240));
 
-        this.ResumeSimulation();
         this.navigationPath = path;
         this.navigationIndex = 0;
         this.navigationTicksRemaining = effectiveMaxTicks;
@@ -1276,7 +1272,6 @@ public sealed class ModEntry : Mod
         {
             case "observe":
                 this.DisablePauseWhenOutOfFocus();
-                this.PauseSimulation();
                 this.StartFocus();
                 return;
 
@@ -1289,24 +1284,20 @@ public sealed class ModEntry : Mod
                 return;
 
             case "press" when TryParseAgentButtons(request.Buttons, out SButton[] pressButtons):
-                this.ResumeSimulation();
                 this.StartHold(pressButtons, 1);
                 return;
 
             case "hold" when request.Ticks is >= 1 and <= 600
                 && TryParseAgentButtons(request.Buttons, out SButton[] holdButtons):
-                this.ResumeSimulation();
                 this.StartHold(holdButtons, request.Ticks);
                 return;
 
             case "move_cursor" when this.IsValidScreenPoint(request.X, request.Y):
-                this.ResumeSimulation();
                 this.StartCursorMove(request.X, request.Y);
                 return;
 
             case "click" when this.IsValidScreenPoint(request.X, request.Y)
                 && TryParsePointerButton(request.Button, out SButton clickButton):
-                this.ResumeSimulation();
                 this.StartClick(request.X, request.Y, clickButton);
                 return;
 
@@ -1314,7 +1305,6 @@ public sealed class ModEntry : Mod
                 && this.IsValidScreenPoint(request.StartX, request.StartY)
                 && this.IsValidScreenPoint(request.EndX, request.EndY)
                 && TryParsePointerButton(request.Button, out SButton dragButton):
-                this.ResumeSimulation();
                 this.StartDrag(
                     request.StartX,
                     request.StartY,
@@ -1329,7 +1319,6 @@ public sealed class ModEntry : Mod
                 if (request.Direction.Equals("up", StringComparison.OrdinalIgnoreCase)
                     || request.Direction.Equals("down", StringComparison.OrdinalIgnoreCase))
                 {
-                    this.ResumeSimulation();
                     this.StartScroll(request.Direction, request.Steps);
                     return;
                 }
@@ -1341,17 +1330,14 @@ public sealed class ModEntry : Mod
                     out Func<bool>? waitCondition,
                     out string? waitDescription
                 ):
-                this.ResumeSimulation();
                 this.StartWait(waitCondition, waitDescription, request.Ticks);
                 return;
 
             case "idle" when request.Ticks is >= 1 and <= 600:
-                this.ResumeSimulation();
                 this.StartIdle(request.Ticks);
                 return;
 
             case "choose_dialogue_response":
-                this.ResumeSimulation();
                 this.SelectDialogueResponse(request.Index);
                 return;
 
@@ -1380,23 +1366,20 @@ public sealed class ModEntry : Mod
 
             case "stop":
                 this.RestorePauseWhenOutOfFocus();
-                this.RestoreSimulationPause();
                 this.StopOperation("stopped");
-                this.CompletePipeRequest("stopped", pauseAfter: false);
+                this.CompletePipeRequest("stopped");
                 return;
         }
 
         this.CompletePipeRequest("error", "invalid_or_disallowed_request");
     }
 
-    private void CompletePipeRequest(string status, string? error = null, bool pauseAfter = true, string? reason = null)
+    private void CompletePipeRequest(string status, string? error = null, string? reason = null)
     {
         if (this.activePipeRequest is null)
             return;
 
         BridgeRequestEnvelope request = this.activePipeRequest;
-        if (pauseAfter)
-            this.PauseSimulation();
         request.Completion.TrySetResult(new BridgeResponse
         {
             Id = request.Request.Id,
@@ -1424,14 +1407,6 @@ public sealed class ModEntry : Mod
             catch (Exception)
             {
             }
-        }
-
-        try
-        {
-            this.RestoreSimulationPause();
-        }
-        catch (Exception)
-        {
         }
 
         try
@@ -2176,29 +2151,6 @@ public sealed class ModEntry : Mod
             return;
         Game1.options.pauseWhenOutOfFocus = original;
         this.originalPauseWhenOutOfFocus = null;
-    }
-
-    private void PauseSimulation()
-    {
-        if (!Context.IsWorldReady)
-            return;
-        this.originalSimulationPaused ??= Game1.paused;
-        Game1.paused = true;
-        this.simulationOwned = true;
-    }
-
-    private void ResumeSimulation()
-    {
-        if (this.simulationOwned)
-            Game1.paused = false;
-    }
-
-    private void RestoreSimulationPause()
-    {
-        if (this.originalSimulationPaused is bool original)
-            Game1.paused = original;
-        this.originalSimulationPaused = null;
-        this.simulationOwned = false;
     }
 
     private static void SetPhysicalCursorPosition(int clientX, int clientY)

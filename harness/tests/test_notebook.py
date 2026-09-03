@@ -19,6 +19,21 @@ def agenda(count=5):
 
 
 class NotebookTests(unittest.TestCase):
+    def test_deferred_items_survive_refill_and_return_as_carried_next_day(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            notebook.start_day(1)
+            notebook.set_agenda(1, agenda(1), "First plan")
+            notebook.mark("d1-1", "deferred", "Retry limit")
+            self.assertEqual([], notebook.remaining(1))
+            notebook.set_agenda(1, agenda(1), "Refill")
+            notebook = Notebook(Path(directory))
+            self.assertEqual("deferred", notebook.data["days"]["1"]["agenda"][0]["status"])
+            self.assertEqual(["d1-2"], [item["id"] for item in notebook.remaining(1)])
+            notebook.start_day(2)
+            self.assertEqual("carried", notebook.remaining(2)[0]["status"])
+            self.assertEqual("Retry limit", notebook.remaining(2)[0]["note"])
+
     def test_category_mix_recent_themes_variety_and_actor_context(self):
         with tempfile.TemporaryDirectory() as directory:
             notebook = Notebook(Path(directory))

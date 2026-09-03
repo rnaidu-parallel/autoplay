@@ -1,7 +1,7 @@
 # Pending work specs
 
-Status 2026-09-03: parts 1, narration, and part 2 are implemented; 161 tests pass. The 30-minute recorded
-session remains pending clarification of context versus whole-prompt budgets. See
+Status 2026-09-03: parts 1, narration, and part 2 are implemented; 164 tests pass. Context JSON budgets are accepted; the 30-minute recorded
+rehearsal and evaluation are in progress. See
 [`../memory-narration-review.md`](../memory-narration-review.md) for evidence and the complete run command.
 
 Self-contained briefs for the next packages, written 2026-09-03. Each is meant to be handed to a worker

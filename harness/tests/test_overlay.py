@@ -60,6 +60,15 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(0.4, running["stats"]["cacheHitRate"])
         self.assertEqual(0.0123, running["stats"]["cost"])
 
+    def test_fatal_exit_clears_pending_work_and_shows_stopped(self) -> None:
+        state = OverlayState("run-1")
+        state.apply({"at": self.start, "type": "model_request", "role": "actor"})
+        state.apply({"at": self.start, "type": "fatal_error", "error": "context overflow"})
+        snapshot = state.snapshot(now=self.now)
+        self.assertEqual("stopped", snapshot["status"])
+        self.assertEqual({}, state.pending_requests)
+        self.assertEqual("fatal error", state.stop_reason)
+
     def test_build_state_maps_notebook_objective_world_and_lessons(self) -> None:
         notebook = {
             "days": {

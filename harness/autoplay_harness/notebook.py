@@ -7,7 +7,7 @@ from typing import Any
 
 
 SLOTS = ("morning", "midday", "afternoon", "evening")
-STATUSES = ("pending", "active", "done", "carried", "dropped")
+STATUSES = ("pending", "active", "done", "carried", "dropped", "deferred")
 PURPOSES = ("crops", "trees", "paths", "buildings", "animals", "reserve")
 CATEGORIES = (
     "farming", "clearing", "exploring", "social", "shopping", "fishing",
@@ -78,7 +78,7 @@ class Notebook:
         if previous_key is not None and previous_key in self.data["days"]:
             previous = self.data["days"][previous_key]
             for item in previous["agenda"]:
-                if item["status"] not in {"pending", "active", "carried"}:
+                if item["status"] not in {"pending", "active", "carried", "deferred"}:
                     continue
                 item["status"] = "carried"
                 carried.append({**item, "status": "carried", "carried_from": previous_key})
@@ -109,7 +109,7 @@ class Notebook:
         self._validate_dropped(dropped)
 
         candidates = {item["id"]: item for item in entry["agenda"] if item["status"] == "carried"}
-        preserved = [item for item in entry["agenda"] if item["status"] in {"done", "dropped"}]
+        preserved = [item for item in entry["agenda"] if item["status"] in {"done", "dropped", "deferred"}]
         planned: list[dict[str, Any]] = []
         next_number = self._next_item_number(day, preserved)
 

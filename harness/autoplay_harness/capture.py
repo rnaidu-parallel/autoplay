@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import ctypes
 import io
+import os
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -68,6 +70,7 @@ class ScreenCapture:
         user32.BringWindowToTop.argtypes = [ctypes.c_void_p]
         user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
         user32.SetFocus.argtypes = [ctypes.c_void_p]
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
         user32.SetWindowPos.argtypes = [
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -214,6 +217,21 @@ class ScreenCapture:
         user32.SetForegroundWindow(handle)
         user32.SetFocus(handle)
         time.sleep(0.5)
+        if user32.GetForegroundWindow() != handle:
+            # Raising the game above another app can leave XNA inactive. The Windows
+            # application activation API recovered this during the recorded rehearsal.
+            process_id = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
+            shell = Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+            try:
+                subprocess.run(
+                    [str(shell), "-NoProfile", "-NonInteractive", "-Command",
+                     f"if (-not (New-Object -ComObject WScript.Shell).AppActivate({process_id.value})) {{ exit 1 }}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW, timeout=5, check=True,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                raise CaptureError("Could not activate the game window.") from error
 
     @staticmethod
     def _release_topmost(handle: int) -> None:

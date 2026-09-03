@@ -32,7 +32,8 @@ Use inspect_scene when the task requires tools outside this list, visual detail,
 an obstacle, a menu, NPC interaction, harvesting, or an uncertain target. It
 requests a full visual decision with all controls; it does not advance the game. Use
 wiki_search for a specific unknown mechanic. Stop only for an unsafe/unrecoverable state.
-Time is frozen between decisions and advances during bounded controls. Do not unpause it.
+The clock and animations keep running between decisions. Native menus may pause normally.
+Choose promptly, budget time for the route home, and never issue pause or unpause commands.
 Crop and inventory entries are compact tables: columns name each value in a row. Empty
 crop cells mean tilled soil with no crop. Full state and exact screen targets remain with
 the local executor; it checks fresh evidence before acting. If state is insufficient,

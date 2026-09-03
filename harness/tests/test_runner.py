@@ -1236,6 +1236,100 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertEqual(200, len(state["cropsNearby"]))
         print("Estimated context tokens:", sizes)
 
+    def test_action_rechecks_scene_after_model_delay(self):
+        harness = self.harness
+        after = {**self.state, "location": "FarmHouse", "day": 10}
+        harness._observe = Mock(side_effect=[(self.state, self.frame), (after, self.frame)])
+        harness._decide = Mock(return_value=(ToolDecision("navigate_to", {"tile_x": 1, "tile_y": 2}, {}, None), 5000))
+        harness._execute_actor_tool = Mock()
+        harness._actor_step()
+        harness._execute_actor_tool.assert_not_called()
+        self.assertEqual("scene_changed_while_thinking", harness.last_result["reason"])
+        self.assertTrue(harness.inspect_next_scene)
+        self.assertIsNotNone(harness.ledger.snapshot()["active"])
+
+    def test_clock_advance_is_allowed_but_moving_pointer_targets_are_not(self):
+        decision = ToolDecision("navigate_to", {}, {}, None)
+        self.assertFalse(self.harness._decision_scene_changed(decision, self.state, {**self.state, "time": 810}))
+        click = ToolDecision("click", {}, {}, None)
+        self.assertTrue(self.harness._decision_scene_changed(click, self.state, {**self.state, "npcsNearby": [{"x": 2, "y": 3}]}))
+
+    def test_retry_limit_defers_same_destination_across_tools_and_speech(self):
+        harness = self.harness
+        harness.notebook.set_agenda(9, [
+            {"goal": "Visit Desert", "success_condition": "location is Desert", "slot": "morning", "category": "exploring"},
+            {"goal": "Visit Farm", "success_condition": "location is Farm", "slot": "midday", "category": "farming"},
+        ], "Travel")
+        harness.ledger.data["active"].update(goal="Visit Desert", success_condition="location is Desert", agenda_id="d9-1")
+        harness.notebook.mark("d9-1", "active")
+        harness._observe = lambda: (dict(self.state), self.frame)
+        harness._execute_actor_tool = Mock(side_effect=lambda decision, *args: (
+            {"status": "visual_review_requested"} if decision.name == "inspect_scene" else
+            {"status": "blocked", "reason": "no_exit_to_location", "state": dict(self.state)}))
+        decisions = [
+            ToolDecision("travel_to", {"destination": "Desert", "say": "First try."}, {}, None),
+            ToolDecision("inspect_scene", {"say": "I look."}, {}, None),
+            ToolDecision("go_to_location", {"location": "Desert", "say": "Another try."}, {}, None),
+            ToolDecision("inspect_scene", {"say": "A fresh look."}, {}, None),
+            ToolDecision("travel_to", {"destination": "Desert", "say": "Third try."}, {}, None),
+        ]
+        harness._decide = Mock(side_effect=[(decision, 1) for decision in decisions])
+        for _ in decisions:
+            harness._actor_step()
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+        self.assertEqual("blocked", harness.ledger.data["history"][-1]["status"])
+        self.assertEqual("deferred", harness.notebook.data["days"]["9"]["agenda"][0]["status"])
+        self.assertEqual(["d9-2"], [item["id"] for item in harness.notebook.remaining(9)])
+        self.assertTrue(harness.stall_review_requested)
+        self.assertIsNone(harness.stop_reason)
+        event = json.loads(harness.telemetry.events_path.read_text().splitlines()[-1])
+        self.assertEqual("objective_deferred", event["type"])
+        self.assertEqual(3, event["failures"])
+        harness._apply_director_decision(ToolDecision("set_objective", {
+            "goal": "Try Desert again", "success_condition": "playerFree = true, location == desert",
+            "milestone": "Travel", "agenda_id": "d9-2"}, {}, None), self.state)
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+        self.assertIn("retry limit", harness.director_feedback)
+        harness._apply_director_decision(ToolDecision("set_objective", {
+            "goal": "Visit Farm", "success_condition": "location is Farm",
+            "milestone": "Travel to Farm", "agenda_id": "d9-2"}, {}, None), self.state)
+        self.assertEqual("Visit Farm", harness.ledger.snapshot()["active"]["goal"])
+
+    def test_six_no_progress_decisions_ignore_clock_changes(self):
+        for index in range(6):
+            self.harness._track_action_retries(
+                ToolDecision("navigate_to", {"tile_x": index, "tile_y": 2}, {}, None),
+                {"status": "blocked", "reason": "no_walkable_path"}, self.state, {**self.state, "time": 810})
+        self.assertIsNone(self.harness.ledger.snapshot()["active"])
+        event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
+        self.assertEqual(6, event["no_progress_decisions"])
+
+    def test_retry_limit_allows_deliberate_waits_and_real_tool_progress(self):
+        harness = self.harness
+        for _ in range(8):
+            harness._track_action_retries(ToolDecision("idle", {}, {}, None), {"status": "completed"}, self.state, self.state)
+            harness._track_action_retries(ToolDecision("clear_debris", {"targets": [{"x": 1, "y": 2}]}, {}, None),
+                                          {"status": "blocked", "reason": "action_budget_reached"},
+                                          self.state, {**self.state, "stamina": 90})
+        self.assertIsNotNone(harness.ledger.snapshot()["active"])
+        self.assertEqual(0, harness.retry_no_progress)
+        self.assertEqual({}, harness.failed_targets)
+
+    def test_live_visual_context_fits_after_actor_geometry_trim(self):
+        packet = json.loads((Path(__file__).parent / "fixtures" / "visual-context-overflow.json").read_text(encoding="utf-8"))
+        ledger = json.dumps(packet["objective_ledger"], sort_keys=True)
+        last_result = packet["game_state"]["harnessLastResult"]
+        director = json.loads(self.harness._budget_context(json.loads(json.dumps(packet)), "director"))
+        self.assertIn("farmLayout", director["game_state"])
+        context = self.harness._budget_context(packet, "actor")
+        self.assertLessEqual(len(context) / 3.5, ACTOR_CONTEXT_BUDGET)
+        trimmed = json.loads(context)
+        self.assertEqual(ledger, json.dumps(trimmed["objective_ledger"], sort_keys=True))
+        self.assertEqual(last_result, trimmed["game_state"]["harnessLastResult"])
+        self.assertNotIn("farmLayout", trimmed["game_state"])
+        event = json.loads(self.harness.telemetry.events_path.read_text().splitlines()[-1])
+        self.assertEqual("actor_geometry", event["cuts"][-1])
+
     def test_oversized_protected_context_is_not_sent_or_dropped(self):
         harness = self.harness
         active = harness.ledger.data["active"]

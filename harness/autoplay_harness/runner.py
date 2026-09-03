@@ -459,17 +459,23 @@ class AutoplayHarness:
         self.decisions += 1
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
                                          context, frame, STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS, "actor")
+        current_state = state
+        if decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "wiki_search", "world_map", "stop_session"}:
+            current_state, _ = self._observe()
         fingerprint = self._action_fingerprint(decision, state)
         execute_started = time.perf_counter()
         blocked_before = list(self.world.blocked_paths) if hasattr(self, "world") else []
-        if fingerprint == self.last_action_fingerprint:
+        if self._decision_scene_changed(decision, state, current_state):
+            result = {"status": "rejected", "reason": "scene_changed_while_thinking", "state": current_state}
+            self.inspect_next_scene = True
+        elif fingerprint == self.last_action_fingerprint:
             result = {
                 "status": "rejected",
                 "error": "The identical action was already attempted with unchanged observable state; choose a different action.",
             }
         else:
             self.last_action_fingerprint = fingerprint
-            result = self._execute_actor_tool(decision, frame, state)
+            result = self._execute_actor_tool(decision, frame, current_state)
         bridge_ms = round((time.perf_counter() - execute_started) * 1000)
         self.last_result = {"tool": decision.name, "status": result.get("status")}
         for key in ("error", "warning", "reason"):
@@ -477,14 +483,76 @@ class AutoplayHarness:
                 self.last_result[key] = result[key]
         self.telemetry.record("tool_result", {"tool": decision.name, "bridge_ms": bridge_ms, "result": result,
                                              "actor_cycle_ms": round((time.perf_counter() - cycle_started) * 1000)})
-        result_state = result.get("state") or state
+        result_state = result.get("state") or current_state
         self._record_actor_lessons(decision, result, result_state, blocked_before)
         self._update_stall_watchdog(decision.name, result_state)
         self._print_step("actor", decision, result, result_state, model_ms, bridge_ms)
         if result.get("state"):
             self._complete_verified_objective(result["state"])
+        self._track_action_retries(decision, result, current_state, result_state)
         if not self.continuous and self.decisions >= self.max_decisions and not self.stop_reason:
             self.stop_reason = "max_decisions_reached"
+
+    @staticmethod
+    def _decision_scene_changed(decision: ToolDecision, before: dict[str, Any], after: dict[str, Any]) -> bool:
+        fields = ["worldReady", "location", "day", "season", "year", "menu", "eventUp", "minigame",
+                  "playerFree", "canMove", "health", "dialogueResponses"]
+        if decision.name in {"click", "drag", "move_cursor", "scroll"}:
+            fields += ["pixelX", "pixelY", "viewportWidth", "viewportHeight", "npcsNearby"]
+        return any(before.get(field) != after.get(field) for field in fields)
+
+    def _track_action_retries(self, decision: ToolDecision, result: dict[str, Any],
+                             before: dict[str, Any], after: dict[str, Any]) -> None:
+        active = self.ledger.snapshot().get("active")
+        if not self.continuous or active is None or result.get("reason") == "scene_changed_while_thinking":
+            return
+        if active["id"] != getattr(self, "retry_objective_id", None):
+            self.retry_objective_id = active["id"]
+            self.failed_targets = {}
+            self.retry_no_progress = 0
+        # Clock ticks alone must not disguise a blocked action. Tool work, movement,
+        # inventory changes, menus, and day changes still count as real progress.
+        progressed = self._progress_fingerprint({**before, "time": 0}) != self._progress_fingerprint({**after, "time": 0})
+        intentional_wait = decision.name in {"idle", "wait"} and result.get("status") == "completed"
+        self.retry_no_progress = 0 if progressed or intentional_wait else self.retry_no_progress + 1
+        arguments = {key: value for key, value in decision.arguments.items() if key not in {"say", "frame_id"}}
+        name = decision.name
+        if name in {"go_to_location", "travel_to"}:
+            name, arguments = "travel", {"destination": arguments.get("location") or arguments.get("destination")}
+        target = json.dumps([before.get("location"), name, arguments], sort_keys=True)
+        if result.get("status") in {"blocked", "rejected", "timeout"} and not progressed:
+            self.failed_targets[target] = self.failed_targets.get(target, 0) + 1
+        elif result.get("status") == "completed":
+            self.failed_targets.pop(target, None)
+        failures = self.failed_targets.get(target, 0)
+        if failures < 3 and self.retry_no_progress < 6:
+            return
+        evidence = (f"Retry limit reached: {failures} failed attempts at {name}; "
+                    f"{self.retry_no_progress} decisions without progress. "
+                    f"Last result: {result.get('reason') or result.get('error') or result.get('status')}. "
+                    "Deferred until another day; choose a different agenda task.")
+        self.ledger.block_objective(evidence)
+        agenda_id = active.get("agenda_id")
+        if agenda_id is not None:
+            self.notebook.mark(agenda_id, "deferred", evidence)
+        self.notebook.add_lesson(f"retry_limit:{active['goal'][:40]}", evidence, "auto", after["day"])
+        self.telemetry.record("objective_deferred", {"objective_id": active["id"], "agenda_id": agenda_id,
+                                                    "target": target, "failures": failures,
+                                                    "no_progress_decisions": self.retry_no_progress, "evidence": evidence})
+        self.director_feedback = evidence
+        self.stall_review_requested = True
+        self.stalled_decisions = 0
+        self.last_action_fingerprint = None
+
+    @staticmethod
+    def _retry_condition_key(condition: str) -> str:
+        clauses = [re.sub(r"\s+", "", clause).casefold().replace("==", "=") for clause in condition.split(",")]
+        # A new wording or extra clause must not reopen the same failed destination.
+        for clause in clauses:
+            match = re.fullmatch(r"location(?:is|=)(.+)", clause)
+            if match:
+                return "location=" + match[1]
+        return ",".join(sorted(clauses))
 
     def _plan_day_if_needed(self, state: dict[str, Any], frame: Frame) -> None:
         day = state.get("day")
@@ -713,6 +781,7 @@ class AutoplayHarness:
         state, frame = self._observe()
         context = self._context("director", state, frame)
         decision, model_ms = self._decide(DIRECTOR_SYSTEM_PROMPT, context, frame, DIRECTOR_TOOLS, "director")
+        state, _ = self._observe()
         self._apply_director_decision(decision, state)
         self.last_director_action_count = self.game_actions
         self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
@@ -888,6 +957,12 @@ class AutoplayHarness:
                     raise ObjectiveError("The proposed success condition uses an unavailable state field.")
                 agenda_id = arguments.get("agenda_id")
                 day = state.get("day")
+                if hasattr(self, "notebook") and isinstance(day, int):
+                    deferred = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
+                    retry_key = self._retry_condition_key(arguments["success_condition"])
+                    if any(item["status"] == "deferred" and item.get("success_condition")
+                           and self._retry_condition_key(item["success_condition"]) == retry_key for item in deferred):
+                        raise ObjectiveError("This target reached its retry limit today; choose a different task.")
                 remaining = (
                     self.notebook.remaining(day)
                     if hasattr(self, "notebook") and isinstance(day, int) else []
@@ -1419,7 +1494,7 @@ class AutoplayHarness:
         context = serialize()
         initial_tokens = len(context) / 3.5
         cuts = []
-        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby"):
+        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "actor_geometry"):
             if len(context) / 3.5 <= budget:
                 break
             if field == "wiki_results":
@@ -1443,6 +1518,10 @@ class AutoplayHarness:
                             items.append({**item, "goal": item.get("goal", "")[:40]})
                     if key in today:
                         today[key] = items
+            elif field == "actor_geometry":
+                if role == "actor":
+                    for key in ("farmLayout", "navigationRows", "diagnostics"):
+                        packet["game_state"].pop(key, None)
             elif field != "nearbyObjects" or role == "actor":
                 limit = 12 if field == "nearbyObjects" else 24
                 value = packet["game_state"].get(field)

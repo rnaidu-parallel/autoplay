@@ -202,8 +202,8 @@ class OverlayState:
         elif event_type == "stall_detected":
             self.stall_at_decision = self.actor_decisions
             self.stalled_decisions = int(event.get("count") or 0)
-        elif event_type == "session_stopped":
-            self.stop_reason = str(event.get("reason") or "stopped")
+        elif event_type in {"session_stopped", "fatal_error"}:
+            self.stop_reason = str(event.get("reason") or ("fatal error" if event_type == "fatal_error" else "stopped"))
             self.stopped_at = occurred
             self.pending_requests.clear()
             self.pending_action = None
@@ -525,9 +525,11 @@ def main(args: Namespace) -> int:
                     current["path"] = run_directory / "overlay" / "state.json"
                     state = OverlayState(run_directory.name)
                     tail = EventTail(run_directory / "events.jsonl")
+                    signatures.clear()
             events, reset = tail.read()
             if reset:
                 state = OverlayState(run_directory.name)
+                signatures.clear()
             for event in events:
                 try:
                     state.apply(event)

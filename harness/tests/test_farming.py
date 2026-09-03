@@ -118,6 +118,19 @@ class RetryingToolBridge:
 
 
 class FarmingTests(unittest.TestCase):
+    def test_debris_reserves_animation_wait_before_spending_last_control(self):
+        bridge = DebrisBridge(disappear_after=1)
+        result = clear_debris(bridge, copy.deepcopy(bridge.state), [{"x": 10, "y": 9}], 2)
+        self.assertEqual("action_budget_reached", result["reason"])
+        self.assertEqual(0, bridge.clicks)
+        self.assertEqual(1, result["controls_executed"])
+
+        bridge = DebrisBridge(disappear_after=1)
+        result = clear_debris(bridge, copy.deepcopy(bridge.state), [{"x": 10, "y": 9}], 3)
+        self.assertEqual("completed", result["status"])
+        self.assertEqual(["press", "click", "wait"], [call[0] for call in bridge.calls])
+        self.assertEqual(3, result["controls_executed"])
+
     targets = [{"x": x, "y": 18} for x in range(60, 65)]
 
     def test_nearest_selection_uses_only_observed_empty_unique_tiles(self):

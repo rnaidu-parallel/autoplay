@@ -1,7 +1,7 @@
 # Memory and narration review — 2026-09-03
 
-Memory, variety validation, narration, the overlay trace, and runner integration are implemented. The new
-30-minute recorded session has not run. No model API calls were made during implementation.
+Memory, variety validation, narration, the overlay trace, and runner integration are implemented. The recorded
+rehearsal is in progress. No model API calls were made during initial implementation.
 
 ## Acceptance decision
 
@@ -9,11 +9,11 @@ The parent spec describes 4,500 actor / 8,000 director prompt-token limits, but 
 to context JSON. Before adding narration, the visual actor's fixed instructions and tools alone estimated
 5,993 tokens using that spec's 3.5-character estimator. A whole-request actor limit cannot be satisfied while
 preserving those protected inputs. The implementation caps context JSON and reports provider prompt tokens
-separately. Rahul's confirmation of that interpretation is pending before the recorded session.
+separately. Rahul accepted that interpretation on 2026-09-03 and authorized the recorded rehearsal and evaluation.
 
 ## Verification
 
-- Full Python suite passed: 161 tests. No game or provider connection is used by this suite.
+- Full Python suite passed: 164 tests, including the live animation-budget and visual-context regressions. No game or provider connection is used by this suite.
 - Synthetic large contexts: actor 3,536.9 and director 7,835.7 estimated tokens after the prescribed trims.
   Tests preserve the objective and last result, check trim order, and reject oversized protected content.
 - Replay of 266 historical observations with the current notebook: actor median/max 3,822.9/4,299.7;

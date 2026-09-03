@@ -71,6 +71,8 @@ class _Controls:
 
     def use_tool(self, screen_x: int, screen_y: int) -> str | None:
         """Swing at the aimed tile; canMove stays false until the animation ends, so the wait skips it."""
+        if self.executed + 2 > self.action_budget:
+            return "action_budget_reached"
         previous_health = self.state.get("health", 0)
         error = self.control("click", x=screen_x, y=screen_y, button="left")
         if error:
