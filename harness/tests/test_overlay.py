@@ -113,6 +113,22 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(2, overlay["world"]["visitedCount"])
         self.assertEqual(4, len(overlay["world"]["unvisitedNearby"]))
 
+    def test_latest_actions_keep_outcomes_after_director_updates_and_operator_finish(self) -> None:
+        state = OverlayState("run-1")
+        for step in (1, 2, 3):
+            state.apply({"type": "actor_decision", "step": step, "tool": "navigate_to",
+                         "arguments": {"say": f"Visit {step}"}})
+        for step in range(4, 14):
+            state.apply({"type": "director_decision", "step": step, "tool": "continue_objective"})
+        state.apply({"type": "tool_result", "step": 3, "tool": "navigate_to", "result": {"status": "completed"}})
+        actions = state.snapshot(now=self.now)["actorActions"]
+        self.assertEqual(["Visit 3", "Visit 2"], [a["say"] for a in actions])
+        self.assertEqual("completed", actions[0]["outcome"])
+        state.apply({"type": "tool_result", "step": 14, "source": "operator_finish",
+                     "tool": "go_home_and_sleep", "result": {"status": "completed"}})
+        self.assertEqual("operator", state.snapshot(now=self.now)["actorActions"][0]["role"])
+        self.assertEqual([], OverlayState("new-run").snapshot(now=self.now)["actorActions"])
+
     def test_named_tools_have_short_human_summaries(self) -> None:
         self.assertEqual("Walking to Mountain", action_summary("travel_to", {"destination": "Mountain"}))
         self.assertEqual("Heading home to sleep", action_summary("go_home_and_sleep"))

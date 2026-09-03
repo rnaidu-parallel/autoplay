@@ -1,25 +1,38 @@
-# Stream overlay
+# Stream activity feed
 
-The overlay is a read-only companion process. It follows harness telemetry and state files. It does not launch or control Stardew Valley.
+The audience view shows the farmer's previous and latest action. Each entry contains a short public explanation,
+the tool with compact arguments, and its recorded outcome. The header shows when the actor is choosing an action,
+when the director is planning, and when the session is acting, stopped, or reconnecting.
 
-## Run the feed
+The page checks the local feed every 500 ms. A message appears after the model returns its decision. The outcome
+updates in place when the control finishes. Unchanged messages do not restart their animation. This is a live feed
+of public explanations, not token-by-token private reasoning. Full events remain on disk.
 
-From the repository root, run:
+Game statistics, agenda panels, duplicate speech panels, and the bottom ticker are removed from the audience view.
+The operator view retains guidance, Finish & Save, and Hold unsaved. It remains separate from the OBS browser source.
+
+## Start the feed
+
+Run this command from the repository root:
 
 ```powershell
-cd .\harness
-$env:PYTHONPATH = "."
-python -m autoplay_harness overlay --run latest --port 8765 --state-dir harness/state
+.\harness\run-harness.ps1 overlay --run latest --port 8765
 ```
 
-Replace `latest` with a run ID to replay and follow one run. The feed writes `harness/runs/<run-id>/overlay/state.json` and serves the overlay only on `http://127.0.0.1:8765/`.
+Open `http://127.0.0.1:8765/` for the audience view. Open `http://127.0.0.1:8765/?operator=1` for the controls.
+See [operator controls](operator-controls.md) for command behavior and save verification.
 
-## Add the browser source to OBS
+## OBS composition
 
-1. Add a **Browser** source to the game scene.
-2. Set the URL to `http://127.0.0.1:8765/`.
-3. Set the width to `1920` and the height to `1080`.
-4. Leave the browser background transparent.
-5. Place the browser source above the game capture source.
+The output canvas stays at 1920×1080. The complete 16:9 game frame occupies 1536×864 at x=0, y=108.
+The activity column occupies x=1536–1920 for the full height. The game is scaled, not cropped. Black space above
+and below the game preserves its aspect ratio. No feed element covers the farmer, game clock, or hotbar.
 
-The right column shows the game clock and resources, today's agenda, the active objective, the agent status, one recent lesson, and compact session totals. The Speech panel above the ticker shows the farmer's latest narration with the preceding line fading behind it. The bottom strip shows the five latest actor or director actions as three-line cards: narration, the tool and compact arguments, then its outcome. Director cards show the goal or milestone, and green outcomes completed, amber outcomes were blocked, and red outcomes were rejected or failed.
+Keep the audience Browser source at 1920×1080, above Game Capture. `broadcast/scene.cjs` applies both source
+settings and the game bounds. It requires a running game when rebuilding capture; it never starts a broadcast.
+
+## Preview and evidence
+
+The local replay at `harness/runs/integration-qa/stream-preview-lean/preview.html` combines archived Spring 18 video
+and its recorded decisions with this layout. It has play/seek and a disabled operator-view preview. It uses no model
+calls. Historical behavior does not demonstrate the latest gameplay fixes.

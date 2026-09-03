@@ -296,7 +296,7 @@ for _actor_tool in ACTOR_TOOLS:
     _parameters["properties"]["say"] = {
         "type": "string",
         "maxLength": 140,
-        "description": "One short first-person sentence, in character as the farmer, saying what you are doing or noticing right now for the audience; no tool names, coordinates, or brackets.",
+        "description": "One short public first-person sentence as the farmer: what you are doing or noticing and why now; no private deliberation, tool names, coordinates, or brackets.",
     }
     _parameters["required"].append("say")
 

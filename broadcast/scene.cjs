@@ -18,7 +18,7 @@ const {connect}=require('./obs-client.cjs');
   const items=(await obs.call('GetSceneItemList',{sceneName:'Autoplay'})).sceneItems;
   const gameId=items.find(item=>item.sourceName==='Game').sceneItemId;
   const overlayId=items.find(item=>item.sourceName==='Farmer overlay').sceneItemId;
-  await obs.call('SetSceneItemTransform',{sceneName:'Autoplay',sceneItemId:gameId,sceneItemTransform:{positionX:0,positionY:0,boundsType:'OBS_BOUNDS_SCALE_INNER',boundsWidth:1920,boundsHeight:1080}});
+  await obs.call('SetSceneItemTransform',{sceneName:'Autoplay',sceneItemId:gameId,sceneItemTransform:{positionX:0,positionY:108,boundsType:'OBS_BOUNDS_SCALE_INNER',boundsWidth:1536,boundsHeight:864}});
   await obs.call('SetSceneItemIndex',{sceneName:'Autoplay',sceneItemId:overlayId,sceneItemIndex:items.length-1});
   await obs.call('SetInputMute',{inputName:'Game audio',inputMuted:false});
   const scenes=(await obs.call('GetSceneList')).scenes;

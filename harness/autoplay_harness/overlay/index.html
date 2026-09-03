@@ -1,10 +1,9 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Autoplay stream overlay</title>
-  <style>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Autoplay activity feed</title><style>
+:root { color-scheme:dark; --panel:#141b21; --edge:#303b44; --text:#f4f1e9; --muted:#aeb9c3; --green:#a6d7b1; --amber:#e8ba78; --red:#ef9292; --blue:#9bcbdf; }
+* { box-sizing:border-box; }
+html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:transparent; color:var(--text); font:20px/1.5 "Segoe UI",sans-serif; }
     #operator { display:none; position:fixed; left:22px; top:22px; width:470px; padding:24px; border:1px solid var(--edge); border-radius:16px; background:var(--panel); z-index:5; }
     #operator h2 { margin:0 0 8px; font:600 24px "Segoe UI",sans-serif; }
     #operator p { font:16px/1.45 "Segoe UI",sans-serif; color:var(--muted); }
@@ -17,248 +16,33 @@
     #control-status { color:var(--green); text-transform:uppercase; font-size:14px; letter-spacing:.08em; }
     #control-receipt { overflow-wrap:anywhere; }
     #checkpoint { font-size:13px !important; overflow-wrap:anywhere; }
-    :root {
-      color-scheme: dark;
-      --panel: rgba(13, 17, 23, .88);
-      --edge: rgba(255, 255, 255, .14);
-      --text: #f7f3e8;
-      --muted: #b9c1ca;
-      --green: #77e083;
-      --amber: #ffd166;
-      --red: #ff7777;
-      --blue: #79c7ff;
-      --director: #d7a8ff;
-    }
 
-    * { box-sizing: border-box; }
-
-    html, body {
-      width: 1920px;
-      height: 1080px;
-      margin: 0;
-      overflow: hidden;
-      background: transparent;
-      color: var(--text);
-      font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
-      font-size: 20px;
-      line-height: 1.25;
-    }
-
-    .panel {
-      border: 2px solid var(--edge);
-      border-radius: 14px;
-      background: var(--panel);
-      box-shadow: 0 5px 20px rgba(0, 0, 0, .35);
-      backdrop-filter: blur(5px);
-    }
-
-    #rail {
-      position: absolute;
-      top: 22px;
-      right: 22px;
-      bottom: 170px;
-      width: 420px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    #day-card, #now-card, #lesson-card, #footer { padding: 15px 17px; }
-    #plan-card { padding: 15px 17px; min-height: 0; overflow: hidden; }
-    #lesson-card { padding-block: 11px; }
-
-    .eyebrow {
-      margin-bottom: 7px;
-      color: var(--amber);
-      font-size: 14px;
-      font-weight: 800;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-    }
-
-    .day-line {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    #day { font-size: 25px; font-weight: 900; text-transform: capitalize; }
-    #time { color: var(--amber); font-size: 30px; font-weight: 900; white-space: nowrap; }
-    #weather { margin-top: 4px; color: var(--muted); text-transform: capitalize; }
-
-    .meters {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px 12px;
-      align-items: center;
-      margin-top: 13px;
-      font-size: 16px;
-    }
-
-    .bar {
-      height: 13px;
-      overflow: hidden;
-      border: 1px solid rgba(255,255,255,.18);
-      border-radius: 7px;
-      background: rgba(255,255,255,.08);
-    }
-
-    .bar > span {
-      display: block;
-      width: 0;
-      height: 100%;
-      background: linear-gradient(90deg, #53bd62, #a7ee7c);
-      transition: width .35s ease;
-    }
-
-    #money { color: var(--amber); font-weight: 800; }
-
-    #plan-card { flex: 1 1 auto; }
-    #theme { margin-bottom: 10px; font-size: 18px; font-weight: 800; }
-    #theme, #goal, #milestone, .agenda-item > span:last-child {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      overflow: hidden;
-    }
-    #goal { -webkit-line-clamp: 3; }
-
-    #agenda {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .agenda-item {
-      display: grid;
-      grid-template-columns: 25px 1fr;
-      gap: 7px;
-      color: var(--muted);
-      font-size: 16px;
-    }
-
-    .agenda-item.active { color: var(--text); font-weight: 800; }
-    .agenda-item.done { color: var(--green); }
-    .agenda-item.dropped { color: var(--red); }
-    .agenda-icon { color: var(--amber); }
-
-    .now-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    #badge {
-      border: 1px solid currentColor;
-      border-radius: 999px;
-      padding: 4px 9px;
-      color: var(--green);
-      font-size: 14px;
-      font-weight: 900;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    #badge.thinking, #badge.acting { color: var(--blue); }
-    #badge.stalled, #badge.restarting { color: var(--amber); }
-    #badge.stopped { color: var(--red); }
-
-    #badge.thinking::after {
-      content: "";
-      display: inline-block;
-      width: 1.3em;
-      animation: dots 1.2s steps(4, end) infinite;
-    }
-
-    @keyframes dots {
-      0% { content: ""; }
-      25% { content: "."; }
-      50% { content: ".."; }
-      75%, 100% { content: "..."; }
-    }
-
-    #goal { margin-top: 7px; font-size: 19px; font-weight: 900; }
-    #milestone { margin-top: 6px; color: var(--muted); font-size: 15px; }
-    #thinking-line { margin-top: 7px; color: var(--blue); font-size: 15px; }
-    #lesson { color: var(--muted); font-size: 15px; }
-    #lesson::before { content: "✦ "; color: var(--amber); }
-
-    #footer {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    #ticker {
-      position: absolute;
-      right: 22px;
-      bottom: 18px;
-      left: 22px;
-      height: 140px;
-      padding: 13px 15px;
-    }
-
-    #speech-card {
-      flex: 0 0 auto;
-      min-height: 100px;
-      padding: 13px 17px;
-    }
-
-    #speech { font-family: Georgia, serif; font-size: 23px; font-style: italic; line-height: 1.2; }
-    #speech::before { content: "“"; color: var(--amber); }
-    #speech::after { content: "”"; color: var(--amber); }
-    #speech-previous { margin-top: 5px; color: var(--muted); font-family: Georgia, serif; font-size: 14px; opacity: .45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    #actions {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
-      height: 100%;
-    }
-
-    .action {
-      min-width: 0;
-      padding: 10px 12px;
-      overflow: hidden;
-      border-left: 5px solid var(--blue);
-      border-radius: 8px;
-      background: rgba(255,255,255,.055);
-    }
-
-    .action.completed { border-color: var(--green); }
-    .action.blocked { border-color: var(--amber); }
-    .action.rejected, .action.error, .action.timeout { border-color: var(--red); }
-    .action.director { border-color: var(--director); }
-    .action.completed .action-outcome { color: var(--green); }
-    .action.blocked .action-outcome { color: var(--amber); }
-    .action.rejected .action-outcome, .action.error .action-outcome, .action.timeout .action-outcome { color: var(--red); }
-    .action-say { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .action-tool { margin-top: 3px; color: var(--blue); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .action-outcome { margin-top: 3px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    #waiting {
-      position: absolute;
-      right: 42px;
-      bottom: 170px;
-      padding: 9px 12px;
-      color: var(--amber);
-      font-size: 15px;
-      opacity: 0;
-      transition: opacity .2s;
-    }
-
-    #waiting.visible { opacity: 1; }
-    .hidden { display: none !important; }
-  </style>
-</head>
-<body>
+#rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:32px 24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
+.eyebrow { color:var(--green); font-size:12px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
+h1 { margin:9px 0 18px; font-size:26px; font-weight:600; letter-spacing:-.03em; }
+#badge { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:14px; }
+#badge::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--green); }
+#badge.thinking::before { background:var(--blue); animation:pulse 1.6s ease-in-out infinite; }
+#badge.stalled::before,#badge.restarting::before { background:var(--amber); }
+#badge.stopped::before { background:var(--red); }
+@keyframes pulse { 50% { opacity:.3; } }
+#actions { display:flex; flex-direction:column; gap:32px; margin-top:48px; overflow:hidden; }
+.action { border-top:1px solid var(--edge); padding-top:20px; overflow-wrap:anywhere; }
+.action.previous { color:#b8c2ca; }
+.action-label { color:var(--muted); font-size:12px; letter-spacing:.09em; text-transform:uppercase; margin-bottom:10px; }
+.action.current .action-label { color:var(--green); }
+.action-say { font-size:21px; line-height:1.5; }
+.action.previous .action-say { font-size:18px; }
+.action-tool { margin-top:16px; color:var(--blue); font:13px/1.5 Consolas,monospace; }
+.action-outcome { margin-top:5px; color:var(--muted); font-size:13px; }
+.completed .action-outcome { color:var(--green); }
+.blocked .action-outcome { color:var(--amber); }
+.rejected .action-outcome,.error .action-outcome,.timeout .action-outcome { color:var(--red); }
+#empty { color:var(--muted); font-size:16px; margin-top:30px; }
+#waiting { margin-top:auto; padding-top:20px; color:var(--amber); font-size:13px; visibility:hidden; }
+#waiting.visible { visibility:visible; }
+.hidden { display:none!important; }
+</style></head><body>
   <section id="operator" aria-label="Operator controls">
     <h2>Farmer controls</h2>
     <div id="control-status" role="status">Connecting</div>
@@ -271,136 +55,57 @@
     <p id="control-receipt" aria-live="polite">Finish &amp; Save leaves chores, returns home, sleeps, verifies the save, then stops.</p>
     <p id="checkpoint"></p>
   </section>
-  <aside id="rail">
-    <section id="day-card" class="panel">
-      <div class="day-line"><span id="day">Waiting for game</span><span id="time">--:--</span></div>
-      <div id="weather">Feed is starting</div>
-      <div class="meters">
-        <span>Stamina</span><span id="stamina-text">—</span>
-        <div class="bar"><span id="stamina-bar"></span></div><span></span>
-        <span>Money</span><span id="money">—</span>
-      </div>
-    </section>
 
-    <section id="plan-card" class="panel">
-      <div class="eyebrow">Today's plan</div>
-      <div id="theme">No plan yet</div>
-      <ul id="agenda"></ul>
-    </section>
-
-    <section id="now-card" class="panel">
-      <div class="now-head"><div class="eyebrow">Now</div><span id="badge">running</span></div>
-      <div id="goal">Waiting for an objective</div>
-      <div id="milestone"></div>
-      <div id="thinking-line" class="hidden"></div>
-    </section>
-
-    <section id="lesson-card" class="panel hidden"><div class="eyebrow">Lesson</div><div id="lesson"></div></section>
-    <footer id="footer" class="panel"><span id="visited">Visited —</span><span id="decisions">0 decisions</span><span id="cost">$0.0000</span></footer>
-    <section id="speech-card" class="panel hidden"><div class="eyebrow">Speech</div><div id="speech"></div><div id="speech-previous"></div></section>
-  </aside>
-
-  <section id="ticker" class="panel"><div id="actions"></div></section>
-  <div id="waiting" class="panel visible">waiting for feed…</div>
-
-  <script>
-    const $ = id => document.getElementById(id);
-    const icons = {pending: "☐", active: "▶", done: "✔", carried: "↷", dropped: "✕"};
-    const text = (id, value, fallback = "—") => { $(id).textContent = value ?? fallback; };
-
-    function render(state) {
-      const game = state.game || {};
-      const agenda = state.agenda || {};
-      const stats = state.stats || {};
-      const world = state.world || {};
-      const objective = state.objective;
-      const thinking = state.thinking || {};
-
-      const dayBits = [];
-      if (game.season) dayBits.push(game.season);
-      if (game.day != null) dayBits.push(`Day ${game.day}`);
-      if (game.year != null) dayBits.push(`Year ${game.year}`);
-      text("day", dayBits.join(" · "), "Waiting for game");
-      text("time", game.time, "--:--");
-      text("weather", [game.weather, game.location].filter(Boolean).join(" · "), "Feed connected");
-      text("stamina-text", game.stamina == null ? null : `${Math.round(game.stamina)} / ${game.maxStamina || 270}`);
-      const stamina = game.stamina == null ? 0 : Math.max(0, Math.min(100, game.stamina / (game.maxStamina || 270) * 100));
-      $("stamina-bar").style.width = `${stamina}%`;
-      text("money", game.money == null ? null : `${Number(game.money).toLocaleString()}g`);
-
-      text("theme", agenda.theme, "No plan yet");
-      const agendaItems = agenda.items || [];
-      const activeIndex = agendaItems.findIndex(item => item.status === "active");
-      const pendingIndex = agendaItems.findIndex(item => ["pending", "carried"].includes(item.status));
-      const agendaStart = activeIndex >= 0 ? activeIndex : Math.max(0, pendingIndex);
-      $("agenda").replaceChildren(...agendaItems.slice(agendaStart).map(item => {
-        const li = document.createElement("li");
-        li.className = `agenda-item ${item.status || "pending"}`;
-        const icon = document.createElement("span");
-        icon.className = "agenda-icon";
-        icon.textContent = icons[item.status] || "☐";
-        const goal = document.createElement("span");
-        goal.textContent = item.goal || "Untitled plan item";
-        li.append(icon, goal);
-        return li;
-      }));
-
-      let badge = state.status || "running";
-      if (badge === "thinking") badge = `thinking ${Math.floor((thinking.sinceMs || 0) / 1000)}s`;
-      text("badge", badge);
-      $("badge").className = state.status || "running";
-      text("goal", objective && objective.goal, "Waiting for an objective");
-      text("milestone", objective && objective.milestone, "");
-      const thinkingLine = state.status === "thinking" && thinking.role ? `Thinking… ${thinking.role}` : "";
-      $("thinking-line").classList.toggle("hidden", !thinkingLine);
-      text("thinking-line", thinkingLine, "");
-
-      const lessons = state.lessons || [];
-      $("lesson-card").classList.toggle("hidden", !lessons.length);
-      text("lesson", lessons[0], "");
-      text("visited", `Visited ${world.visitedCount ?? 0}/${world.totalCount ?? "?"}`);
-      text("decisions", `${stats.decisions || 0} decisions`);
-      text("cost", `$${Number(stats.cost || 0).toFixed(4)}`);
-
-      const speech = state.speech || {};
-      const speechChanged = $("speech").textContent !== (speech.say || "");
-      $("speech-card").classList.toggle("hidden", !speech.say);
-      text("speech", speech.say, "");
-      text("speech-previous", speech.previous, "");
-      if (speechChanged && speech.say) {
-        $("speech").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450 });
-        $("speech-previous").animate([{ opacity: .8 }, { opacity: .3 }], { duration: 1800, fill: "forwards" });
+<aside id="rail" aria-label="Farmer activity">
+  <header><div class="eyebrow">The farmer</div><h1>Thinking aloud</h1><div id="badge">Waiting for the farmer</div></header>
+  <div id="actions" role="log" aria-live="polite"></div>
+  <div id="empty">The next action will appear here.</div>
+  <div id="waiting" class="visible" role="status">Waiting for the activity feed…</div>
+</aside>
+<script>
+const $ = id => document.getElementById(id);
+let renderedRun = null, previousKey = null;
+function render(state) {
+  const run = (state.session || {}).runId;
+  if (run !== renderedRun) { $('actions').replaceChildren(); previousKey = null; renderedRun = run; }
+  const status = state.status || 'running', thinking = state.thinking || {};
+  $('badge').className = status;
+  $('badge').textContent = status === 'thinking' ? `${thinking.role === 'director' ? 'Considering the plan' : 'Choosing the next action'} · ${Math.floor((thinking.sinceMs || 0) / 1000)}s` :
+    ({acting:'Acting',running:'Between actions',stalled:'Finding another way',restarting:'Reconnecting',stopped:'Session stopped'}[status] || status);
+  const items = (state.actorActions || (state.actions || []).filter(a => a.role !== 'director')).slice(0,2).reverse();
+  const keys = new Set();
+  items.forEach((item, index) => {
+    const key = JSON.stringify([item.at,item.tool,item.say,item.summary]); keys.add(key);
+    let card = Array.from($('actions').children).find(node => node.dataset.key === key);
+    const fresh = !card;
+    if (!card) {
+      card = document.createElement('article'); card.dataset.key = key;
+      for (const cls of ['action-label','action-say','action-tool','action-outcome']) {
+        const node = document.createElement('div'); node.className = cls; card.append(node);
       }
-
-      $("actions").replaceChildren(...(state.actions || []).slice(0, 5).map(item => {
-        const card = document.createElement("div");
-        const outcomeType = String(item.outcome || "").split(":", 1)[0];
-        card.className = `action ${outcomeType} ${item.role === "director" ? "director" : ""}`;
-        const say = document.createElement("div");
-        say.className = "action-say";
-        say.textContent = item.role === "director" ? item.summary : (item.say || item.summary || item.toolName || item.tool || "Action");
-        const tool = document.createElement("div");
-        tool.className = "action-tool";
-        tool.textContent = [item.toolName || item.tool, item.gist].filter(Boolean).join(" ");
-        const outcome = document.createElement("div");
-        outcome.className = "action-outcome";
-        outcome.textContent = item.outcome || `${item.role || "agent"} in progress`;
-        card.append(say, tool, outcome);
-        return card;
-      }));
-      $("waiting").classList.remove("visible");
+      $('actions').append(card);
     }
-
-    async function poll() {
-      try {
-        const response = await fetch(`/state.json?t=${Date.now()}`, {cache: "no-store"});
-        if (!response.ok) throw new Error(`feed ${response.status}`);
-        render(await response.json());
-      } catch (_) {
-        $("waiting").classList.add("visible");
-      }
-    }
-
+    const current = index === items.length - 1, outcome = String(item.outcome || '');
+    card.className = `action ${current ? 'current' : 'previous'} ${outcome.split(':',1)[0]}`;
+    const set = (selector, value) => { const node=card.querySelector(selector); if(node.textContent!==value)node.textContent=value; };
+    set('.action-label', current ? 'Latest action' : 'Previous action');
+    set('.action-say', item.say || item.summary || item.toolName || item.tool || 'Action');
+    set('.action-tool', [item.toolName || item.tool,item.gist].filter(Boolean).join(' · '));
+    set('.action-outcome', outcome || (status === 'stopped' ? 'No outcome recorded' : 'In progress'));
+    if (fresh && previousKey !== null) card.animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:220});
+  });
+  for (const node of Array.from($('actions').children)) if(!keys.has(node.dataset.key))node.remove();
+  previousKey = items.length ? items[items.length-1].at : null;
+  $('empty').classList.toggle('hidden',items.length>0);
+  $('waiting').classList.remove('visible');
+}
+async function poll() {
+  try {
+    const response = await fetch(`/state.json?t=${Date.now()}`, {cache:'no-store'});
+    if (!response.ok) throw new Error('Feed unavailable');
+    render(await response.json());
+  } catch (_) { $('waiting').classList.add('visible'); }
+}
     const operatorView = new URLSearchParams(location.search).get("operator") === "1";
     let controlRun = null;
     let queuedId = null;
@@ -443,8 +148,6 @@
       pollControl();
       setInterval(pollControl, 500);
     }
-    poll();
-    setInterval(poll, 500);
-  </script>
-</body>
-</html>
+
+poll(); setInterval(poll,500);
+</script></body></html>

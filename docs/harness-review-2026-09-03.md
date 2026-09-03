@@ -8,6 +8,13 @@ For exact runtime instructions and function schemas, open the companion [prompt 
 
 ## 1. The whole system
 
+Latest additions: the audience feed now keeps only previous/latest actions and public explanations beside a scaled,
+uncropped game frame. It refreshes on completed decisions and tool outcomes; it does not stream private reasoning.
+Shared farmer instructions explicitly cover earning income, retaining useful reserves, replenishing supplies, and
+choosing useful crafts/upgrades. The director reviews needs against cash and inventory and requires observed
+economic milestones. Existing visual/menu controls handle these activities; end-to-end economic behavior remains
+unproven. See [overlay details](E:/Claude/autoplay/docs/overlay.md).
+
 ```mermaid
 flowchart TD
     Launch[PowerShell launcher and CLI] --> Harness[Python harness: lifecycle and rules]

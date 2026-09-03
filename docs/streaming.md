@@ -8,8 +8,8 @@ This replaces the earlier six-hour and two-test-stream proposal. No public broad
 
 | Item | Status |
 | --- | --- |
-| Audience overlay and operator controls | Implemented; last two narration lines now survive director-only updates. |
-| OBS composition | Verified at 1920×1080: game capture, audience overlay, game-process audio. Cursor capture disabled. |
+| Audience overlay and operator controls | Lean activity column: previous/latest actor action, public rationale, tool and outcome. Private operator controls remain separate. |
+| OBS composition | 1920×1080 output; full game scaled to 1536×864 beside a 384-pixel activity column. Revised layout checked in archived-video browser replay; prior OBS audio/capture proof below predates this layout. |
 | Local recording | Verified: H.264 High, 1080p30, stereo AAC 48 kHz; 11.93 seconds with audible game music. |
 | Three simultaneous outputs | Verified against three local RTMP receivers for 14.9 seconds; one shared encoder. Actual platform ingest remains untested. |
 | Twitch, Kick, YouTube connections | Empty local fields; connect each channel before the rehearsal. |

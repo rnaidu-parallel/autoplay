@@ -131,6 +131,7 @@ class OverlayState:
         self.world_data: dict[str, Any] = {}
         self.world_summary: dict[str, Any] = {}
         self.actions: list[dict[str, Any]] = []
+        self.actor_actions: list[dict[str, Any]] = []
         self.sayings: list[str] = []
         self.pending_requests: dict[str, datetime] = {}
         self.pending_action: tuple[Any, str] | None = None
@@ -190,6 +191,8 @@ class OverlayState:
                 self.actions.insert(0, action)
                 del self.actions[8:]
                 if role == "actor":
+                    self.actor_actions.insert(0, action)
+                    del self.actor_actions[2:]
                     if action["say"]:
                         self.sayings.insert(0, action["say"])
                         del self.sayings[2:]
@@ -201,16 +204,18 @@ class OverlayState:
                                        "toolName": "Return home and save", "say": None, "summary": "Finish & Save",
                                        "gist": "", "outcome": action_outcome(result), "_step": event.get("step")})
                 del self.actions[8:]
+                self.actor_actions.insert(0, self.actions[0])
+                del self.actor_actions[2:]
             if event.get("tool") == "world_map" and isinstance(result, dict) and isinstance(result.get("summary"), dict):
                 self.world_summary = result["summary"]
-            for action in self.actions:
+            for action in self.actions + self.actor_actions:
                 if action["_step"] == event.get("step") and action["tool"] == event.get("tool"):
                     action["outcome"] = action_outcome(event.get("result"))
                     break
             if self.pending_action == (event.get("step"), event.get("tool")):
                 self.pending_action = None
         elif event_type == "operator_discarded_decision":
-            for action in self.actions:
+            for action in self.actions + self.actor_actions:
                 if action["_step"] == event.get("step") and action["tool"] == event.get("tool"):
                     action["outcome"] = "Discarded: operator direction received"
             self.pending_action = None
@@ -306,6 +311,7 @@ class OverlayState:
         uptime = max(0, int((end - self.started_at).total_seconds())) if self.started_at else 0
         prompt = self.prompt_tokens
         actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
+        actor_actions = [{key: item[key] for key in ("at", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actor_actions]
         sayings = self.sayings
         return {
             "status": status,
@@ -327,6 +333,7 @@ class OverlayState:
             "thinking": {"role": thinking_role, "sinceMs": thinking_since},
             "speech": {"say": sayings[0] if sayings else None, "previous": sayings[1] if len(sayings) > 1 else None},
             "actions": actions,
+            "actorActions": actor_actions,
             "world": {
                 "here": self.game.get("location") or self.world_data.get("last_location"),
                 "visitedCount": len(visited) if isinstance(visited, dict) else 0,

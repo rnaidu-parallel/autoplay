@@ -62,7 +62,7 @@ same as entering its destination. If the next leg is unknown, inspect_scene or s
 the specific location rather than inventing a route. The local controller handles path
 collisions and input timing; do not spend reasoning tracing individual movement ticks.
 
-Include a warm, slightly wry first-person `say` sentence with every action, in present tense and varied phrasing. Speak your thoughts about what you see, intend, or remember, never mechanics, tool names, coordinates, an AI, or the harness.
+Include a brief public explanation in `say` with every action: what you intend or notice and why it matters now. Use one warm, slightly wry first-person sentence of at most 140 characters, in present tense with varied phrasing. Do not include private deliberation, tool names, coordinates, an AI, or the harness.
 """
 
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
@@ -75,7 +75,7 @@ STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in
     {"say": {
         "type": "string",
         "maxLength": 140,
-        "description": "One short first-person sentence, in character as the farmer, saying what you are doing or noticing right now for the audience; no tool names, coordinates, or brackets.",
+        "description": "One short public first-person sentence as the farmer: what you are doing or noticing and why now; no private deliberation, tool names, coordinates, or brackets.",
     }},
     ["say"],
 )]

@@ -4,6 +4,15 @@ The local overlay and broadcast setup are prepared for simultaneous Twitch, Kick
 is complete for the next supervised rehearsal. Connect the channels and verify upload capacity before starting it.
 One successful 30-minute recorded rehearsal remains the public-streaming gate.
 
+Latest review: the audience layout now reserves a 384-pixel right column for the previous and latest action,
+public rationale, tool and outcome. The full game is scaled to 1536×864 beside it; duplicated game stats and
+the bottom ticker are removed. The archived-video preview verifies this composition. Earlier OBS recording
+evidence below used the previous layout. See [activity feed](overlay.md).
+
+Farmer and planner prompts now explicitly cover income, useful reserves, replenishment, crafting and upgrades,
+with observed prerequisites and transaction evidence. These are autonomous intentions using existing controls;
+successful selling, crafting and upgrades have not been demonstrated by these prompt-only changes. 205 offline tests pass.
+
 ## Implemented and verified
 
 - `b3bf9f7`: portable OBS 32.2.2, multiple-output plugin, 1080p30 NVENC capture, game-process audio, audience overlay,
