@@ -1,6 +1,6 @@
 # Autoplay: implementation review
 
-Source snapshot: `ad203b1`, 3 September 2026. Farmer autonomy, overlay operator commands, checkpoint/resume, history search, entrance-aware routing and new-work validation are implemented. See [current readiness](E:/Claude/autoplay/docs/readiness-2026-09-03.md) and [operator controls](E:/Claude/autoplay/docs/operator-controls.md). Model calls were disabled in the targeted live checks.
+Source snapshot: `c6e094c`, 3 September 2026. Farmer autonomy, overlay operator commands, checkpoint/resume, history search, entrance-aware routing and new-work validation are implemented. See [current readiness](E:/Claude/autoplay/docs/readiness-2026-09-03.md) and [operator controls](E:/Claude/autoplay/docs/operator-controls.md). Model calls were disabled in the targeted live checks.
 
 **Current assessment:** the harness and local broadcast setup are prepared for a supervised rehearsal. South-entrance return/save, checkpoint reload, dialogue selection, and short OBS audio/video checks passed. Channel connections, upload verification, and one clean 30-minute autonomous recording remain before public streaming.
 
@@ -49,13 +49,13 @@ The model does not receive shell access, arbitrary Python, save-editing commands
 
 | Area | Current state |
 | --- | --- |
-| Runtime revision | `ad203b1` route/work/dialogue/retried-save fixes; `b3bf9f7` OBS and durable narration; earlier operator runtime `45526a3` |
+| Runtime revision | `c6e094c` lean feed/livelihood; `ad203b1` route/work/dialogue/retried-save fixes; `b3bf9f7` OBS and durable narration; earlier operator runtime `45526a3` |
 | Processes | Game, recorder, overlay and owned helpers stopped after the earlier checks |
 | Last verified game save | Spring 21, 06:00; south-entrance return/save and checkpoint reload verified; cat Dudley adopted during manual setup |
 | Persistent harness notebook | Days 17 and 18; 16 lessons, 6 learned facts, 0 weekly summaries, **0 interaction memories** |
 | Objective ledger | No active objective; 59 historical objectives, 74 progress entries, 1 opportunity |
 | World memory | Last observation FarmHouse, day 21; 8 visited names; entrance-scoped daily blocks expired after saving |
-| Tests | 204 passing offline Python tests; targeted route/save/reload/dialogue checks made zero model calls |
+| Tests | 205 passing offline Python tests; targeted route/save/reload/dialogue checks made zero model calls |
 | Live validation | Four rehearsal attempts; none passed the 30-minute gate |
 
 The game and harness remain separate persistence systems. Their current paired checkpoint is `6394d027d2db4de480309f852d5668c6`. The notebook retains its earlier days; next-session planning starts a new day from the observed date. If no objective was interrupted, normal planning chooses the next goal. Retried save requests retain the original interrupted intent without nesting save-only goals.
@@ -127,7 +127,7 @@ The actual prompt assembly is:
 
 The full reference includes controls, tool selection, crops, pathfinding, door hours, bedtime, resource preservation, screenshots, title recovery and normal game mechanics. These details currently remain in the director prompt even though the director cannot operate those controls.
 
-The actor must choose exactly one tool. Every actor tool requires `say`, a first-person, present-tense line of at most 140 characters. The line should describe an observation or intention without tool names, coordinates, or being an AI. This is public narration generated with the action; it is not a transcript of private reasoning. There is no separate narrator model or text-to-speech engine.
+The actor must choose exactly one tool. Every actor tool requires `say`, a first-person, present-tense line of at most 140 characters. The line should briefly explain what the farmer intends or notices and why now, without tool names, coordinates, or being an AI. This is public narration generated with the action; it is not a transcript of private reasoning. There is no separate narrator model or text-to-speech engine.
 
 The agenda is now a revisable intention. The farmer chooses when to interrupt or resume it and weighs responsibilities, dislikes, health, energy and safe return itself. Preference strength and revision are also autonomous: no forced tentative stage or encounter-count threshold exists. Structured success conditions, honest outcomes and failed-target retry limits still apply. Enjoyment and curiosity influence model choice through text; no numerical curiosity drive or mood system exists.
 
@@ -179,9 +179,9 @@ Measured from the current source using the same character estimator:
 
 | Default role request | System characters | Tool-schema characters | Estimated fixed text tokens, before context/image |
 | --- | ---: | ---: | ---: |
-| State actor, 16 tools | 7,799 | 12,002 | 5,657.4 |
-| Visual actor, 27 tools | 13,803 | 20,047 | 9,671.4 |
-| Director, 7 tools | 16,659 | 4,106 | 5,932.9 |
+| State actor, 16 tools | 9,321 | 11,890 | 6,060.3 |
+| Visual actor, 27 tools | 15,312 | 19,858 | 10,048.6 |
+| Director, 7 tools | 19,023 | 4,106 | 6,608.3 |
 
 These are source-size estimates, not billed counts. The former rehearsal's measured token totals predate the latest persona addition, so they are historical evidence rather than a measurement of today's prompts.
 
@@ -408,9 +408,9 @@ The `--forever` wrapper persists a daily cost ledger, waits until local midnight
 
 ## 15. Narration, overlay and recording
 
-The local overlay server binds to `127.0.0.1`, default port 8765. The transparent 1920×1080 page shows objective, agenda, game status, cost/cache statistics, speech and action trace. `/?operator=1` adds Finish & Save, guidance, Hold unsaved, command receipts and checkpoint status. POST commands require the local origin and current run ID.
+The local overlay server binds to `127.0.0.1`, default port 8765. Its 1920×1080 page reserves a 384-pixel column for the previous/latest actor action, public explanation, tool and outcome. The OBS game frame is scaled to 1536×864 at x=0, y=108, preserving the full HUD. Duplicate statistics and agenda panels are removed from the audience view. `/?operator=1` adds Finish & Save, guidance, Hold unsaved, command receipts and checkpoint status. POST commands require the local origin and current run ID.
 
-`say` is available only after the action-selection response arrives. There is a thinking indicator, but no streaming narration while the actor is thinking. The recent action list holds 8 entries. The overlay now retains the last two applied actor lines separately, so director-only events cannot evict the last narration. A new run clears them. This fixes the speech loss observed during the stalled rehearsal.
+`say` is available only after the action-selection response arrives. The page checks for updates every 500 ms and shows a thinking indicator during requests. It does not stream private reasoning or simulate typing. The general event list holds 8 entries; two actor/operator actions and their outcomes are retained separately so director reviews cannot evict them. A new run clears them. Outcome updates preserve the displayed message instead of replaying its animation.
 
 Provider-returned content/reasoning can be logged, truncated to 2,000 characters, but the audience narration is the explicit `say` field. The overlay is not evidence that a narrated intention succeeded; the action result is separate.
 
