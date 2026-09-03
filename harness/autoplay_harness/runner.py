@@ -52,9 +52,13 @@ class AutoplayHarness:
         isolated_state: bool = False,
         actor_mode: str = "state-first",
         budget_usd: float | None = None,
+        max_minutes: int | None = None,
+        forever: bool = False,
     ) -> None:
         if max_actions < 1 or max_decisions < 1 or director_interval < 1:
             raise HarnessError("max_actions, max_decisions, and director_interval must be positive.")
+        if max_minutes is not None and max_minutes < 1:
+            raise HarnessError("max_minutes must be positive.")
         self.repository_root = repository_root
         self.run_id = str(uuid.uuid4())
         self.run_directory = repository_root / "harness" / "runs" / self.run_id
@@ -83,6 +87,8 @@ class AutoplayHarness:
         self.last_result: dict[str, Any] | None = None
         self.director_feedback: str | None = None
         self.budget_usd = budget_usd
+        self.max_minutes = max_minutes
+        self.forever = forever
         self.director_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="director")
         self.director_future: Future | None = None
         self.director_snapshot: str | None = None
@@ -122,6 +128,7 @@ class AutoplayHarness:
         )
 
     def run(self) -> str:
+        started_at = time.monotonic()
         self.bridge = self.supervisor.connect_bridge()
         self.telemetry.record(
             "session_started",
@@ -144,6 +151,9 @@ class AutoplayHarness:
             self._ensure_world_loaded()
             consecutive_errors = 0
             while not self.stop_reason and (self.continuous or (self.game_actions < self.max_actions and self.decisions < self.max_decisions)):
+                if self.max_minutes is not None and time.monotonic() - started_at >= self.max_minutes * 60:
+                    self.stop_reason = "time_limit_reached"
+                    break
                 try:
                     state, frame = self._observe()
                     self._plan_day_if_needed(state, frame)
@@ -172,6 +182,10 @@ class AutoplayHarness:
                     self._restart_recorder_if_needed()
                     self._actor_step()
                     consecutive_errors = 0
+                    if (self.max_minutes is not None
+                            and time.monotonic() - started_at >= self.max_minutes * 60
+                            and self.stop_reason in {None, "max_actions_reached", "max_decisions_reached"}):
+                        self.stop_reason = "time_limit_reached"
                 except (BridgeError, CaptureError, OpenRouterError, ObjectiveError, KeyError, TypeError, ValueError) as error:
                     consecutive_errors += 1
                     self.telemetry.record(
@@ -188,7 +202,28 @@ class AutoplayHarness:
                         self.stop_reason = f"recovery_exhausted:{type(error).__name__}"
                         break
                     self._recover(error)
-                    time.sleep(min(2 ** (consecutive_errors - 1), 30))
+                    delay = min(2 ** (consecutive_errors - 1), 30)
+                    if self.max_minutes is not None:
+                        remaining = (self.max_minutes * 60) - (time.monotonic() - started_at)
+                        if remaining <= 0:
+                            self.stop_reason = "time_limit_reached"
+                            break
+                        delay = min(delay, remaining)
+                    time.sleep(delay)
+                except Exception as error:
+                    self.telemetry.record(
+                        "fatal_error",
+                        {
+                            "error_type": type(error).__name__,
+                            "message": str(error),
+                            "traceback": traceback.format_exc(),
+                        },
+                        include_recent=False,
+                    )
+                    raise
+            if (not self.stop_reason and self.max_minutes is not None
+                    and time.monotonic() - started_at >= self.max_minutes * 60):
+                self.stop_reason = "time_limit_reached"
             if not self.stop_reason and not self.continuous:
                 self.stop_reason = "max_decisions_reached" if self.decisions >= self.max_decisions else "max_actions_reached"
             self.telemetry.record("session_stopped", {"reason": self.stop_reason})
@@ -196,7 +231,10 @@ class AutoplayHarness:
             return self.stop_reason
         finally:
             if self.recorder is not None:
-                self.recorder.stop()
+                try:
+                    self.recorder.stop()
+                except Exception:
+                    pass
             if self.bridge is not None:
                 if self.keep_game_open:
                     try:
@@ -213,16 +251,37 @@ class AutoplayHarness:
                         self.bridge.request("stop")
                     except Exception:
                         pass
-                self.bridge.close()
-            self.capture.release()
-            if self.keep_game_open:
-                self.supervisor.wait_for_started_game()
-            else:
-                self.supervisor.stop_started_game()
-            self.client.cancelled.set()
-            self.director_executor.shutdown(wait=True, cancel_futures=True)
-            self._finish_director_review(apply=False)
-            self.telemetry.save_summary()
+                try:
+                    self.bridge.close()
+                except Exception:
+                    pass
+            try:
+                self.capture.release()
+            except Exception:
+                pass
+            try:
+                if self.keep_game_open:
+                    self.supervisor.wait_for_started_game()
+                else:
+                    self.supervisor.stop_started_game()
+            except Exception:
+                pass
+            try:
+                self.client.cancelled.set()
+            except Exception:
+                pass
+            try:
+                self.director_executor.shutdown(wait=True, cancel_futures=True)
+            except Exception:
+                pass
+            try:
+                self._finish_director_review(apply=False)
+            except Exception:
+                pass
+            try:
+                self.telemetry.save_summary()
+            except Exception:
+                pass
 
     def _ensure_world_loaded(self) -> None:
         assert self.bridge is not None
@@ -997,6 +1056,13 @@ class AutoplayHarness:
             self.latest_wiki_results = self.wiki.search(arguments["query"])
             return {"status": "completed", "results": self.latest_wiki_results}
         elif name == "stop_session":
+            if getattr(self, "forever", False):
+                reason = arguments["reason"]
+                if "unsafe" in reason.lower() or "unrecoverable" in reason.lower():
+                    self.stop_reason = reason
+                    return {"status": "stopped", "reason": self.stop_reason}
+                self.telemetry.record("stop_not_allowed_in_forever_mode", {"reason": reason})
+                return {"status": "rejected", "reason": "stop_not_allowed_in_forever_mode"}
             if self.continuous:
                 self.last_director_action_count = self.game_actions - self.director_interval
                 return {"status": "review_requested", "reason": arguments["reason"]}

@@ -36,6 +36,100 @@ class RunnerTests(unittest.TestCase):
     @patch("autoplay_harness.runner.time.sleep")
     @patch("autoplay_harness.runner.ScreenCapture")
     @patch("autoplay_harness.runner.GameSupervisor")
+    def test_finally_continues_when_cleanup_steps_raise(self, supervisor, capture, _sleep):
+        bridge = supervisor.return_value.connect_bridge.return_value
+        bridge.request.return_value = {"status": "completed"}
+        bridge.close.side_effect = RuntimeError("close failed")
+        capture.return_value.release.side_effect = RuntimeError("capture failed")
+        with tempfile.TemporaryDirectory() as directory:
+            harness = AutoplayHarness(
+                Path(directory), "Plant five", "plantedCrops >= 5",
+                OpenRouterClient.QWEN_MODEL, "secret", continuous=True, isolated_state=True,
+            )
+            harness._observe = Mock(side_effect=[({}, self.frame), RuntimeError("unexpected")])
+            harness._ensure_world_loaded = Mock()
+            harness.recorder = Mock()
+            harness.recorder.stop.side_effect = RuntimeError("recorder failed")
+            harness.telemetry = Mock(summary={"usage": {"cost": 0}})
+            harness.client.cancelled = Mock()
+            harness.director_executor = Mock()
+            harness._finish_director_review = Mock(side_effect=RuntimeError("director failed"))
+
+            with self.assertRaisesRegex(RuntimeError, "unexpected"):
+                harness.run()
+
+            harness.recorder.stop.assert_called_once_with()
+            bridge.close.assert_called_once_with()
+            capture.return_value.release.assert_called_once_with()
+            supervisor.return_value.stop_started_game.assert_called_once_with()
+            harness.client.cancelled.set.assert_called_once_with()
+            harness.director_executor.shutdown.assert_called_once_with(wait=True, cancel_futures=True)
+            harness.telemetry.save_summary.assert_called_once_with()
+
+    @patch("autoplay_harness.runner.time.sleep")
+    @patch("autoplay_harness.runner.ScreenCapture")
+    @patch("autoplay_harness.runner.GameSupervisor")
+    def test_unexpected_loop_exception_records_fatal_error(self, supervisor, _capture, _sleep):
+        supervisor.return_value.connect_bridge.return_value.request.return_value = {"status": "completed"}
+        with tempfile.TemporaryDirectory() as directory:
+            harness = AutoplayHarness(
+                Path(directory), "Plant five", "plantedCrops >= 5",
+                OpenRouterClient.QWEN_MODEL, "secret", continuous=True, isolated_state=True,
+            )
+            harness._observe = Mock(side_effect=[({}, self.frame), RuntimeError("unexpected")])
+            harness._ensure_world_loaded = Mock()
+
+            with self.assertRaisesRegex(RuntimeError, "unexpected"):
+                harness.run()
+
+            events = harness.telemetry.events_path.read_text(encoding="utf-8")
+            self.assertIn('"type":"fatal_error"', events)
+            self.assertIn('"error_type":"RuntimeError"', events)
+            self.assertIn("unexpected", events)
+
+    @patch("autoplay_harness.runner.time.sleep")
+    @patch("autoplay_harness.runner.ScreenCapture")
+    @patch("autoplay_harness.runner.GameSupervisor")
+    def test_max_minutes_stops_bounded_and_continuous_runs(self, supervisor, _capture, _sleep):
+        supervisor.return_value.connect_bridge.return_value.request.return_value = {"status": "completed"}
+        for continuous in (False, True):
+            with self.subTest(continuous=continuous), tempfile.TemporaryDirectory() as directory:
+                harness = AutoplayHarness(
+                    Path(directory), "Plant five", "plantedCrops >= 5",
+                    OpenRouterClient.QWEN_MODEL, "secret", continuous=continuous,
+                    isolated_state=True, max_minutes=1,
+                )
+                harness._observe = Mock(return_value=({}, self.frame))
+                harness._ensure_world_loaded = Mock()
+                with patch("autoplay_harness.runner.time.monotonic", side_effect=[0, 61]):
+                    self.assertEqual("time_limit_reached", harness.run())
+                self.assertEqual(0, harness.decisions)
+
+    def test_forever_stop_tool_rejects_routine_reason_and_honors_unsafe_reason(self) -> None:
+        harness = object.__new__(AutoplayHarness)
+        harness.forever = True
+        harness.bridge = _Bridge()
+        harness.stop_reason = None
+        harness.telemetry = Mock()
+
+        rejected = harness._execute_actor_tool(
+            ToolDecision("stop_session", {"reason": "Objective finished"}, {}, None), self.frame
+        )
+        self.assertEqual({"status": "rejected", "reason": "stop_not_allowed_in_forever_mode"}, rejected)
+        self.assertIsNone(harness.stop_reason)
+        harness.telemetry.record.assert_called_once_with(
+            "stop_not_allowed_in_forever_mode", {"reason": "Objective finished"}
+        )
+
+        stopped = harness._execute_actor_tool(
+            ToolDecision("stop_session", {"reason": "Unsafe state is unrecoverable"}, {}, None), self.frame
+        )
+        self.assertEqual("stopped", stopped["status"])
+        self.assertEqual("Unsafe state is unrecoverable", harness.stop_reason)
+
+    @patch("autoplay_harness.runner.time.sleep")
+    @patch("autoplay_harness.runner.ScreenCapture")
+    @patch("autoplay_harness.runner.GameSupervisor")
     def test_run_stops_at_call_cap_even_when_every_actor_request_fails(self, supervisor, _capture, _sleep):
         supervisor.return_value.connect_bridge.return_value.request.return_value = {"status": "completed"}
         with tempfile.TemporaryDirectory() as directory:

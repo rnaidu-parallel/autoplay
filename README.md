@@ -22,6 +22,7 @@ The harness has completed a continuous full-screen run with MiniMax M3's free Op
 - A Stardew Valley Wiki search tool with in-memory result caching.
 - Stable OpenRouter system prompts, tool definitions, and a sticky `session_id` for prompt-cache affinity.
 - Deterministic first-save loading, full-screen simulation ownership, recoverable continuous mode, and segmented 1080p recording.
+- An outer `--forever` supervisor with daily cost accounting, clean stop-file control, restart status, and per-run wall-clock limits.
 
 See [docs/harness.md](docs/harness.md) for the architecture and operating procedure. See [docs/control-surface.md](docs/control-surface.md) for runtime control evidence.
 

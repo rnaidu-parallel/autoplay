@@ -126,6 +126,27 @@ The defaults are 10 actions and 15 actor decisions. Director reviews add model c
 
 `--continuous` ignores both caps, applies bounded retry/backoff to transient failures, and keeps the loop running. `--record-video` starts 30 FPS, 1920-by-1080 H.264 capture only after a world is loaded. It captures through the Desktop Duplication API (FFmpeg `ddagrab`), which stays live in full-screen game modes where `gdigrab` froze, and encodes with `h264_nvenc`; if NVENC does not initialize, the recorder retries once with `libx264 -preset ultrafast`. Run `python -m autoplay_harness record-test --seconds 5` to record a short desktop clip and confirm the frame count and that the frames are not stale. `--video-segment-minutes` controls segment length. `--video-retention-segments` defaults to a six-file rolling buffer; `0` explicitly retains the complete raw VOD. Static pauses can be removed from a copy with FFmpeg `mpdecimate`. `--save-frames` remains an opt-in diagnostic mode and should not be used for routine continuous play.
 
+`--max-minutes` sets a wall-clock limit for bounded and continuous runs. The run stops cleanly with `time_limit_reached` when the limit is reached.
+
+## Running forever
+
+Use `--forever` to run each session under an outer restart supervisor. The objective arguments are optional. If the persistent ledger has no active objective, the first run starts with `Step outside to start the day.` and the success condition `location is Farm`.
+
+```powershell
+.\harness\run-harness.ps1 run `
+  --forever `
+  --continuous `
+  --max-minutes 180 `
+  --budget-usd 5 `
+  --record-video
+```
+
+The supervisor starts a fresh harness and run ID after `stalled`, `recovery_exhausted:*`, `time_limit_reached`, other session-stop reasons, or an uncaught exception. `--max-minutes` applies to each inner run. The persistent objective ledger, notebook, world state, and daily cost ledger remain in `harness/state/` across restarts. A model `stop_session` request is rejected in forever mode unless its reason contains `unsafe` or `unrecoverable`.
+
+In forever mode, `--budget-usd` is a daily local-time budget. Each inner run receives only the unspent balance. When the daily budget is reached, the supervisor records `sleeping_budget`, waits until local midnight, resets the ledger for the new date, and continues. A non-supervised run still stops at `budget_reached`.
+
+Create `harness/state/STOP` to stop the supervisor cleanly. Remove the file before the next forever start. The current state is in `harness/state/forever_status.json`, cumulative daily usage is in `harness/state/cost_ledger.json`, and exception tracebacks are appended to `harness/state/forever.log`. During a restart, the previous run temporarily contains `harness/runs/<run-id>/overlay/restarting`. The supervisor does not restart after `stop_requested`; a daily `budget_reached` sleeps until midnight instead of immediately restarting.
+
 ## Local setup
 
 1. Close Stardew Valley.

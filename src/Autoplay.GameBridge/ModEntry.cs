@@ -100,6 +100,9 @@ public sealed class ModEntry : Mod
     private int worldMapVersion;
     private BridgeFarmLayout? farmLayoutCache;
     private int farmLayoutCacheDay = -1;
+    private readonly Dictionary<string, DateTime> bridgeErrorLogTimes = new();
+    private readonly object bridgeErrorLock = new();
+    private int bridgeErrors;
 
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
@@ -108,7 +111,7 @@ public sealed class ModEntry : Mod
     public override void Entry(IModHelper helper)
     {
         this.helper = helper;
-        this.pipeServer = new BridgePipeServer();
+        this.pipeServer = new BridgePipeServer(this.RecordBridgeError);
         this.pipeServer.Start();
         this.Monitor.Log("Autoplay deterministic bridge loaded.", LogLevel.Info);
         this.Monitor.Log($"Autoplay harness pipe ready name={BridgePipeServer.PipeName}", LogLevel.Info);
@@ -137,15 +140,29 @@ public sealed class ModEntry : Mod
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
-        this.worldMapCache = null;
-        this.farmLayoutCache = null;
-        this.farmLayoutCacheDay = -1;
-        this.LogState("save_loaded");
+        try
+        {
+            this.worldMapCache = null;
+            this.farmLayoutCache = null;
+            this.farmLayoutCacheDay = -1;
+            this.LogState("save_loaded");
+        }
+        catch (Exception error)
+        {
+            this.HandleBridgeException(error);
+        }
     }
 
     private void OnSaved(object? sender, SavedEventArgs e)
     {
-        this.saveCount++;
+        try
+        {
+            this.saveCount++;
+        }
+        catch (Exception error)
+        {
+            this.HandleBridgeException(error);
+        }
     }
 
     private void OnCommand(string command, string[] args)
@@ -888,6 +905,18 @@ public sealed class ModEntry : Mod
 
     private void OnUpdateTicking(object? sender, UpdateTickingEventArgs e)
     {
+        try
+        {
+            this.UpdateTicking();
+        }
+        catch (Exception error)
+        {
+            this.HandleBridgeException(error);
+        }
+    }
+
+    private void UpdateTicking()
+    {
         this.StartNextPipeRequest();
 
         if (this.pendingMenuLeftRelease)
@@ -1060,6 +1089,18 @@ public sealed class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
+        try
+        {
+            this.UpdateTicked();
+        }
+        catch (Exception error)
+        {
+            this.HandleBridgeException(error);
+        }
+    }
+
+    private void UpdateTicked()
+    {
         if (this.waitCondition is not null)
         {
             if (this.waitCondition())
@@ -1209,6 +1250,18 @@ public sealed class ModEntry : Mod
 
     private void StartNextPipeRequest()
     {
+        try
+        {
+            this.DispatchNextPipeRequest();
+        }
+        catch (Exception error)
+        {
+            this.HandleBridgeException(error);
+        }
+    }
+
+    private void DispatchNextPipeRequest()
+    {
         if (this.activePipeRequest is not null || this.IsOperationBusy())
             return;
 
@@ -1342,7 +1395,6 @@ public sealed class ModEntry : Mod
             return;
 
         BridgeRequestEnvelope request = this.activePipeRequest;
-        this.activePipeRequest = null;
         if (pauseAfter)
             this.PauseSimulation();
         request.Completion.TrySetResult(new BridgeResponse
@@ -1353,6 +1405,92 @@ public sealed class ModEntry : Mod
             Reason = reason,
             State = this.CaptureState()
         });
+        this.activePipeRequest = null;
+    }
+
+    private void HandleBridgeException(Exception error)
+    {
+        this.RecordBridgeError(error);
+        try
+        {
+            this.StopOperation("bridge_exception");
+        }
+        catch (Exception)
+        {
+            try
+            {
+                this.ClearNavigation();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        try
+        {
+            this.RestoreSimulationPause();
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            this.RestorePauseWhenOutOfFocus();
+        }
+        catch (Exception)
+        {
+        }
+
+        BridgeRequestEnvelope? request = this.activePipeRequest;
+        this.activePipeRequest = null;
+        if (request is null)
+            return;
+
+        GameStateSnapshot? state = null;
+        try
+        {
+            state = this.CaptureState();
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            request.Completion.TrySetResult(new BridgeResponse
+            {
+                Id = request.Request.Id,
+                Status = "error",
+                Reason = $"bridge_exception:{error.GetType().Name}",
+                State = state
+            });
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    private void RecordBridgeError(Exception error)
+    {
+        Interlocked.Increment(ref this.bridgeErrors);
+        try
+        {
+            string message = string.IsNullOrWhiteSpace(error.Message) ? error.GetType().Name : error.Message;
+            DateTime now = DateTime.UtcNow;
+            lock (this.bridgeErrorLock)
+            {
+                if (!this.bridgeErrorLogTimes.TryGetValue(message, out DateTime lastLogged)
+                    || now - lastLogged >= TimeSpan.FromMinutes(1))
+                {
+                    this.bridgeErrorLogTimes[message] = now;
+                    this.Monitor.Log(error.ToString(), LogLevel.Error);
+                }
+            }
+        }
+        catch (Exception)
+        {
+        }
     }
 
     private void CompleteWorldMapRequest(BridgeWorldMap worldMap)
@@ -1360,7 +1498,6 @@ public sealed class ModEntry : Mod
         if (this.activePipeRequest is null)
             return;
         BridgeRequestEnvelope request = this.activePipeRequest;
-        this.activePipeRequest = null;
         request.Completion.TrySetResult(new BridgeResponse
         {
             Id = request.Request.Id,
@@ -1369,6 +1506,7 @@ public sealed class ModEntry : Mod
             Nodes = worldMap.Nodes,
             Edges = worldMap.Edges
         });
+        this.activePipeRequest = null;
     }
 
     private bool IsValidScreenPoint(int x, int y)
@@ -1396,6 +1534,7 @@ public sealed class ModEntry : Mod
                 CanMove = Context.CanPlayerMove && !nightActive,
                 NightActive = nightActive,
                 SaveCount = this.saveCount,
+                BridgeErrors = this.bridgeErrors,
                 WorldMapVersion = this.worldMapVersion,
                 GraphicsFullScreen = Game1.graphics.IsFullScreen,
                 WindowedBorderless = Game1.options.windowedBorderlessFullscreen,
@@ -1661,6 +1800,7 @@ public sealed class ModEntry : Mod
             CanMove = Context.CanPlayerMove && !nightActive,
             NightActive = nightActive,
             SaveCount = this.saveCount,
+            BridgeErrors = this.bridgeErrors,
             WorldMapVersion = this.worldMapVersion,
             GraphicsFullScreen = Game1.graphics.IsFullScreen,
             WindowedBorderless = Game1.options.windowedBorderlessFullscreen,

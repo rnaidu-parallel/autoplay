@@ -49,6 +49,7 @@ internal sealed class GameStateSnapshot
     public bool CanMove { get; init; }
     public bool NightActive { get; init; }
     public int SaveCount { get; init; }
+    public int BridgeErrors { get; init; }
     public int WorldMapVersion { get; init; }
     public bool GraphicsFullScreen { get; init; }
     public bool WindowedBorderless { get; init; }
@@ -307,6 +308,12 @@ internal sealed class BridgePipeServer
 
     private readonly ConcurrentQueue<BridgeRequestEnvelope> requests = new();
     private readonly CancellationTokenSource cancellation = new();
+    private readonly Action<Exception> logError;
+
+    public BridgePipeServer(Action<Exception> logError)
+    {
+        this.logError = logError;
+    }
 
     public void Start()
     {
@@ -363,14 +370,31 @@ internal sealed class BridgePipeServer
             {
                 return;
             }
-            catch (IOException)
+            catch (IOException error)
             {
                 // The client disconnected. Create a fresh pipe and wait for the harness to reconnect.
+                this.LogError(error);
             }
-            catch (JsonException)
+            catch (JsonException error)
             {
                 // Invalid JSON ends this connection so the next client starts from a clean boundary.
+                this.LogError(error);
             }
+            catch (Exception error)
+            {
+                this.LogError(error);
+            }
+        }
+    }
+
+    private void LogError(Exception error)
+    {
+        try
+        {
+            this.logError(error);
+        }
+        catch (Exception)
+        {
         }
     }
 }

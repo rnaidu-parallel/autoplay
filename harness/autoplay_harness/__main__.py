@@ -19,6 +19,7 @@ import imageio_ffmpeg
 from . import overlay
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
+from .forever import run_forever
 from .openrouter import OpenRouterClient
 from .prompts import ACTOR_SYSTEM_PROMPT
 from .recording import GameplayRecorder
@@ -38,13 +39,16 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run the autonomous tool loop")
-    run_parser.add_argument("--objective", required=True)
-    run_parser.add_argument("--success-condition", required=True)
+    run_parser.add_argument("--objective")
+    run_parser.add_argument("--success-condition")
     run_parser.add_argument("--max-actions", type=int, default=10)
     run_parser.add_argument("--max-decisions", type=int, default=15)
     run_parser.add_argument("--director-interval", type=int, default=12)
     run_parser.add_argument("--budget-usd", type=float, default=None,
                             help="Stop when cumulative actor and director cost reaches this amount")
+    run_parser.add_argument("--max-minutes", type=int, default=None,
+                            help="Stop cleanly after this many wall-clock minutes")
+    run_parser.add_argument("--forever", action="store_true", help="Restart stopped or failed runs indefinitely")
     run_parser.add_argument(
         "--model",
         choices=list(OpenRouterClient.PROVIDER_PREFERENCES),
@@ -127,27 +131,69 @@ def main() -> int:
         return 0
 
     if arguments.command == "run":
-        harness = AutoplayHarness(
-            repository_root=root,
-            objective=arguments.objective,
-            success_condition=arguments.success_condition,
-            model=arguments.model,
-            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-            max_actions=arguments.max_actions,
-            max_decisions=arguments.max_decisions,
-            director_interval=arguments.director_interval,
-            launch_game=not arguments.no_launch_game,
-            save_frames=arguments.save_frames,
-            keep_game_open=arguments.keep_game_open,
-            continuous=arguments.continuous,
-            record_video=arguments.record_video,
-            video_segment_minutes=arguments.video_segment_minutes,
-            video_retention_segments=arguments.video_retention_segments,
-            reasoning_effort=arguments.reasoning_effort,
-            isolated_state=arguments.isolated_state,
-            actor_mode=arguments.actor_mode,
-            budget_usd=arguments.budget_usd,
-        )
+        if not arguments.forever and (arguments.objective is None or arguments.success_condition is None):
+            parser.error("run requires --objective and --success-condition unless --forever is set")
+        if arguments.forever and ((arguments.objective is None) != (arguments.success_condition is None)):
+            parser.error("--objective and --success-condition must be provided together")
+        if arguments.forever and arguments.isolated_state:
+            parser.error("--forever cannot be combined with --isolated-state because state must persist across runs")
+
+        def build_harness() -> AutoplayHarness:
+            objective = arguments.objective
+            success_condition = arguments.success_condition
+            if arguments.forever and objective is None:
+                ledger_path = root / "harness" / "state" / "objectives.json"
+                active_objective = None
+                if not arguments.isolated_state and ledger_path.exists():
+                    try:
+                        active_objective = json.loads(ledger_path.read_text(encoding="utf-8")).get("active")
+                    except (OSError, TypeError, ValueError):
+                        pass
+                if arguments.isolated_state or active_objective is None:
+                    objective = "Step outside to start the day."
+                    success_condition = "location is Farm"
+            harness = AutoplayHarness(
+                repository_root=root,
+                objective=objective,
+                success_condition=success_condition,
+                model=arguments.model,
+                api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                max_actions=arguments.max_actions,
+                max_decisions=arguments.max_decisions,
+                director_interval=arguments.director_interval,
+                launch_game=not arguments.no_launch_game,
+                save_frames=arguments.save_frames,
+                keep_game_open=arguments.keep_game_open and not arguments.forever,
+                continuous=arguments.continuous,
+                record_video=arguments.record_video,
+                video_segment_minutes=arguments.video_segment_minutes,
+                video_retention_segments=arguments.video_retention_segments,
+                reasoning_effort=arguments.reasoning_effort,
+                isolated_state=arguments.isolated_state,
+                actor_mode=arguments.actor_mode,
+                budget_usd=arguments.budget_usd,
+                max_minutes=arguments.max_minutes,
+                forever=arguments.forever,
+            )
+            if arguments.forever and harness.ledger.snapshot().get("active") is None:
+                assert objective is not None and success_condition is not None
+                harness.ledger.set_objective(
+                    objective,
+                    success_condition,
+                    "Observe the current game state and choose the first concrete step.",
+                )
+            return harness
+
+        if arguments.forever:
+            stop_reason = run_forever(
+                build_harness,
+                stop_file=root / "harness" / "state" / "STOP",
+                daily_budget_usd=arguments.budget_usd,
+            )
+            print(json.dumps({"stop_reason": stop_reason, "forever": True}))
+            return 0
+
+        harness = build_harness()
         print(json.dumps({"stop_reason": harness.run(), "run_id": harness.run_id}))
         return 0
 
