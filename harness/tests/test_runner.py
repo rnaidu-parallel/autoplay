@@ -331,7 +331,7 @@ class RunnerTests(unittest.TestCase):
                 "status": "completed", "controls_executed": 3, "state": {"location": "Town"}
             }
 
-            result = harness._execute_actor_tool(
+            result = harness._execute_actor_action(
                 ToolDecision("travel_to", {"destination": "Town"}, {}, None),
                 self.frame,
                 {"location": "Farm", "time": 900},
@@ -496,7 +496,7 @@ class RunnerTests(unittest.TestCase):
 
         for name, arguments, expected in cases:
             with self.subTest(tool=name):
-                result = harness._execute_actor_tool(ToolDecision(name, arguments, {}, None), self.frame)
+                result = harness._execute_actor_action(ToolDecision(name, arguments, {}, None), self.frame)
                 self.assertEqual("completed", result["status"])
                 self.assertEqual(expected, harness.bridge.calls[-1])
         self.assertEqual(len(cases), harness.game_actions)
@@ -614,7 +614,7 @@ class RunnerTests(unittest.TestCase):
         harness.continuous = True
         harness.director_interval = 12
         harness.last_director_action_count = 0
-        result = harness._execute_actor_tool(
+        result = harness._execute_actor_action(
             ToolDecision(
                 "control_sequence",
                 {
@@ -774,7 +774,7 @@ class RunnerTests(unittest.TestCase):
             self.assertIsNone(harness.ledger.snapshot()["active"])
             self.assertEqual("blocked", harness.ledger.snapshot()["history"][-1]["status"])
 
-    def test_morning_planning_uses_restricted_tools_on_day_change(self) -> None:
+    def test_morning_sets_farm_plan_without_inventing_daily_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
             harness.notebook = Notebook(Path(directory))
@@ -790,25 +790,17 @@ class RunnerTests(unittest.TestCase):
                  "notes": "Near the house"},
                 {}, None,
             )
-            agenda = [
-                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "morning", "category": "exploring"},
-                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "midday", "category": "foraging"},
-                {"goal": "Clear debris", "success_condition": "stamina <= 200", "slot": "afternoon", "category": "clearing"},
-                {"goal": "Return home", "success_condition": "location is FarmHouse", "slot": "evening", "category": "home"},
-                {"goal": "Organize tools", "success_condition": "toolbarIndex >= 0", "slot": "evening", "category": "home"},
-            ]
-            day_plan = ToolDecision("plan_day", {"theme": "Explore", "agenda": agenda, "dropped": []}, {}, None)
-            harness._decide = Mock(side_effect=[(farm_plan, 1), (day_plan, 1)])
+            harness._decide = Mock(return_value=(farm_plan, 1))
             state = {"day": 17, "location": "FarmHouse", "time": 600,
                      "farmLayout": {"width": 80, "height": 65}}
 
             harness._plan_day_if_needed(state, self.frame)
 
             self.assertEqual(17, harness.notebook.current_day)
-            self.assertEqual(5, len(harness.notebook.remaining(17)))
+            self.assertEqual(0, len(harness.notebook.remaining(17)))
             self.assertEqual([UPDATE_FARM_PLAN_TOOL], harness._decide.call_args_list[0].args[3])
-            self.assertEqual([PLAN_DAY_TOOL], harness._decide.call_args_list[1].args[3])
-            harness.telemetry.record.assert_any_call("day_planned", {"day": 17, "agenda_size": 5})
+            self.assertEqual(1, harness._decide.call_count)
+            harness.telemetry.record.assert_any_call("day_planned", {"day": 17, "agenda_size": 0})
 
     def test_invalid_morning_agenda_produces_feedback_and_retries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -829,7 +821,7 @@ class RunnerTests(unittest.TestCase):
                 {"theme": "Short", "agenda": [
                     {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning",
                      "category": "farming" if index < 2 else "exploring"}
-                    for index in range(4)
+                    for index in range(9)
                 ], "dropped": []}, {}, None,
             )
             valid = ToolDecision(
@@ -842,17 +834,18 @@ class RunnerTests(unittest.TestCase):
             )
             harness._decide = Mock(side_effect=[(invalid, 1), (valid, 1)])
 
-            harness._plan_day_if_needed(
+            harness.notebook.start_day(2)
+            harness._request_agenda(
                 {"day": 2, "location": "FarmHouse", "time": 600,
                  "farmLayout": {"width": 80, "height": 65}},
-                self.frame,
+                self.frame, "morning",
             )
 
             self.assertEqual(2, harness._decide.call_count)
             self.assertIsNone(harness.director_feedback)
             harness.telemetry.record.assert_any_call(
                 "agenda_plan_rejected",
-                {"attempt": 1, "mode": "morning", "errors": ["morning planning needs 5-8 new items"]},
+                {"attempt": 1, "mode": "morning", "errors": ["Keep the current review to at most 8 intentions; existing work persists."]},
             )
 
     def test_unknown_carried_ids_are_stripped_without_retry(self) -> None:
@@ -883,10 +876,11 @@ class RunnerTests(unittest.TestCase):
             )
             harness._decide = Mock(return_value=(decision, 1))
 
-            harness._plan_day_if_needed(
+            harness.notebook.start_day(2)
+            harness._request_agenda(
                 {"day": 2, "location": "FarmHouse", "time": 600,
                  "farmLayout": {"width": 80, "height": 65}},
-                self.frame,
+                self.frame, "morning",
             )
 
             self.assertEqual(1, harness._decide.call_count)
@@ -901,7 +895,7 @@ class RunnerTests(unittest.TestCase):
                 for call in harness.telemetry.record.call_args_list
             ))
 
-    def test_invalid_agenda_is_accepted_with_gaps_after_two_calls(self) -> None:
+    def test_invalid_review_is_not_installed_after_two_calls(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
             harness.notebook = Notebook(Path(directory))
@@ -920,23 +914,21 @@ class RunnerTests(unittest.TestCase):
                 {"theme": "Short", "agenda": [
                     {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning",
                      "category": "farming" if index < 2 else "exploring"}
-                    for index in range(4)
+                    for index in range(9)
                 ], "dropped": []}, {}, None,
             )
             harness._decide = Mock(return_value=(invalid, 1))
 
-            harness._plan_day_if_needed(
-                {"day": 3, "location": "FarmHouse", "time": 600,
-                 "farmLayout": {"width": 80, "height": 65}},
-                self.frame,
-            )
+            harness.notebook.start_day(3)
+            with self.assertRaises(HarnessError):
+                harness._request_agenda(
+                    {"day": 3, "location": "FarmHouse", "time": 600,
+                     "farmLayout": {"width": 80, "height": 65}},
+                    self.frame, "morning",
+                )
 
             self.assertEqual(2, harness._decide.call_count)
-            self.assertEqual(4, len(harness.notebook.remaining(3)))
-            harness.telemetry.record.assert_any_call(
-                "agenda_accepted_with_gaps",
-                {"mode": "morning", "errors": ["morning planning needs 5-8 new items"]},
-            )
+            self.assertEqual([], harness.notebook.remaining(3))
 
     def test_refill_needs_no_evening_item_and_rejects_early_home_only_goal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1021,7 +1013,7 @@ class RunnerTests(unittest.TestCase):
             harness.game_actions = 0
             harness.blocked_movements = set()
 
-            result = harness._execute_actor_tool(
+            result = harness._execute_actor_action(
                 ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None),
                 self.frame,
                 {"location": "Farm", "day": 7, "time": 1200},
@@ -1040,7 +1032,7 @@ class RunnerTests(unittest.TestCase):
         state = {"location": "Farm"}
         targets = [{"x": 1, "y": 2}, {"x": 3, "y": 4}]
 
-        result = harness._execute_actor_tool(
+        result = harness._execute_actor_action(
             ToolDecision("clear_debris", {"targets": targets}, {}, None), self.frame, state
         )
 
@@ -1135,6 +1127,51 @@ class RunnerTests(unittest.TestCase):
 
 
 class LongRunIntegrationTests(unittest.TestCase):
+    def test_morning_mail_is_required_and_urgent_sleep_remains_available(self):
+        harness = self.harness
+        harness._decide = Mock(side_effect=RuntimeError("request captured"))
+        for location, required in (("FarmHouse", "go_to_location"), ("Farm", "check_mail")):
+            for hour in (600, 2300):
+                state = {**self.state, "location": location, "time": hour, "mailCount": 1}
+                harness.notebook.observe_life(state)
+                harness._observe = Mock(return_value=(state, self.frame))
+                with self.assertRaisesRegex(RuntimeError, "request captured"):
+                    harness._actor_step()
+                offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
+                self.assertIn(required, offered)
+                self.assertNotIn('water_crops', offered)
+                self.assertEqual(hour == 2300, 'go_home_and_sleep' in offered)
+
+    def test_quest_contents_change_dynamic_context_without_changing_system_prompt(self):
+        harness = self.harness
+        harness.client = Mock()
+        harness.client.choose_tool.return_value = ToolDecision('inspect_scene', {}, {}, None)
+        for progress in ('Meet 5 of 28 villagers', 'Meet 6 of 28 villagers'):
+            state = {**self.state, 'questRevision': progress,
+                     'quests': [{'id': '9', 'title': 'Introductions', 'objectives': [progress], 'description': 'Say hello.'}]}
+            harness.notebook.observe_life(state)
+            context = harness._context('actor', state, self.frame, state_only=True)
+            harness._choose(STATE_ACTOR_PROMPT, context, self.frame, STATE_ACTOR_TOOLS, 'actor')
+        first, second = harness.client.choose_tool.call_args_list
+        self.assertEqual(first.args[0], second.args[0])
+        self.assertNotIn('Meet 5 of 28 villagers', first.args[0])
+        self.assertEqual(['Meet 5 of 28 villagers'], json.loads(first.args[1])['life']['quests'][0]['objectives'])
+        self.assertEqual(['Meet 6 of 28 villagers'], json.loads(second.args[1])['life']['quests'][0]['objectives'])
+
+    def test_changed_quests_open_journal_before_selecting_intention(self):
+        harness = self.harness
+        state = {**self.state, 'questRevision': 'new', 'quests': [{'id': '9', 'title': 'Introductions', 'objectives': ['Meet villagers']}]}
+        harness.notebook.observe_life(state)
+        harness._observe = Mock(return_value=(state, self.frame))
+        harness._decide = Mock(side_effect=RuntimeError('request captured'))
+        for required in ('check_journal', 'review_quests'):
+            with self.assertRaisesRegex(RuntimeError, 'request captured'):
+                harness._actor_step()
+            offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
+            self.assertIn(required, offered)
+            self.assertNotIn('travel_to', offered)
+            harness.notebook.observe_life({**state, 'menu': 'QuestLog'})
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -1281,7 +1318,7 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertEqual(AutoplayHarness._action_fingerprint(first, self.state),
                          AutoplayHarness._action_fingerprint(repeated, self.state))
 
-    def test_variety_feedback_retries_without_changing_existing_rules(self):
+    def test_repeated_theme_does_not_force_replanning(self):
         harness = self.harness
         old_items = [{"goal": "Old task", "slot": "morning", "category": category}
                      for category in ("farming", "farming", "farming", "clearing", "clearing")]
@@ -1295,10 +1332,8 @@ class LongRunIntegrationTests(unittest.TestCase):
         valid = ToolDecision("plan_day", {"theme": "Town friends", "agenda": items, "dropped": []}, {}, None)
         harness._decide = Mock(side_effect=[(invalid, 1), (valid, 1)])
         harness._request_agenda({**self.state, "day": 10}, self.frame, "morning")
-        events = [json.loads(line) for line in harness.telemetry.events_path.read_text().splitlines()]
-        rejected = next(event for event in events if event["type"] == "agenda_plan_rejected")
-        self.assertIn("theme", " ".join(rejected["errors"]))
-        self.assertEqual("Town friends", harness.notebook.data["days"]["10"]["theme"])
+        self.assertEqual(1, harness._decide.call_count)
+        self.assertEqual("farm DAY", harness.notebook.data["days"]["10"]["theme"])
         self.assertIsNone(harness.director_feedback)
 
     def test_weekly_rollup_preserves_recent_theme_validation(self):
@@ -1312,7 +1347,7 @@ class LongRunIntegrationTests(unittest.TestCase):
         notebook.start_day(9)
         self.assertEqual(["8", "9"], list(notebook.data["days"]))
         self.assertEqual(["Theme 6", "Theme 7", "Theme 8"], notebook.recent_themes(3))
-        self.assertTrue(any("theme" in error for error in notebook.variety_errors(9, [], "Theme 6", "morning")))
+        self.assertEqual([], notebook.variety_errors(9, [], "Theme 6", "morning"))
 
     def test_timeout_blocked_path_stall_reflection_and_wasted_objective_lessons(self):
         harness = self.harness
@@ -1504,7 +1539,8 @@ class LongRunIntegrationTests(unittest.TestCase):
         last_result = packet["game_state"]["harnessLastResult"]
         director = json.loads(self.harness._budget_context(json.loads(json.dumps(packet)), "director"))
         self.assertIn("farmLayout", director["game_state"])
-        context = self.harness._budget_context(packet, "actor")
+        with patch("autoplay_harness.runner.ACTOR_CONTEXT_BUDGET", 4500):
+            context = self.harness._budget_context(packet, "actor")
         self.assertLessEqual(len(context) / 3.5, ACTOR_CONTEXT_BUDGET)
         trimmed = json.loads(context)
         self.assertEqual(ledger, json.dumps(trimmed["objective_ledger"], sort_keys=True))
@@ -1519,7 +1555,8 @@ class LongRunIntegrationTests(unittest.TestCase):
         ledger = packet["objective_ledger"]
         last_result = packet["game_state"]["harnessLastResult"]
         layout = packet["game_state"]["farmLayout"]
-        context = self.harness._budget_context(packet, "director")
+        with patch("autoplay_harness.runner.DIRECTOR_CONTEXT_BUDGET", 8000):
+            context = self.harness._budget_context(packet, "director")
         self.assertLessEqual(len(context) / 3.5, DIRECTOR_CONTEXT_BUDGET)
         trimmed = json.loads(context)
         self.assertEqual(ledger, trimmed["objective_ledger"])

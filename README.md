@@ -41,15 +41,15 @@ dotnet build .\src\Autoplay.GameBridge\Autoplay.GameBridge.csproj
 
 ## Configure OpenRouter
 
-Gameplay defaults to `openai/gpt-5.6-luna` with `--reasoning-effort low`. Requests use only OpenAI through OpenRouter, with fallback disabled and provider attribution checked before game control. This is a paid route.
+Gameplay defaults to `z-ai/glm-5.3-flash` with `--reasoning-effort low` for actor and director. OpenRouter tries DeepInfra FP8, then NextBit FP8, then Baseten FP8; the allowlist excludes other providers. This is a paid route. GLM supports low, high and max; medium is rejected before a request. See [model and caching configuration](docs/life-followthrough-2026-09-03.md).
 
 For free local iteration, pass `--model minimax/minimax-m3:free`. That profile remains restricted to `gmicloud/fp8` with fallback disabled. The launcher never broadens either provider allowlist.
 
-Prompt caching uses stable system/tool prefixes and one sticky `session_id` per actor/director session. Z.AI applies caching automatically. A changing screenshot, game state, or recent-event window must still be processed; the reported cache hit rate is the fraction of input tokens cached, not the fraction of calls served from cache.
+DeepInfra applies prefix caching automatically. System instructions and tool definitions stay stable; quest contents, notifications and current observations are dynamic context. A stable prefix key and an actor/director `session_id` accompany requests. Explicit provider order takes priority over OpenRouter sticky routing. Cache hit rate uses reported cached input tokens; it is not the fraction of calls served from cache. The footer sums API-reported costs, including retries, and displays USD to six decimal places.
 
 For a bounded speed comparison, `--model google/gemini-2.5-flash-lite` selects only Google AI Studio, without fallback or a thinking override.
 
-The Gemini trial uses `--model google/gemini-3.7-flash --reasoning-effort low`, restricted to Google AI Studio through OpenRouter, with fallback disabled. Both Gemini 3.7 Flash and the default Luna profile reject responses with a different or missing provider attribution before game control.
+The Gemini trial uses `--model google/gemini-3.7-flash --reasoning-effort low`, restricted to Google AI Studio through OpenRouter, with fallback disabled. Both Gemini 3.7 Flash and the optional Luna profile reject responses with a different or missing provider attribution before game control.
 
 `--model qwen/qwen3.8-flash --reasoning-effort low` selects the Alibaba route only, with no fallback. Qwen also supports `medium`; GLM rejects that setting. Use `--isolated-state` for a fresh per-run objective ledger during comparisons. This does not reset the game save. See [gameplay evaluation](docs/evaluation.md) for current checks and missing acceptance coverage.
 
@@ -67,7 +67,7 @@ Put that line in the repository-root `.env`. The launcher loads it without print
 
 ```powershell
 .\harness\run-harness.ps1 run `
-  --model openai/gpt-5.6-luna `
+  --model z-ai/glm-5.3-flash `
   --reasoning-effort low `
   --objective 'Load the existing BridgeTest save and reach the Farm exterior' `
   --success-condition 'worldReady is true, location is Farm, and playerFree is true' `

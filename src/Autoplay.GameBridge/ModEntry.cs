@@ -13,7 +13,7 @@ using System.Text;
 
 namespace Autoplay.GameBridge;
 
-public sealed class ModEntry : Mod
+public sealed partial class ModEntry : Mod
 {
     private static readonly HashSet<SButton> AgentButtons = new()
     {
@@ -145,6 +145,7 @@ public sealed class ModEntry : Mod
             this.worldMapCache = null;
             this.farmLayoutCache = null;
             this.farmLayoutCacheDay = -1;
+            this.ResetLifeNotices();
             this.LogState("save_loaded");
         }
         catch (Exception error)
@@ -447,6 +448,8 @@ public sealed class ModEntry : Mod
         this.navigationPath = path;
         this.navigationIndex = 0;
         this.navigationTicksRemaining = effectiveMaxTicks;
+        this.navigationSegmentTicks = Math.Clamp(this.activePipeRequest?.Request.SegmentTicks ?? 0, 0, 300);
+        this.navigationNotices = this.NearbyNoticeKeys();
         this.navigationStallTicks = 0;
         this.navigationLastPixel = Game1.player.StandingPixel;
         this.navigationLocationName = location.NameOrUniqueName;
@@ -527,6 +530,17 @@ public sealed class ModEntry : Mod
         {
             this.FinishNavigation("timeout", "tick_budget_exhausted");
             return;
+        }
+
+        if (this.navigationActionPhase == 0 && this.activePipeRequest?.Request.SegmentTicks > 0)
+        {
+            bool encounter = this.activePipeRequest.Request.NoticeEncounters
+                && this.NearbyNoticeKeys().Any(key => !this.navigationNotices.Contains(key));
+            if (encounter || --this.navigationSegmentTicks <= 0)
+            {
+                this.FinishNavigation("yielded", encounter ? "encounter_noticed" : "movement_segment_finished");
+                return;
+            }
         }
 
         if (this.navigationActionPhase > 0)
@@ -1102,6 +1116,7 @@ public sealed class ModEntry : Mod
 
     private void UpdateTicked()
     {
+        this.CaptureLifeNotices();
         if (this.originalHardwareCursor.HasValue && Game1.game1.IsActive)
             this.HideSystemCursor();
         if (this.waitCondition is not null)
@@ -1552,7 +1567,9 @@ public sealed class ModEntry : Mod
                 QualifiedId = entry.item!.QualifiedItemId,
                 Name = entry.item.DisplayName,
                 Stack = entry.item.Stack,
-                Quality = entry.item is StardewValley.Object itemObject ? itemObject.Quality : 0
+                Quality = entry.item is StardewValley.Object itemObject ? itemObject.Quality : 0,
+                MaxStack = entry.item.maximumStackSize(),
+                IsTool = entry.item is Tool
             })
             .ToArray();
 
@@ -1692,6 +1709,10 @@ public sealed class ModEntry : Mod
             .Where(npc => IsNearby(npc.TilePoint.X, npc.TilePoint.Y))
             .Select(npc => new BridgeNpc
             {
+                Id = npc.Name,
+                Met = Game1.player.friendshipData.ContainsKey(npc.Name),
+                TalkedToday = Game1.player.hasTalkedToFriendToday(npc.Name),
+                Hearts = Game1.player.getFriendshipHeartLevelForNPC(npc.Name),
                 Name = npc.displayName ?? npc.Name,
                 Kind = npc is Monster ? "Monster" : npc.IsVillager ? "Villager" : npc.GetType().Name,
                 X = npc.TilePoint.X,
@@ -1817,6 +1838,18 @@ public sealed class ModEntry : Mod
             Weather = weather,
             QuestCount = Game1.player.questLog.Count,
             MailCount = Game1.mailbox.Count,
+            QuestRevision = this.QuestRevision(),
+            QuestStates = Game1.player.questLog.Where(q => !q.IsHidden()).GroupBy(q => q.id.Value ?? q.GetName()).ToDictionary(group => group.Key, group => group.First().ShouldDisplayAsComplete() ? "complete" : "active"),
+            Journal = this.CaptureJournal(),
+            Quests = this.CaptureQuestSummaries(),
+            Notices = this.lifeNotices.ToArray(),
+            MenuText = this.CaptureMenuText(),
+            InventoryCapacity = Game1.player.MaxItems,
+            InventoryFreeSlots = Math.Max(0, Game1.player.MaxItems - Game1.player.Items.Count(item => item is not null)),
+            LetterText = Game1.activeClickableMenu is LetterViewerMenu letter ? letter.mailMessage.ElementAtOrDefault(letter.page) : null,
+            MenuEntries = this.CaptureLifeMenu(),
+            MailboxTile = location.IsFarm ? new BridgeTile { X = Game1.player.getMailboxPosition().X, Y = Game1.player.getMailboxPosition().Y } : null,
+            HudMessages = Game1.hudMessages.Select(message => message.message).Where(message => !string.IsNullOrWhiteSpace(message)).Take(3).ToArray(),
             CursorScreenX = (int)cursor.ScreenPixels.X,
             CursorScreenY = (int)cursor.ScreenPixels.Y,
             CursorWorldX = (int)cursor.AbsolutePixels.X,

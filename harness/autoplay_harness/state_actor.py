@@ -69,6 +69,9 @@ STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
     "change_objective", "record_opportunity", "search_history",
+    "check_journal", "check_mail",
+    "pursue_interest", "consider_interest",
+    "review_quests", "respond_to_notice", "read_life_text", "open_menu_tab",
 }] + [function_tool(
     "inspect_scene",
     "Request a fresh screenshot and the full control set for the next decision.",
@@ -96,10 +99,12 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
               "plantedCrops", "seedsSown", "wateredCrops", "harvestableCrops", "inventoryCounts",
               "wateringCanWater", "wateringCanMax", "bedTile",
               "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed",
+              "mailCount", "questStates", "questRevision", "mailboxTile", "hudMessages", "npcsNearby",
+              "inventoryCapacity", "inventoryFreeSlots",
               "harnessStalledDecisions", "harnessBlockedDirectionsHere")
     result = {key: state[key] for key in fields if key in state}
     for key, columns in (
-        ("inventory", ["slot", "name", "qualifiedId", "stack", "isSeed"]),
+        ("inventory", ["slot", "name", "qualifiedId", "stack", "isSeed", "maxStack", "isTool"]),
         ("cropsNearby", ["x", "y", "crop", "watered", "readyToHarvest", "dead"]),
         ("tillableNearby", ["x", "y"]),
         ("nearbyObjects", ["x", "y", "name", "recommendedTool"]),

@@ -31,7 +31,7 @@ class StateActorTests(unittest.TestCase):
         before = copy.deepcopy(state)
         compact = compact_state(state)
         self.assertEqual([[3, 4, None, True, False, False]], compact["cropsNearby"]["rows"])
-        self.assertEqual([[8, "Seeds", "472", 20, True]], compact["inventory"]["rows"])
+        self.assertEqual([[8, "Seeds", "472", 20, True, None, None]], compact["inventory"]["rows"])
         self.assertEqual(100, compact["health"])
         self.assertEqual(before, state)
         self.assertFalse({"click", "press", "hold"} & {t["function"]["name"] for t in STATE_ACTOR_TOOLS})

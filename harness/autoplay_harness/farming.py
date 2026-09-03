@@ -100,6 +100,21 @@ class _Controls:
         return stand, None
 
 
+def check_mail(bridge: NamedPipeBridge, state: dict[str, Any]) -> dict[str, Any]:
+    target = state.get("mailboxTile")
+    if not target or state.get("menu") != "none" or not state.get("mailCount"):
+        return {"status": "rejected", "reason": "Open mail from the farm with unread letters and no menu open."}
+    runner = _Controls(bridge, state, 5)
+    stand, error = runner.stand_beside(target)
+    if not error:
+        error = runner.face((target["x"] - stand[0], target["y"] - stand[1]))
+    if not error:
+        error = runner.send("press", buttons=["X"])
+    opened = runner.state.get("menu") == "LetterViewerMenu"
+    return {"status": "completed" if opened else "blocked", "reason": "letter_opened" if opened else error or "letter_did_not_open",
+            "state": runner.state, "controls_executed": runner.executed}
+
+
 def _tool_slot(state: dict[str, Any], tool_name: str) -> int | None:
     entry = next((item for item in state.get("inventory", [])
                   if (item.get("name") == tool_name or item.get("name", "").endswith(tool_name))

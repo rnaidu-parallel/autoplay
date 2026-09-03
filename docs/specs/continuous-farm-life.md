@@ -1,6 +1,6 @@
 # Continuous farm life: attention, quests and self-directed play
 
-Status: proposed implementation plan, 2026-09-03. Based on Rahul's review of the recorded smoke and code at `48d79d8`. This document changes no runtime behaviour. It addresses all feedback from that review before the next full rehearsal.
+Status: implementation and acceptance specification, 2026-09-03. Based on Rahul's review of the recorded smoke and code at `48d79d8`. The first live smoke exposed missing follow-through; the revised implementation awaits a game restart and focused live validation. See [follow-through changes and model configuration](../life-followthrough-2026-09-03.md).
 
 ## Desired experience
 
@@ -12,7 +12,7 @@ Example, conditional on discoveries in this save: the farmer reads Robin's reque
 
 | Feedback | Current mechanism | Planned change |
 | --- | --- | --- |
-| Only two turns visible | `overlay.py` truncates actor/operator history to two; `overlay/index.html` independently renders two at 24px with large gaps | Six retained turns, compact readable layout with roughly 4–6 visible depending on length |
+| Only two turns visible | `overlay.py` truncates actor/operator history to two; `overlay/index.html` independently renders two at 24px with large gaps | Seven retained turns at 20px; compact history with whole-card overflow handling |
 | Long walks without thinking | `world.py:travel_to` chains multiple locations; C# `StartNavigation` expands requested ticks by path length, up to 3,600 ticks | Short movement segments and real returns to the actor at encounters and arrivals |
 | Arbitrary daily objectives | `_agenda_errors` requires 5–8 morning items; `variety_errors` requires a different theme and category mix; refill requires another 2–4 items | Persistent intentions, with no minimum task count, compulsory new theme or daily variety quota |
 | Enters a place and immediately leaves | Exploration validation explicitly requires `location is <Name>`; arrival can satisfy the objective without examining the place | Arrival triggers an observation/decision; meaningful discovery distinguished from simply passing through |
@@ -106,13 +106,13 @@ Acceptance is behavioural and evidence-based:
 | Two consecutive mornings | Unfinished intentions persist; new evidence can reprioritize; no compulsory new theme or list of filler tasks |
 | Exploration/blocked route | Arrival alone does not prove an interaction; unchanged failed paths are not retried under renamed objectives |
 | Hold/steer during a local skill | Acknowledged at the measured next safe boundary; pending stale action discarded; save priority preserved |
-| Stream review | Readable 4–6-turn history, honest current intention, coherent detours and conversations, no capture/context regression, verified final save |
+| Stream review | Readable seven-turn history when text fits, honest current intention, coherent detours and conversations, no capture/context regression, verified final save |
 
 Use deterministic fixtures to guarantee rare conditions such as an NPC entering mid-path, unavailable mail rewards and overnight quest changes. The live run must remain autonomous; do not script a tour or fabricate interactions to satisfy the checks. If the current save lacks a suitable request, report that live scenario as untested and use an appropriate later session. Logs should explain attention yields and deferrals, show task/quest evidence, measure command latency, and keep counts/costs observable without turning activity counts into behavioural quotas.
 
 ## Boundaries and decision changes
 
-This plan supersedes compulsory daily agenda/theme/variety rules and the two-turn audience-feed limit. It preserves ordinary game controls, truthful progress, finite context budgets, identity/memory, current provider policy, cost limits, verified saves, and Windowed attach recovery. It does not add another model role, unrestricted game-state writes, broad progression systems or new combat/fishing/mining implementations. Full API details and final typography are implementation choices to validate locally.
+This plan supersedes compulsory daily agenda/theme/variety rules and the two-turn audience-feed limit. It preserves ordinary game controls, truthful progress, finite context budgets, identity/memory, the explicitly selected provider policy, cost limits, verified saves, and Windowed attach recovery. It does not add another model role, unrestricted game-state writes, broad progression systems or new combat/fishing/mining implementations. Full API details and final typography are implementation choices to validate locally.
 
 The deliverable is one integrated change to attention, memory, planning and presentation. The 30-minute/public-streaming gate remains pending until the resulting play is reviewed.
 

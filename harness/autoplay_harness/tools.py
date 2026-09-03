@@ -51,6 +51,29 @@ def function_tool(name: str, description: str, properties: dict[str, Any], requi
 
 
 ACTOR_TOOLS = [
+    function_tool("review_quests", "Review every current journal quest before continuing an unrelated plan. Choose a real quest ID for the current pursuit, or an empty ID if a concrete practical need takes priority. Account for every other quest with a reason and a currently false revisit condition. The goal is linked to the chosen quest's actual title and completion state.",
+                  {"quest_id": {"type": "string"}, "next_step": {"type": "string", "minLength": 1, "maxLength": 100},
+                   "reason": {"type": "string", "minLength": 1, "maxLength": 160},
+                   "deferred": {"type": "array", "items": {"type": "object", "properties": {
+                       "quest_id": {"type": "string"}, "reason": {"type": "string", "maxLength": 100},
+                       "revisit_when": {"type": "string", "maxLength": 120}}, "required": ["quest_id", "reason", "revisit_when"], "additionalProperties": False}}},
+                  ["quest_id", "next_step", "reason", "deferred"]),
+    function_tool("respond_to_notice", "Respond to a retained event, conversation, new tool or discovery. Act now with a concrete next step, or defer with a reason and a currently false state condition for revisiting. An act response changes the current intention; it does not claim the action happened. Use read_life_text first if the excerpt is insufficient.",
+                  {"notice_id": {"type": "string"}, "choice": {"type": "string", "enum": ["act", "defer"]},
+                   "next_step": {"type": "string", "minLength": 1, "maxLength": 100}, "reason": {"type": "string", "minLength": 1, "maxLength": 160},
+                   "revisit_when": {"type": "string", "maxLength": 120}}, ["notice_id", "choice", "next_step", "reason", "revisit_when"]),
+    function_tool("read_life_text", "Read retained game text in pages of up to 4000 characters. Use a notice/text ID from life or quest:<id> for a journal quest. Continue at nextOffset until null. Does not open or dismiss a game screen.",
+                  {"id": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}, ["id"]),
+    function_tool("open_menu_tab", "Open a named game menu tab through normal controls. Inspect inventory capacity and slots, skill levels, social relationships, map labels, crafting recipes or collections. This is a menu inspection, not a pause command.",
+                  {"tab": {"type": "string", "enum": ["inventory", "skills", "social", "map", "crafting", "collections", "options"]}}, ["tab"]),
+    function_tool("pursue_interest", "Follow an observed curiosity without inventing a completion predicate. Preserve prior work. Use for looking around, a conversation or a place you want to understand; concrete delivery/work tasks still use change_objective with real evidence.",
+                  {"goal": {"type": "string", "minLength": 1, "maxLength": 180}, "reason": {"type": "string", "minLength": 1, "maxLength": 180}}, ["goal", "reason"]),
+    function_tool("consider_interest", "Finish considering your current open-ended interest after an observed interaction. Records considered, never claims a quest/task completed. Explain what you learned or why you are moving on.",
+                  {"evidence": {"type": "string", "maxLength": 200}}, ["evidence"]),
+    function_tool("check_journal", "Open the game's quest journal with its normal hotkey. Read journal entries and menuEntries, then select an entry for details or a reward.", {}, []),
+    function_tool("check_mail", "On the Farm, walk beside the observed nearby mailbox and open one unread letter using normal controls. Read the letter and use menuEntries to accept or collect its contents before closing it. Can yield during walking.", {}, []),
+    function_tool("click_menu_entry", "Click an exact currently visible menuEntries control: journal, letter, game tabs, crafting, inventory or chest. Use its zero-based index. canAccept=false means make room before taking that item. Verify the resulting page, quest or inventory change. Never discard a tool or quest item to make space.",
+                  {"index": {"type": "integer", "minimum": 0}}, ["index"]),
     function_tool(
         "change_objective",
         "Choose a different pursuit now, without director approval. Preserve the current objective as interrupted and its agenda item as pending. For spontaneous interactions you can simply act; use this only when your substantial intention changes. Supply a currently false structured success condition. Use agenda_id to return to an unfinished agenda item. Retry limits still apply.",
@@ -68,6 +91,7 @@ ACTOR_TOOLS = [
          "interaction": {"type": "string", "minLength": 1, "maxLength": 80},
          "outcome": {"type": "string", "enum": ["possible", "unavailable", "unknown"]},
          "preference": {"type": "string", "enum": ["liked", "disliked", "neutral", "undecided"]},
+         "revisit_when": {"type": "string", "maxLength": 160, "description": "Optional real state condition for remembering to return, e.g. money >= 300 or location is Town. No invented facts."},
          "note": {"type": "string", "minLength": 1, "maxLength": 180,
                   "description": "Observed response and conditions, plus why you felt this way. Keep facts separate from your personal reaction."}},
         ["subject", "interaction", "outcome", "preference", "note"],
@@ -303,12 +327,12 @@ for _actor_tool in ACTOR_TOOLS:
 
 PLAN_DAY_TOOL = function_tool(
     "plan_day",
-    "Create the day's agenda. Morning plans need 5 to 8 items; an explicit pre-bedtime refill needs 2 to 4 new items. carried_id is ONLY for ids listed under notebook.today.carried and must be omitted for new goals. Give a reason for every dropped carried candidate.",
+    "Review ongoing intentions in light of actual overnight changes, discovered quests and needs. Zero new items is valid; unchanged intentions persist automatically. No daily theme or activity quota. carried_id refers to an existing unfinished intention; omit for new discoveries. Give a reason for anything explicitly dropped.",
     {
         "theme": {"type": "string", "maxLength": 200},
         "agenda": {
             "type": "array",
-            "minItems": 2,
+            "minItems": 0,
             "maxItems": 8,
             "items": {
                 "type": "object",
@@ -318,6 +342,8 @@ PLAN_DAY_TOOL = function_tool(
                     "slot": {"type": "string", "enum": ["morning", "midday", "afternoon", "evening"]},
                     "category": {"type": "string", "enum": ["farming", "clearing", "exploring", "social", "shopping", "fishing", "mining", "foraging", "crafting", "event", "home"]},
                     "carried_id": {"type": "string", "maxLength": 40},
+                    "source": {"type": "string", "maxLength": 100, "description": "Observed quest ID, encounter, memory or practical need."},
+                    "reason": {"type": "string", "maxLength": 180},
                 },
                 "required": ["goal", "slot", "category"],
                 "additionalProperties": False,

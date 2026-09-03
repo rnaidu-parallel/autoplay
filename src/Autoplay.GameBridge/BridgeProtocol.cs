@@ -25,6 +25,8 @@ internal sealed class BridgeRequest
     public string Value { get; set; } = string.Empty;
     public string Mode { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
+    public int SegmentTicks { get; set; }
+    public bool NoticeEncounters { get; set; }
 }
 
 internal sealed class BridgeResponse
@@ -79,6 +81,18 @@ internal sealed class GameStateSnapshot
     public string? Weather { get; init; }
     public int? QuestCount { get; init; }
     public int? MailCount { get; init; }
+    public string QuestRevision { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, string> QuestStates { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyList<BridgeQuest> Journal { get; init; } = Array.Empty<BridgeQuest>();
+    public IReadOnlyList<BridgeQuest> Quests { get; init; } = Array.Empty<BridgeQuest>();
+    public IReadOnlyList<BridgeNotice> Notices { get; init; } = Array.Empty<BridgeNotice>();
+    public IReadOnlyList<string> MenuText { get; init; } = Array.Empty<string>();
+    public int InventoryCapacity { get; init; }
+    public int InventoryFreeSlots { get; init; }
+    public string? LetterText { get; init; }
+    public IReadOnlyList<BridgeMenuEntry> MenuEntries { get; init; } = Array.Empty<BridgeMenuEntry>();
+    public BridgeTile? MailboxTile { get; init; }
+    public IReadOnlyList<string> HudMessages { get; init; } = Array.Empty<string>();
     public int CursorScreenX { get; init; }
     public int CursorScreenY { get; init; }
     public int CursorWorldX { get; init; }
@@ -232,10 +246,45 @@ internal sealed class BridgeTile
 
 internal sealed class BridgeNpc
 {
+    public string Id { get; init; } = string.Empty;
+    public bool Met { get; init; }
+    public bool TalkedToday { get; init; }
+    public int Hearts { get; init; }
     public string Name { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public int X { get; init; }
     public int Y { get; init; }
+}
+
+internal sealed class BridgeQuest
+{
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public IReadOnlyList<string> Objectives { get; init; } = Array.Empty<string>();
+    public int? DaysLeft { get; init; }
+    public int Reward { get; init; }
+    public bool Complete { get; init; }
+}
+
+internal sealed class BridgeMenuEntry
+{
+    public string Label { get; init; } = string.Empty;
+    public int ScreenX { get; init; }
+    public int ScreenY { get; init; }
+    public bool? CanAccept { get; init; }
+}
+
+internal sealed class BridgeNotice
+{
+    public string Id { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Text { get; init; } = string.Empty;
+    public string Location { get; init; } = string.Empty;
+    public int Day { get; init; }
+    public string Season { get; init; } = string.Empty;
+    public int Year { get; init; }
+    public int Time { get; init; }
 }
 
 internal sealed class BridgeShopItem
@@ -256,6 +305,8 @@ internal sealed class BridgeInventoryItem
     public string Name { get; init; } = string.Empty;
     public int Stack { get; init; }
     public int Quality { get; init; }
+    public int MaxStack { get; init; }
+    public bool IsTool { get; init; }
 }
 
 internal sealed class BridgeWarp

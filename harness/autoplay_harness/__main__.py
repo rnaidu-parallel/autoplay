@@ -57,8 +57,8 @@ def main() -> int:
         default=OpenRouterClient.DEFAULT_MODEL,
     )
     run_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
-    run_parser.add_argument("--director-reasoning-effort", choices=["low", "medium", "high", "max"], default="medium",
-                            help="Reasoning effort for director planning and reviews; the actor keeps --reasoning-effort")
+    run_parser.add_argument("--director-reasoning-effort", choices=["low", "medium", "high", "max"], default=None,
+                            help="Reasoning effort for director planning and reviews; defaults to --reasoning-effort")
     run_parser.add_argument("--isolated-state", action="store_true", help="Use a fresh per-run objective ledger for comparisons; does not reset or change the game save.")
     run_parser.add_argument("--actor-mode", choices=["state-first", "visual"], default="state-first",
                             help="Use compact structured skills with visual fallback, or always send a screenshot.")

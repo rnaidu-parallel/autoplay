@@ -41,7 +41,9 @@ Guidance remains in the farmer's context until replaced, until the harness verif
 
 **Hold unsaved** stops autonomous input at the next safe action boundary and leaves the game open. It does not save. Resume requires a new harness run. Use this for a manual handoff when saving cannot wait for autonomous recovery.
 
-Commands are cooperative. They can wait for a model request or a local multi-step controller. They do not instantly cancel an in-flight input. Each pipe response has a 90-second deadline; a logical model request has a 150-second budget. These are separate limits, not a total command-latency guarantee. Normal gameplay keeps the clock running. The handoff menu can pause it normally after input stops.
+Commands are cooperative. Local skills check for commands between controls. Navigation returns after at most 300 ordinary movement ticks per segment, or earlier for a newly noticed encounter. A location change returns an observation and decision to the farmer. Planned attention yields do not count as failed attempts. Finish & Save skips optional encounters and preserves an active night transition.
+
+Commands can still wait for a model request or an in-flight control. Each pipe response has a 90-second deadline; a logical model request has a 150-second budget. These are separate limits, not a total command-latency guarantee. Normal gameplay keeps the clock running. The handoff menu can pause it normally after input stops.
 
 ## Repair Python during a recording or stream
 
@@ -110,3 +112,7 @@ The current checkpoint is `6394d027d2db4de480309f852d5668c6`; reload and one-cal
 Runtime `ad203b1` also retains the original interrupted intention when an unfinished save request is retried after restart.
 204 offline tests pass. Short OBS audio/overlay and three local outputs are verified; the clean 30-minute rehearsal remains.
 See [current evidence](readiness-2026-09-03.md) and [broadcast setup](streaming.md).
+
+## Follow-through revision
+
+The next run defaults to GLM 5.3 Flash with low reasoning and DeepInfra → NextBit → Baseten routing. The audience feed retains seven turns at the current font size. Quest review, morning mail, retained notices, menu context and full-inventory recovery are implemented; the updated bridge has not been loaded in the paused game. See [implementation and next validation](life-followthrough-2026-09-03.md). Footer cost is the API-reported total for the current run, including retries and discarded decisions, displayed to six decimals.

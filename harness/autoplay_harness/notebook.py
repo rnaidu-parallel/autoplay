@@ -17,32 +17,9 @@ CATEGORIES = (
 
 def variety_errors(day: dict[str, Any] | None, items: list[dict[str, Any]], theme: str, mode: str) -> list[str]:
     """Return planning-variety errors without changing notebook state."""
-    history = day or {}
-    errors: list[str] = []
-    for item in items:
-        category = item.get("category")
-        if category not in CATEGORIES:
-            errors.append(f"choose a valid category for {item.get('goal', 'agenda item')}")
-    counts = Counter(item.get("category") for item in items)
-    yesterday = history.get("previous_category_mix", {})
-    top_two = [category for category, _count in sorted(yesterday.items(), key=lambda pair: (-pair[1], pair[0]))[:2]]
-    if mode == "morning":
-        normalized_theme = theme.strip().casefold()
-        if normalized_theme and any(
-            normalized_theme == str(value).strip().casefold()
-            for value in history.get("recent_themes", [])[-3:]
-        ):
-            errors.append("choose a theme different from each of the last 3 days")
-        for category, count in counts.items():
-            if category and count > 3:
-                errors.append(f"use no more than 3 {category} items")
-        if top_two and len(
-            {category for category in counts if category and category not in top_two}
-        ) < 2:
-            errors.append("add at least 2 categories outside yesterday's top 2 categories")
-    if mode == "refill" and top_two and counts[top_two[0]] > 1:
-        errors.append(f"keep yesterday's dominant {top_two[0]} category to 1 refill item")
-    return errors
+    return [f"choose a valid category for {item.get('goal', 'intention')}"
+            for item in items if item.get("category") not in CATEGORIES]
+
 
 
 class Notebook:
@@ -60,6 +37,7 @@ class Notebook:
         self.data.setdefault("lessons", [])
         self.data.setdefault("weeks", [])
         self.data.setdefault("interactions", [])
+        self.data.setdefault("life", {"journal_revision_read": None, "quests": {}, "letters": []})
         self.current_day: int | None = None
         if self.data["days"]:
             self.current_day = int(next(reversed(self.data["days"])))
@@ -95,6 +73,37 @@ class Notebook:
         self._save()
         return entry
 
+    def observe_life(self, state: dict[str, Any]) -> None:
+        if not state.get("worldReady"):
+            return
+        life = self.data["life"]
+        before = json.dumps(life, sort_keys=True)
+        from .life import observe
+        observe(life, state)
+        if state.get("menu") == "QuestLog":
+            life["journal_revision_read"] = state.get("questRevision")
+            for quest in state.get("journal", []):
+                previous = life["quests"].get(quest["id"], {})
+                life["quests"][quest["id"]] = {**previous, **quest}
+                if quest.get("description") == "Open this journal entry for details." and previous.get("description"):
+                    life["quests"][quest["id"]]["description"] = previous["description"]
+        letter = state.get("letterText")
+        if letter and letter not in life["letters"]:
+            life["letters"].append(letter)
+        if json.dumps(life, sort_keys=True) != before:
+            self._save()
+
+    def life_context(self, state: dict[str, Any]) -> dict[str, Any]:
+        from .life import context
+        life = self.data["life"]
+        attention = []
+        if state.get("questRevision") and state["questRevision"] != life["journal_revision_read"]:
+            attention.append("Journal not checked since it changed. Open it before choosing another long trip.")
+        if state.get("mailCount", 0) > 0:
+            attention.append(f"{state['mailCount']} unread letter(s). Check the mailbox when on the farm.")
+        return {**context(life, state), "attention": attention,
+                "recentLetters": [letter[:300] for letter in life["letters"][-2:]]}
+
     def set_agenda(
         self,
         day: int,
@@ -103,27 +112,33 @@ class Notebook:
         dropped: list[dict[str, str]] | None = None,
     ) -> None:
         entry = self._day(day)
-        if not isinstance(theme, str) or not theme.strip():
-            raise ValueError("theme is required")
+        if not isinstance(theme, str):
+            raise ValueError("review summary must be a string")
         self._validate_items(items)
         dropped = dropped or []
         self._validate_dropped(dropped)
 
-        candidates = {item["id"]: item for item in entry["agenda"] if item["status"] == "carried"}
+        candidates = {item["id"]: item for item in entry["agenda"] if item["status"] in {"pending", "active", "carried"}}
         preserved = [item for item in entry["agenda"] if item["status"] in {"done", "dropped", "deferred"}]
         planned: list[dict[str, Any]] = []
-        next_number = self._next_item_number(day, preserved)
+        next_number = self._next_item_number(day, entry["agenda"])
 
         for item in items:
             carried_id = item.get("carried_id")
             candidate = candidates.get(carried_id) if carried_id else None
+            if candidate is None and not carried_id:
+                candidate = next((old for old in candidates.values()
+                                  if old["goal"].strip().casefold() == item["goal"].strip().casefold()
+                                  and old.get("success_condition") == item.get("success_condition")), None)
             planned.append({
                 "id": candidate["id"] if candidate else f"d{day}-{next_number}",
                 "goal": item["goal"].strip(),
                 "success_condition": item.get("success_condition"),
                 "slot": item["slot"],
                 "category": item["category"],
-                "status": "pending",
+                "status": candidate["status"] if candidate and candidate["status"] == "active" else "pending",
+                "source": item.get("source") or (candidate or {}).get("source"),
+                "reason": item.get("reason") or (candidate or {}).get("reason"),
                 "note": candidate.get("note") if candidate else None,
                 "carried_from": candidate.get("carried_from") if candidate else None,
             })
@@ -140,8 +155,11 @@ class Notebook:
                 "note": drop["reason"].strip(),
             })
 
+        mentioned = {item["id"] for item in planned}
+        carried_forward = [item for item in candidates.values() if item["id"] not in mentioned]
         entry["theme"] = theme.strip()
-        entry["agenda"] = preserved + planned
+        entry["reviewed"] = True
+        entry["agenda"] = preserved + carried_forward + planned
         self._save()
 
     def mark(self, item_id: str, status: str, note: str | None = None) -> None:
@@ -265,7 +283,7 @@ class Notebook:
         )
 
     def remember_interaction(self, subject: str, interaction: str, outcome: str, preference: str,
-                             note: str, observed: dict[str, Any]) -> dict[str, Any]:
+                             note: str, observed: dict[str, Any], revisit_when: str | None = None) -> dict[str, Any]:
         for value, limit in ((subject, 80), (interaction, 80), (note, 180)):
             if not value.strip() or len(value) > limit:
                 raise ValueError("Interaction subject, action, and note must be non-empty and within their length limits.")
@@ -282,6 +300,8 @@ class Notebook:
                  "location": observed["location"], "outcome": outcome, "preference": preference,
                  "note": note.strip(), "when": {k: observed.get(k) for k in ("year", "season", "day", "time")},
                  "encounters": (previous["encounters"] if previous else 0) + 1, "evidence": observed}
+        if revisit_when:
+            entry["revisit_when"] = revisit_when
         if previous:
             entry["previous"] = {k: previous[k] for k in ("outcome", "preference", "note", "when")}
             entries.remove(previous)
@@ -290,13 +310,18 @@ class Notebook:
         return entry
 
     def interaction_context(self, state: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+        from .objectives import evaluate_state_condition
         names = {str(item.get("name", "")).casefold() for key in ("npcsNearby", "nearbyObjects") for item in state.get(key, [])}
         recent = list(reversed(self.data["interactions"]))
         nearby = [entry for entry in recent if entry["subject"].casefold() in names or entry["location"] == state.get("location")]
         nearby.sort(key=lambda entry: entry["subject"].casefold() not in names)
         elsewhere = [entry for entry in recent if entry not in nearby]
         selected = (nearby[:limit // 2] + elsewhere + nearby[limit // 2:])[:limit]
-        return [{k: entry[k] for k in ("subject", "interaction", "location", "outcome", "preference", "note", "when", "encounters")}
+        due = [entry for entry in recent if entry.get("revisit_when") and
+               (evaluate_state_condition(entry["revisit_when"], state) or (False,))[0]]
+        selected = (due + [entry for entry in selected if entry not in due])[:limit]
+        return [{**{k: entry[k] for k in ("subject", "interaction", "location", "outcome", "preference", "note", "when", "encounters")},
+                 **({"revisit_when": entry["revisit_when"], "revisit_due": entry in due} if entry.get("revisit_when") else {})}
                 for entry in selected]
 
     def context(self, day: int | None, role: str = "director", state: dict[str, Any] | None = None) -> dict[str, Any]:

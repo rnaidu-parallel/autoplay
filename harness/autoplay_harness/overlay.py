@@ -194,7 +194,7 @@ class OverlayState:
                 del self.actions[8:]
                 if role == "actor":
                     self.actor_actions.insert(0, action)
-                    del self.actor_actions[2:]
+                    del self.actor_actions[7:]
                     if action["say"]:
                         self.sayings.insert(0, action["say"])
                         del self.sayings[2:]
@@ -208,7 +208,7 @@ class OverlayState:
                                        "gist": "", "outcome": action_outcome(result), "_step": event.get("step")})
                 del self.actions[8:]
                 self.actor_actions.insert(0, self.actions[0])
-                del self.actor_actions[2:]
+                del self.actor_actions[7:]
             if event.get("tool") == "world_map" and isinstance(result, dict) and isinstance(result.get("summary"), dict):
                 self.world_summary = result["summary"]
             for action in self.actions + self.actor_actions:
@@ -279,6 +279,21 @@ class OverlayState:
 
         agenda, reflection = self._agenda()
         active = self.objectives.get("active")
+        from . import life as life_policy
+        life = self.notebook.get("life") or {}
+        focus = None
+        if (active or {}).get("operator_finish"):
+            focus = active.get("goal")
+        elif self.game.get("menu") == "LetterViewerMenu" or life_policy.mail_due(life, self.game):
+            focus = "Read the morning mail"
+        elif self.game.get("inventoryFreeSlots") == 0 and life.get("inventory_blocked"):
+            focus = "Make room in my backpack"
+        elif life_policy.quest_review_due(life, self.game):
+            titles = [q["title"] for q in self.game.get("quests", [])]
+            focus = "Review quests: " + "; ".join(titles[:2])
+        elif life_policy.response_due(life):
+            notice = life_policy.pending(life)[0]
+            focus = notice["text"].replace("\n", " ")[:130]
         objective = None
         if isinstance(active, dict):
             objective = {
@@ -334,6 +349,7 @@ class OverlayState:
             },
             "agenda": {"theme": agenda.get("theme"), "items": agenda.get("items", []), "reflectionYesterday": reflection},
             "objective": objective,
+            "focus": focus,
             "thinking": {"role": thinking_role, "sinceMs": thinking_since},
             "speech": {"say": sayings[0] if sayings else None, "previous": sayings[1] if len(sayings) > 1 else None},
             "actions": actions,
@@ -351,7 +367,7 @@ class OverlayState:
                 "directorReviews": self.director_reviews,
                 "modelCalls": self.model_calls,
                 "inputTokens": self.prompt_tokens,
-                "cost": round(self.cost, 4),
+                "cost": self.cost,
                 "cacheHitRate": round(self.cached_tokens / prompt, 4) if prompt else 0,
                 "uptimeSeconds": uptime,
                 "stalledDecisions": self.stalled_decisions,

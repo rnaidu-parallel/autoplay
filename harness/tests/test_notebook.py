@@ -124,9 +124,9 @@ class NotebookTests(unittest.TestCase):
                 {"goal": "Fish", "slot": "evening", "category": "fishing"},
                 {"goal": "Mine", "slot": "evening", "category": "mining"},
             ]
-            self.assertIn("choose a theme different from each of the last 3 days", notebook.variety_errors(4, morning, "farm", "morning"))
+            self.assertEqual([], notebook.variety_errors(4, morning, "farm", "morning"))
             self.assertNotIn("keep yesterday's dominant farming category to 1 refill item", notebook.variety_errors(4, morning, "new", "morning"))
-            self.assertIn("keep yesterday's dominant farming category to 1 refill item", notebook.variety_errors(4, morning, "new", "refill"))
+            self.assertEqual([], notebook.variety_errors(4, morning, "new", "refill"))
 
     def test_lessons_merge_cap_and_rollup_week(self):
         with tempfile.TemporaryDirectory() as directory:

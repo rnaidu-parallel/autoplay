@@ -46,7 +46,7 @@ class OpenRouterClient:
     QWEN_MODEL = "qwen/qwen3.8-flash"
     GEMINI_FLASH_MODEL = "google/gemini-3.7-flash"
     LUNA_MODEL = "openai/gpt-5.6-luna"
-    DEFAULT_MODEL = LUNA_MODEL
+    DEFAULT_MODEL = GLM_MODEL
     OFFICIAL_PROVIDERS = {
         GEMINI_FLASH_MODEL: "Google AI Studio",
         LUNA_MODEL: "OpenAI",
@@ -79,10 +79,10 @@ class OpenRouterClient:
             "require_parameters": True,
         },
         GLM_MODEL: {
-            "only": ["z-ai/fp8", "novita/fp8", "deepinfra/fp8"],
+            "order": ["deepinfra/fp8", "nextbit/fp8", "baseten/fp8"],
+            "only": ["deepinfra/fp8", "nextbit/fp8", "baseten/fp8"],
             "quantizations": ["fp8"],
-            "sort": "price",
-            "allow_fallbacks": False,
+            "allow_fallbacks": True,
             "require_parameters": True,
         },
     }
@@ -157,12 +157,14 @@ class OpenRouterClient:
         if self.model != self.LUNA_MODEL:
             payload["temperature"] = 0.2
         if self.reasoning_effort is not None:
+            self.validate_effort(self.model, reasoning_effort or self.reasoning_effort)
             payload["reasoning"] = {"effort": reasoning_effort or self.reasoning_effort}
-        if self.model == self.LUNA_MODEL:
+        if self.model in {self.LUNA_MODEL, self.GLM_MODEL}:
             # The key only routes to a cache-warm server, so it must not change with the objective or world.
             # A breakpoint on the fixed instructions lets a changed slow block fall back to that prefix.
             prefix = json.dumps([self.model, system_prompt, tools], sort_keys=True, separators=(",", ":"))
             payload["prompt_cache_key"] = "autoplay:" + hashlib.sha256(prefix.encode()).hexdigest()[:24]
+        if self.model == self.LUNA_MODEL:
             payload["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
             payload["messages"][0]["content"] = [{"type": "text", "text": system_prompt,
                                                    "prompt_cache_breakpoint": {"mode": "explicit"}}]

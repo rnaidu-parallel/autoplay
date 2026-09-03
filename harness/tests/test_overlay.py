@@ -1,5 +1,6 @@
 import json
 import threading
+import tempfile
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -7,9 +8,34 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from autoplay_harness.overlay import OverlayState, action_summary, argument_gist, atomic_write_json, build_state, create_server
+from autoplay_harness.openrouter import OpenRouterClient
+from autoplay_harness.telemetry import Telemetry
 
 
 class OverlayStateTests(unittest.TestCase):
+    def test_provider_reported_cost_counts_retries_cache_and_fallback_once(self):
+        # A rejected DeepInfra response still costs money; NextBit supplies the accepted retry.
+        # Reported charges already include cache discounts. Never recalculate at one provider's rate.
+        retries = OpenRouterClient._merge_usage({}, {"cost": 0.00008125, "prompt_tokens": 1000,
+            "prompt_tokens_details": {"cached_tokens": 500}, "completion_tokens": 100})
+        retries = OpenRouterClient._merge_usage(retries, {"cost": 0.000062, "prompt_tokens": 1000,
+            "prompt_tokens_details": {"cached_tokens": 900}, "completion_tokens": 40})
+        events = [
+            {"type": "actor_decision", "tool": "press", "usage": retries,
+             "attempts": [{"provider": "DeepInfra", "usage": {"cost": 0.00008125}}, {"provider": "NextBit", "usage": {"cost": 0.000062}}]},
+            {"type": "director_decision", "applied": False, "usage": {"cost": 0.00001975}},
+            {"type": "model_error", "usage": {"cost": 0.000004}},
+        ]
+        overlay = OverlayState("cost-test")
+        with tempfile.TemporaryDirectory() as directory:
+            telemetry = Telemetry(Path(directory))
+            for event in events:
+                telemetry.record(event["type"], event)
+                overlay.apply(event)
+            self.assertAlmostEqual(0.000167, overlay.snapshot()["stats"]["cost"], places=10)
+            self.assertEqual(telemetry.summary["usage"]["cost"], overlay.snapshot()["stats"]["cost"])
+            self.assertEqual(0.7, overlay.snapshot()["stats"]["cacheHitRate"])
+
     def setUp(self) -> None:
         self.start = "2026-09-03T10:00:00+00:00"
         self.now = datetime(2026, 9, 3, 10, 0, 5, tzinfo=timezone.utc)
@@ -58,7 +84,7 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual("7:10 AM", running["game"]["time"])
         self.assertEqual(1, running["stats"]["decisions"])
         self.assertEqual(0.4, running["stats"]["cacheHitRate"])
-        self.assertEqual(0.0123, running["stats"]["cost"])
+        self.assertEqual(0.012345, running["stats"]["cost"])
 
     def test_fatal_exit_clears_pending_work_and_shows_stopped(self) -> None:
         state = OverlayState("run-1")
@@ -154,7 +180,7 @@ class OverlayStateTests(unittest.TestCase):
             state.apply({"type": "director_decision", "step": step, "tool": "continue_objective"})
         state.apply({"type": "tool_result", "step": 3, "tool": "navigate_to", "result": {"status": "completed"}})
         actions = state.snapshot(now=self.now)["actorActions"]
-        self.assertEqual(["Visit 3", "Visit 2"], [a["say"] for a in actions])
+        self.assertEqual(["Visit 3", "Visit 2", "Visit 1"], [a["say"] for a in actions])
         self.assertEqual("completed", actions[0]["outcome"])
         state.apply({"type": "tool_result", "step": 14, "source": "operator_finish",
                      "tool": "go_home_and_sleep", "result": {"status": "completed"}})

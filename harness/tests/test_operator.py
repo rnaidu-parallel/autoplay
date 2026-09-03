@@ -98,6 +98,17 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual("finishing", self.harness.operator_mode)
         self.assertNotIn("checkpoint", self.harness.control.status())
 
+    def test_finish_restores_open_interest_without_inventing_completion_condition(self):
+        self.harness.ledger.pursue_interest("Look around the forest", "Follow an interesting path")
+        self.finish()
+        self.disk_save()
+        self.assertTrue(self.harness._checkpoint_if_saved(MORNING))
+        active = self.harness.ledger.snapshot()["active"]
+        self.assertEqual("curiosity", active["kind"])
+        self.assertIsNone(active["success_condition"])
+        restored = self.harness.checkpoints.restore()
+        self.assertEqual("summer", restored["date"]["season"])
+
     def test_retrying_finish_after_restart_keeps_original_intention(self):
         self.finish()
         from autoplay_harness.objectives import ObjectiveLedger

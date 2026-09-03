@@ -84,6 +84,23 @@ class ObjectiveLedger:
         active["reviewed_at"] = self._now()
         self._save()
 
+    def pursue_interest(self, goal: str, reason: str) -> None:
+        active = self.data.get("active")
+        if active:
+            self.data["history"].append({**active, "status": "interrupted", "evidence": reason, "ended_at": self._now()})
+        self.data["active"] = {"id": f"objective-{len(self.data['history']) + 1}", "goal": goal,
+                               "success_condition": None, "kind": "curiosity", "status": "active",
+                               "milestone": reason, "created_at": self._now()}
+        self._save()
+
+    def consider_interest(self, evidence: str) -> None:
+        active = self._require_active()
+        if active.get("kind") != "curiosity":
+            raise ObjectiveError("Only an open-ended interest can be marked considered; tasks require verified completion.")
+        self.data["history"].append({**active, "status": "considered", "evidence": evidence, "ended_at": self._now()})
+        self.data["active"] = None
+        self._save()
+
     def complete_objective(self, evidence: str) -> None:
         active = self._require_active()
         active["status"] = "completed"
@@ -166,6 +183,8 @@ class ObjectiveLedger:
 
 
 def _parse_condition(condition: str) -> list[tuple[str, str, str]] | None:
+    if not condition:
+        return None
     clauses = [
         clause.strip()
         for clause in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", condition, flags=re.IGNORECASE)

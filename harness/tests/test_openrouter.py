@@ -23,6 +23,32 @@ class _Response:
 
 class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
+    def test_glm_default_routing_cache_prefix_and_low_reasoning(self, urlopen):
+        urlopen.return_value = _Response({"provider": "DeepInfra", "usage": {"prompt_tokens_details": {"cached_tokens": 1024}},
+            "choices": [{"message": {"tool_calls": [{"function": {"name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
+        self.assertEqual(OpenRouterClient.GLM_MODEL, OpenRouterClient.DEFAULT_MODEL)
+        client = OpenRouterClient("secret", OpenRouterClient.DEFAULT_MODEL, "run")
+        for context in ("Farm 9:00", "Town 10:00"):
+            decision = client.choose_tool("static", context, None, ACTOR_TOOLS, stable_context="long lived notes")
+        payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual(payloads[0]["prompt_cache_key"], payloads[1]["prompt_cache_key"])
+        self.assertEqual(payloads[0]["messages"][0], payloads[1]["messages"][0])
+        self.assertEqual(payloads[0]["tools"], payloads[1]["tools"])
+        self.assertEqual(payloads[0]["session_id"], payloads[1]["session_id"])
+        for payload in payloads:
+            self.assertEqual(["deepinfra/fp8", "nextbit/fp8", "baseten/fp8"], payload["provider"]["order"])
+            self.assertEqual(payload["provider"]["order"], payload["provider"]["only"])
+            self.assertTrue(payload["provider"]["allow_fallbacks"])
+            self.assertNotIn("sort", payload["provider"])
+            self.assertEqual({"effort": "low"}, payload["reasoning"])
+            self.assertNotIn("prompt_cache_options", payload)
+            self.assertNotIn("prompt_cache_breakpoint", json.dumps(payload))
+            self.assertEqual("long lived notes", payload["messages"][1]["content"][0]["text"])
+        self.assertEqual(1024, decision.usage["prompt_tokens_details"]["cached_tokens"])
+        with self.assertRaises(OpenRouterError):
+            client.choose_tool("static", "state", None, ACTOR_TOOLS, reasoning_effort="medium")
+
+    @patch("urllib.request.urlopen")
     def test_system_message_and_tools_serialize_identically(self, urlopen):
         urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {"name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
@@ -389,9 +415,9 @@ class OpenRouterClientTests(unittest.TestCase):
         payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
         for payload in payloads:
             self.assertEqual({"effort": "low"}, payload["reasoning"])
-            self.assertEqual(["z-ai/fp8", "novita/fp8", "deepinfra/fp8"], payload["provider"]["only"])
-            self.assertEqual("price", payload["provider"]["sort"])
-            self.assertFalse(payload["provider"]["allow_fallbacks"])
+            self.assertEqual(["deepinfra/fp8", "nextbit/fp8", "baseten/fp8"], payload["provider"]["only"])
+            self.assertEqual(payload["provider"]["only"], payload["provider"]["order"])
+            self.assertTrue(payload["provider"]["allow_fallbacks"])
             self.assertTrue(payload["provider"]["require_parameters"])
         self.assertEqual(payloads[0]["messages"][0], payloads[1]["messages"][0])
         self.assertEqual(payloads[0]["tools"], payloads[1]["tools"])
