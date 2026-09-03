@@ -18,7 +18,7 @@ from .history import History
 from .capture import CaptureError, Frame, ScreenCapture
 from .farming import clear_debris, go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 from .notebook import Notebook
-from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
+from .objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition, validate_new_condition
 from .openrouter import OpenRouterClient, OpenRouterError, ToolDecision
 from .prompts import ACTOR_SYSTEM_PROMPT, DIRECTOR_SYSTEM_PROMPT
 from .recording import GameplayRecorder, RecordingError
@@ -348,7 +348,10 @@ class AutoplayHarness:
             if kind == "finish_save" and self.operator_mode == "playing":
                 self.operator_mode = "finishing"
                 self.finish_baseline = dict(state)
-                self.finish_previous_objective = self.ledger.snapshot().get("active")
+                active = self.ledger.data.get("active")
+                self.finish_previous_objective = (
+                    active.get("resume_objective") if active and active.get("operator_finish") else active
+                )
                 previous = self.finish_previous_objective or {}
                 if previous.get("agenda_id"):
                     self.notebook.mark(previous["agenda_id"], "pending", "Operator requested a save and session end.")
@@ -357,6 +360,7 @@ class AutoplayHarness:
                     f"saveCount > {state.get('saveCount') or 0}, location is FarmHouse, playerFree is true, nightActive is false",
                     "Leave chores and detours. Return to FarmHouse and use the bed; early sleep is allowed.",
                     interruption_reason="Operator requested Finish & Save.",
+                    operator_finish=True,
                 )
                 self.stall_review_requested = False
                 self.last_action_fingerprint = None
@@ -387,7 +391,7 @@ class AutoplayHarness:
                 and position != getattr(self, "finish_sleep_position", None)):
             self.finish_sleep_position = position
             self.telemetry.step += 1
-            result = go_home_and_sleep(self.bridge, state, 45)
+            result = go_home_and_sleep(self.bridge, state, 45, self.world)
             self.game_actions += result["controls_executed"]
             self.last_result = {"tool": "go_home_and_sleep", "status": result.get("status"), "reason": result.get("reason")}
             self.telemetry.record("tool_result", {"tool": "go_home_and_sleep", "source": "operator_finish", "result": result})
@@ -629,7 +633,7 @@ class AutoplayHarness:
                     "tool": decision.name, "status": result.get("status"),
                     "reason": str(result.get("reason") or result.get("error") or "")[:180],
                     "changes": [key for key in ("location", "menu", "dialogueText", "inventoryCounts", "stamina", "health",
-                                               "plantedCrops", "wateredCrops", "harvestableCrops")
+                                               "plantedCrops", "seedsSown", "wateredCrops", "harvestableCrops")
                                 if current_state.get(key) != after.get(key)],
                     "dialogue": (after.get("dialogueText") or "")[:180],
                     "run_id": getattr(self, "run_id", None), "step": self.telemetry.step,
@@ -965,7 +969,7 @@ class AutoplayHarness:
         # A routine review recommends outcomes, not cursor coordinates or a movement sequence.
         # Invalidate it on objective, resource, crop, menu, location, or day changes.
         fields = ("worldReady", "location", "day", "season", "year", "menu", "eventUp",
-                  "inventory", "plantedCrops", "wateredCrops", "harvestableCrops", "money", "health")
+                  "inventory", "plantedCrops", "seedsSown", "wateredCrops", "harvestableCrops", "money", "health")
         return json.dumps({"active": self.ledger.snapshot().get("active"),
                            "operator_revision": getattr(self, "operator_revision", 0),
                            "state": {key: state.get(key) for key in fields},
@@ -1133,11 +1137,7 @@ class AutoplayHarness:
                     self.notebook.mark(agenda_id, "carried", arguments["evidence"])
         elif decision.name == "set_objective":
             try:
-                evaluation = evaluate_state_condition(arguments["success_condition"], state)
-                if evaluation is not None and evaluation[0]:
-                    raise ObjectiveError("The proposed success condition is already satisfied.")
-                if evaluation is not None and any(" is unavailable" in item for item in evaluation[1]):
-                    raise ObjectiveError("The proposed success condition uses an unavailable state field.")
+                validate_new_condition(arguments["success_condition"], state)
                 agenda_id = arguments.get("agenda_id")
                 day = calendar_day(state)
                 bedtime_return = False
@@ -1260,7 +1260,8 @@ class AutoplayHarness:
             if hasattr(self, "notebook") and not finishing:
                 self._reflect_before_sleep(before_state or {}, frame)
             response = go_home_and_sleep(self.bridge, before_state or {},
-                                         45 if self.continuous or finishing else self.max_actions - self.game_actions)
+                                         45 if self.continuous or finishing else self.max_actions - self.game_actions,
+                                         self.world)
             self.game_actions += response["controls_executed"]
             return response
         if name == "travel_to":
@@ -1407,10 +1408,10 @@ class AutoplayHarness:
     def _change_actor_objective(self, arguments: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
         active = self.ledger.snapshot().get("active")
         condition = arguments["success_condition"]
-        evaluation = evaluate_state_condition(condition, state)
-        if (not condition.strip() or evaluation is None or evaluation[0]
-                or any(" is unavailable" in item for item in evaluation[1])):
-            return {"status": "rejected", "reason": "Choose a currently false condition using observed state fields."}
+        try:
+            validate_new_condition(condition, state)
+        except ObjectiveError as error:
+            return {"status": "rejected", "reason": str(error)}
         if any(not arguments[key].strip() for key in ("goal", "milestone", "reason")):
             return {"status": "rejected", "reason": "Explain your new intention, next step, and reason for changing plans."}
         target = self._retry_condition_key(condition)
@@ -1650,7 +1651,7 @@ class AutoplayHarness:
         inventory_counts = tuple(sorted((state.get("inventoryCounts") or {}).items()))
         return tuple(state.get(field) for field in (
             "location", "tileX", "tileY", "day", "time", "money", "stamina",
-            "plantedCrops", "wateredCrops", "tilledTiles", "harvestableCrops",
+            "plantedCrops", "seedsSown", "wateredCrops", "tilledTiles", "harvestableCrops",
             "dialogueText", "eventUp", "playerFree", "canMove",
         )) + (inventory_counts, state.get("menu"))
 

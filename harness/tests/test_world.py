@@ -98,6 +98,57 @@ class _StaleBlockedTravelBridge(_TravelBridge):
 
 
 class WorldMapTests(unittest.TestCase):
+    def farm_world(self, directory: str) -> WorldMap:
+        world = WorldMap(Path(directory))
+        world.nodes = {name: {"name": name} for name in ("Farm", "Forest", "Town", "BusStop", "FarmHouse")}
+        links = [("Farm", "FarmHouse"), ("Farm", "BusStop"), ("Farm", "Forest"), ("Forest", "Town"), ("Town", "BusStop")]
+        world.edges = [{"from": a, "to": b} for pair in links for a, b in (pair, pair[::-1])]
+        world.observe({"location": "Forest", "day": 5})
+        world.observe({"location": "Farm", "day": 5})
+        return world
+
+    def test_route_reenters_farm_from_another_entrance_and_preserves_failed_entrance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.farm_world(directory)
+            for destination in ("FarmHouse", "BusStop"):
+                world.record_blocked_path("Farm", destination, 5)
+            self.assertEqual(["Forest", "Town", "BusStop", "Farm", "FarmHouse"], world.route("Farm", "FarmHouse"))
+            self.assertEqual(["BusStop", "FarmHouse"], world.summary("Farm", 1200)["blockedNow"])
+            reloaded = WorldMap(Path(directory))
+            self.assertEqual("Forest", reloaded.entered_from)
+            self.assertEqual(world.blocked_paths, reloaded.blocked_paths)
+            world.observe({"location": "BusStop", "day": 5})
+            world.observe({"location": "Farm", "day": 5})
+            self.assertEqual(["FarmHouse"], world.route("Farm", "FarmHouse"))
+            world.clear_blocked_path("Farm", "FarmHouse")
+            self.assertEqual(2, len(world.blocked_paths))
+
+    def test_travel_recovers_after_blocked_and_missing_exits_without_repeating_them(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.farm_world(directory)
+            world.nodes["FarmCave"] = {"name": "FarmCave"}
+            world.edges.extend([{"from": "Farm", "to": "FarmCave"}, {"from": "FarmCave", "to": "Farm"}])
+            bridge = _TravelBridge("Farm")
+            entered_from = "Forest"
+            original = bridge.request
+            attempts = []
+            def request(kind, **arguments):
+                nonlocal entered_from
+                if kind == "go_to_location":
+                    destination = arguments["location"]
+                    attempts.append((bridge.location, entered_from, destination))
+                    if bridge.location == "Farm" and entered_from == "Forest" and destination in {"FarmHouse", "BusStop", "FarmCave"}:
+                        return {"status": "blocked", "error": "no_exit_to_location" if destination == "FarmCave" else "no_walkable_path",
+                                "state": {"location": "Farm", "day": 5, "health": 100, "menu": "none"}}
+                    entered_from = bridge.location
+                return original(kind, **arguments)
+            bridge.request = request
+            result = travel_to(bridge, {"location": "Farm", "day": 5, "health": 100, "menu": "none"}, world, "FarmHouse", 20)
+            self.assertTrue(result["arrived"])
+            self.assertEqual(["Forest", "Town", "BusStop", "Farm", "FarmHouse"], result["hops_completed"])
+            self.assertEqual(18, result["controls_executed"])
+            self.assertEqual(len(attempts), len(set(attempts)))
+
     def make_world(self, directory: str) -> WorldMap:
         world = WorldMap(Path(directory))
         world.load(_MapBridge(), 1)

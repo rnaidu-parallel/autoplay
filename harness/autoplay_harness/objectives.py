@@ -46,6 +46,7 @@ class ObjectiveLedger:
         active = self.data.get("active")
         compact_active = dict(active) if active else None
         if compact_active:
+            compact_active.pop("resume_objective", None)
             compact_active.pop("last_review_reason", None)
             if len(compact_active.get("milestone", "")) > 1200:
                 compact_active["milestone"] = compact_active["milestone"][:1200] + "…"
@@ -108,6 +109,7 @@ class ObjectiveLedger:
         milestone: str,
         agenda_id: str | None = None,
         interruption_reason: str | None = None,
+        operator_finish: bool = False,
     ) -> None:
         active = self.data.get("active")
         if active is not None and interruption_reason is None:
@@ -130,6 +132,11 @@ class ObjectiveLedger:
         }
         if agenda_id is not None:
             self.data["active"]["agenda_id"] = agenda_id
+        if operator_finish:
+            self.data["active"]["operator_finish"] = True
+            self.data["active"]["resume_objective"] = (
+                active.get("resume_objective") if active and active.get("operator_finish") else active
+            )
         self._save()
 
     def _require_active(self) -> dict[str, Any]:
@@ -158,7 +165,7 @@ class ObjectiveLedger:
         return datetime.now(timezone.utc).isoformat()
 
 
-def evaluate_state_condition(condition: str, state: dict[str, Any]) -> tuple[bool, list[str]] | None:
+def _parse_condition(condition: str) -> list[tuple[str, str, str]] | None:
     clauses = [
         clause.strip()
         for clause in re.split(r"\s*,\s*(?:and\s+)?|\s+and\s+", condition, flags=re.IGNORECASE)
@@ -173,6 +180,38 @@ def evaluate_state_condition(condition: str, state: dict[str, Any]) -> tuple[boo
         if match is None:
             return None
         parsed.append((match.group(1).strip(), match.group(2), match.group(3).strip().strip("'\"")))
+    return parsed or None
+
+
+def validate_new_condition(condition: str, state: dict[str, Any]) -> None:
+    parsed = _parse_condition(condition)
+    evaluation = evaluate_state_condition(condition, state)
+    if parsed is None or evaluation is None:
+        raise ObjectiveError("Use a conjunction of structured state comparisons.")
+    if evaluation[0]:
+        raise ObjectiveError("The proposed success condition is already satisfied.")
+    if any(" is unavailable" in item for item in evaluation[1]):
+        raise ObjectiveError("The proposed success condition uses an unavailable state field.")
+    fields = {field.casefold() for field, _operator, _value in parsed}
+    if "plantedcrops" in fields:
+        raise ObjectiveError("plantedCrops includes existing crops. Prove new planting with seedsSown above its current total.")
+    crop_fields = {"tilledtiles", "wateredcrops", "harvestablecrops"}
+    if fields & crop_fields and not any(
+        field.casefold() == "location" and operator in {"is", "=", "=="}
+        and value.casefold() == str(state.get("location") or "").casefold()
+        for field, operator, value in parsed
+    ):
+        raise ObjectiveError("Local crop totals require a location clause matching the current observed location. Travel there first.")
+    for field, operator, value in parsed:
+        if field.casefold() in crop_fields | {"seedssown"}:
+            if evaluate_state_condition(f"{field} {operator} {value}", state)[0]:
+                raise ObjectiveError(f"The work clause {field} is already satisfied; another false clause does not prove new work.")
+
+
+def evaluate_state_condition(condition: str, state: dict[str, Any]) -> tuple[bool, list[str]] | None:
+    parsed = _parse_condition(condition)
+    if parsed is None:
+        return None
 
     mismatches: list[str] = []
     for requested_key, operator, expected_text in parsed:

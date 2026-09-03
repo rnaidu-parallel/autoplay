@@ -6,6 +6,7 @@ from .calendar import calendar_day
 import time
 
 from .bridge import NamedPipeBridge
+from .world import WorldMap, travel_to
 
 
 TOOLBAR_BUTTONS = [f"D{i}" for i in range(1, 10)] + ["D0", "OemMinus", "OemPlus"]
@@ -424,7 +425,8 @@ def clear_debris(bridge: NamedPipeBridge, state: dict[str, Any], targets: list[d
     return finish("completed")
 
 
-def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_budget: int) -> dict[str, Any]:
+def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_budget: int,
+                      world_map: WorldMap | None = None) -> dict[str, Any]:
     """Walk into the farmhouse, answer the bed prompt, and wait for the nightly event and save."""
     runner = _Controls(bridge, state, action_budget)
     steps: list[dict[str, Any]] = []
@@ -465,7 +467,15 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
     if state.get("location") not in {"Farm", "FarmHouse"}:
         return finish("blocked", "not_on_farm")
 
-    if state.get("location") == "Farm":
+    if state.get("location") == "Farm" and world_map is not None:
+        travel = travel_to(bridge, state, world_map, "FarmHouse", action_budget)
+        runner.state = travel["state"]
+        runner.executed += travel["controls_executed"]
+        runner.timings.extend(travel["control_timings"])
+        steps.append({"step": "enter_farmhouse", "hops": travel["hops_completed"]})
+        if not travel["arrived"]:
+            return finish("blocked", travel["reason"])
+    elif state.get("location") == "Farm":
         # The door warp can land on the same tick the navigator gives up, so the observed
         # location and control availability are the proof of arrival, not the transit status.
         error = step("go_to_location", location="FarmHouse", ticks=600)

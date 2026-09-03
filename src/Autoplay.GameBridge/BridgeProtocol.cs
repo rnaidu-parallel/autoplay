@@ -93,6 +93,7 @@ internal sealed class GameStateSnapshot
     public string? DialogueText { get; init; }
     public int? TilledTiles { get; init; }
     public int? PlantedCrops { get; init; }
+    public uint? SeedsSown { get; init; }
     public int? WateredCrops { get; init; }
     public int? HarvestableCrops { get; init; }
     public int? WateringCanWater { get; init; }

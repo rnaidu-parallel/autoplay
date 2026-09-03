@@ -334,6 +334,8 @@ public sealed class ModEntry : Mod
         ClickableComponent component = dialogueBox.responseCC![index];
         int x = component.bounds.Center.X;
         int y = component.bounds.Center.Y;
+        // Questions use the hovered response when accepting a click.
+        dialogueBox.performHoverAction(x, y);
         dialogueBox.receiveLeftClick(x, y, true);
         dialogueBox.releaseLeftClick(x, y);
         this.ScheduleState("dialogue_response_selected");
@@ -1829,6 +1831,7 @@ public sealed class ModEntry : Mod
             DialogueText = Game1.activeClickableMenu is DialogueBox activeDialogue ? activeDialogue.getCurrentString() : null,
             TilledTiles = tilledTiles,
             PlantedCrops = plantedCrops,
+            SeedsSown = Game1.stats.SeedsSown,
             WateredCrops = wateredCrops,
             HarvestableCrops = harvestableCrops,
             WateringCanWater = wateringCan?.WaterLeft,

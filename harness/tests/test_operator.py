@@ -98,6 +98,28 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual("finishing", self.harness.operator_mode)
         self.assertNotIn("checkpoint", self.harness.control.status())
 
+    def test_retrying_finish_after_restart_keeps_original_intention(self):
+        self.finish()
+        from autoplay_harness.objectives import ObjectiveLedger
+        self.harness.ledger = ObjectiveLedger(self.harness.ledger.path)
+        self.harness.operator_mode = "playing"
+        self.finish()
+        self.assertEqual("Explore town", self.harness.finish_previous_objective["goal"])
+        self.assertNotIn("resume_objective", self.harness.ledger.snapshot()["active"])
+        self.disk_save()
+        self.assertTrue(self.harness._checkpoint_if_saved(MORNING))
+        self.assertEqual("Explore town", self.harness.ledger.snapshot()["active"]["goal"])
+
+    def test_retrying_finish_without_a_previous_goal_leaves_no_save_goal(self):
+        self.harness.ledger.complete_objective("Setup complete")
+        self.finish()
+        self.harness.operator_mode = "playing"
+        self.finish()
+        self.assertIsNone(self.harness.finish_previous_objective)
+        self.disk_save()
+        self.assertTrue(self.harness._checkpoint_if_saved(MORNING))
+        self.assertIsNone(self.harness.ledger.snapshot()["active"])
+
     def test_finish_retry_limit_stops_for_assistance_without_deferring_save(self):
         self.finish()
         decision = ToolDecision("travel_to", {"destination":"FarmHouse"}, {}, None)

@@ -2,10 +2,29 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autoplay_harness.objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition
+from autoplay_harness.objectives import ObjectiveError, ObjectiveLedger, evaluate_state_condition, validate_new_condition
 
 
 class ObjectiveLedgerTests(unittest.TestCase):
+    def test_arriving_at_existing_crops_does_not_prove_new_planting(self) -> None:
+        before = {"location": "Town", "plantedCrops": 0, "seedsSown": 12}
+        with self.assertRaisesRegex(ObjectiveError, "includes existing crops"):
+            validate_new_condition("location is Farm, plantedCrops >= 4", before)
+        validate_new_condition("seedsSown >= 13", before)
+        arrived = {**before, "location": "Farm", "plantedCrops": 4}
+        self.assertFalse(evaluate_state_condition("seedsSown >= 13", arrived)[0])
+        self.assertTrue(evaluate_state_condition("seedsSown >= 13", {**arrived, "seedsSown": 13})[0])
+
+    def test_crop_work_requires_observed_location_and_unfinished_work(self) -> None:
+        with self.assertRaisesRegex(ObjectiveError, "current observed location"):
+            validate_new_condition("location is Farm, wateredCrops >= 4", {"location": "Town", "wateredCrops": 0})
+        with self.assertRaisesRegex(ObjectiveError, "already satisfied"):
+            validate_new_condition("location is Farm, wateredCrops >= 4, time >= 1200",
+                                   {"location": "Farm", "wateredCrops": 4, "time": 600})
+        validate_new_condition("location is Farm, wateredCrops >= 4", {"location": "Farm", "wateredCrops": 0})
+        with self.assertRaisesRegex(ObjectiveError, "already satisfied"):
+            validate_new_condition("location is Town, seedsSown >= 4", {"location": "Farm", "seedsSown": 4})
+
     def test_snapshot_bounds_long_lived_ledger_context(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             ledger = ObjectiveLedger(Path(directory) / "objectives.json", "Start", "day >= 2")

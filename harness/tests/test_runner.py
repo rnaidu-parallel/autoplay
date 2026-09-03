@@ -471,10 +471,11 @@ class RunnerTests(unittest.TestCase):
     def test_bedtime_guard_rejects_early_sleep_unless_exhausted(self) -> None:
         harness = object.__new__(AutoplayHarness)
         harness.bridge = _Bridge()
+        harness.world = Mock()
         harness.game_actions = 0
         harness.continuous = True
 
-        def dispatch_sleep(bridge, _state, _actions):
+        def dispatch_sleep(bridge, _state, _actions, _world):
             response = bridge.request("sleep_test")
             return {**response, "controls_executed": 1}
 
@@ -1037,6 +1038,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
             harness.bridge = _Bridge()
+            harness.world = Mock()
             harness.notebook = Notebook(Path(directory))
             harness.notebook.start_day(4)
             harness.notebook.set_agenda(
@@ -1053,7 +1055,7 @@ class RunnerTests(unittest.TestCase):
             harness.continuous = True
             order = []
 
-            def sleep(_bridge, _state, _actions):
+            def sleep(_bridge, _state, _actions, _world):
                 order.append("sleep")
                 return {"status": "completed", "controls_executed": 1}
 

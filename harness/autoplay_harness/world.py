@@ -19,6 +19,7 @@ class WorldMap:
         data = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
         self.visited: dict[str, int] = data.get("visited", {})
         self.last_location: str | None = data.get("last_location")
+        self.entered_from: str | None = data.get("entered_from")
         self.unreachable_edges: list[dict[str, Any]] = data.get("unreachable_edges", [])
         self.blocked_paths: list[dict[str, Any]] = data.get("blocked_paths", [])
         self.current_day: int | None = data.get("day")
@@ -61,7 +62,9 @@ class WorldMap:
             if changed:
                 self._save()
             return
-        changed = location != self.last_location or changed
+        if location != self.last_location:
+            self.entered_from = self.last_location
+            changed = True
         self.last_location = location
         if location not in self.visited:
             self.visited[location] = calendar_day(state) or 1
@@ -89,6 +92,8 @@ class WorldMap:
             self.current_day = day
             self.blocked_paths = []
         value = {"from": from_name, "to": to_name, "day": day}
+        if from_name == self.last_location and self.entered_from is not None:
+            value["entered_from"] = self.entered_from
         if value in self.blocked_paths:
             return
         self.blocked_paths.append(value)
@@ -97,7 +102,8 @@ class WorldMap:
     def clear_blocked_path(self, from_name: str, to_name: str) -> None:
         remaining = [
             path for path in self.blocked_paths
-            if path.get("from") != from_name or path.get("to") != to_name
+            if (path.get("from") != from_name or path.get("to") != to_name
+                or path.get("entered_from") not in {None, self.entered_from})
         ]
         if len(remaining) == len(self.blocked_paths):
             return
@@ -147,7 +153,7 @@ class WorldMap:
         unreachable = list(dict.fromkeys(
             edge["to"] for edge in self.unreachable_edges if edge.get("to") in self.nodes
         ))[-12:]
-        blocked_pairs = self._blocked_pairs()
+        blocked_pairs = self._blocked_pairs(self.entered_from)
         destinations = {edge["to"] for edge in self.edges if edge["from"] == current}
         blocked_now = sorted(
             destination for destination in destinations
@@ -191,50 +197,47 @@ class WorldMap:
         if from_name == to_name:
             return []
         adjacent: dict[str, list[tuple[str, dict[str, Any]]]] = {name: [] for name in self.nodes}
-        unavailable = self._unreachable_pairs() | self._blocked_pairs()
-        for edge in self._available_edges():
+        unavailable = self._unreachable_pairs()
+        for edge in self.edges:
+            if (edge["from"], edge["to"]) in unavailable:
+                continue
             adjacent[edge["from"]].append((edge["to"], edge))
             if undirected and (edge["to"], edge["from"]) not in unavailable:
                 adjacent[edge["to"]].append((edge["from"], edge))
-        queue = deque([from_name])
-        previous: dict[str, tuple[str, dict[str, Any]]] = {}
-        seen = {from_name}
+        origin = (from_name, self.entered_from if from_name == self.last_location else None)
+        queue = deque([origin])
+        previous = {}
+        seen = {origin}
         while queue:
-            name = queue.popleft()
+            current = queue.popleft()
+            name, entered_from = current
+            blocked = self._blocked_pairs(entered_from)
             for neighbor, edge in adjacent[name]:
-                if neighbor in seen:
+                arrival = (neighbor, name)
+                if arrival in seen or (name, neighbor) in blocked:
                     continue
-                seen.add(neighbor)
-                previous[neighbor] = (name, edge)
+                seen.add(arrival)
+                previous[arrival] = (current, edge)
                 if neighbor == to_name:
                     path: list[tuple[str, dict[str, Any]]] = []
-                    cursor = to_name
-                    while cursor != from_name:
+                    cursor = arrival
+                    while cursor != origin:
                         prior, path_edge = previous[cursor]
-                        path.append((cursor, path_edge))
+                        path.append((cursor[0], path_edge))
                         cursor = prior
                     path.reverse()
                     return path
-                queue.append(neighbor)
+                queue.append(arrival)
         return None
 
     def _distances(self, origin: str | None) -> dict[str, int]:
         if origin not in self.nodes:
             return {}
-        adjacent = {name: set() for name in self.nodes}
-        unavailable = self._unreachable_pairs() | self._blocked_pairs()
-        for edge in self._available_edges():
-            adjacent[edge["from"]].add(edge["to"])
-            if (edge["to"], edge["from"]) not in unavailable:
-                adjacent[edge["to"]].add(edge["from"])
-        distances = {origin: 0}
-        queue = deque([origin])
-        while queue:
-            name = queue.popleft()
-            for neighbor in adjacent[name]:
-                if neighbor not in distances:
-                    distances[neighbor] = distances[name] + 1
-                    queue.append(neighbor)
+        distances = {}
+        for name in self.nodes:
+            path = self._find_path(origin, name, undirected=True)
+            if path is not None:
+                distances[name] = len(path)
         return distances
 
     @staticmethod
@@ -250,15 +253,16 @@ class WorldMap:
             if edge.get("from") and edge.get("to")
         }
 
-    def _blocked_pairs(self) -> set[tuple[str, str]]:
+    def _blocked_pairs(self, entered_from: str | None = None) -> set[tuple[str, str]]:
         return {
             (path["from"], path["to"])
             for path in self.blocked_paths
             if path.get("day") == self.current_day and path.get("from") and path.get("to")
+            and path.get("entered_from") in {None, entered_from}
         }
 
     def _available_edges(self) -> list[dict[str, Any]]:
-        unavailable = self._unreachable_pairs() | self._blocked_pairs()
+        unavailable = self._unreachable_pairs() | self._blocked_pairs(self.entered_from)
         return [edge for edge in self.edges if (edge["from"], edge["to"]) not in unavailable]
 
     def _save(self) -> None:
@@ -267,6 +271,7 @@ class WorldMap:
             json.dumps({
                 "visited": self.visited,
                 "last_location": self.last_location,
+                "entered_from": self.entered_from,
                 "unreachable_edges": self.unreachable_edges,
                 "blocked_paths": self.blocked_paths,
                 "day": self.current_day,
@@ -289,6 +294,7 @@ def travel_to(
     control_timings: list[dict[str, Any]] = []
 
     def finish(status: str, reason: str | None, arrived: bool = False) -> dict[str, Any]:
+        world_map.observe(current)
         return {
             "status": status,
             "reason": reason,
@@ -304,13 +310,6 @@ def travel_to(
         return finish("rejected", "unknown_location")
     if destination == here:
         return finish("rejected", "already_there", arrived=True)
-    route = world_map.route(here or "", destination, state.get("time"))
-    if isinstance(route, dict):
-        open_time = route["blocked_by"]["openTime"]
-        return finish("blocked", f"door_closed_until_{open_time}")
-    if not route:
-        return finish("rejected", "no_route")
-
     start_health = state.get("health") or 0
 
     def unsafe() -> bool:
@@ -327,6 +326,9 @@ def travel_to(
         response = bridge.request(kind, **arguments)
         control_timings.append({
             "control": kind,
+            "arguments": arguments,
+            "from_location": current.get("location"),
+            "entered_from": world_map.entered_from,
             "elapsed_ms": round((clock.perf_counter() - started) * 1000),
             "status": response.get("status"),
         })
@@ -350,15 +352,26 @@ def travel_to(
             )
         return reason
 
-    for hop in route:
+    while current.get("location") != destination:
+        world_map.observe(current)
+        route = world_map.route(current.get("location") or "", destination, current.get("time"))
+        if isinstance(route, dict):
+            return finish("blocked", f"door_closed_until_{route['blocked_by']['openTime']}")
+        if not route:
+            return finish("blocked" if controls_executed else "rejected", "no_route")
         if controls_executed + 3 > action_budget:
             return finish("blocked", "action_budget_reached")
+        hop = route[0]
         from_name = current.get("location") or ""
         transit = send("go_to_location", location=hop, ticks=600)
-        if transit.get("status") != "completed" and current.get("location") != hop:
-            return finish("blocked", f"hop_failed:{remember_failed_edge(from_name, hop, transit)}")
         if unsafe():
             return finish("blocked", "world_changed_or_damage_taken")
+        if transit.get("status") != "completed" and current.get("location") != hop:
+            reason = remember_failed_edge(from_name, hop, transit)
+            if (reason == "no_walkable_path" or reason.startswith(("no_exit_", "door_action_"))) and current.get("location") == from_name:
+                if controls_executed + 3 <= action_budget and world_map.route(from_name, destination, current.get("time")):
+                    continue
+            return finish("blocked", f"hop_failed:{reason}")
         arrival = send("wait", field="location", value=hop, ticks=180)
         if unsafe():
             return finish("blocked", "world_changed_or_damage_taken")

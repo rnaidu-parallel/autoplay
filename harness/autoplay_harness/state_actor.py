@@ -30,6 +30,9 @@ FarmHouse; each selects and verifies its own tool and reports the tiles or steps
 Prefer clear_debris over manual swings for wood, stone, and fiber targets from nearbyObjects.
 The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low.
 The harness verifies objective completion; a valid tool call alone proves no progress.
+For new planting intentions, use seedsSown above its observed cumulative total. plantedCrops
+includes old crops and is not accepted as a new-work condition. Other crop-count conditions
+must name your current location and require unfinished work; travel there before choosing them.
 harnessLastResult explains the last failure. Change tactic after a block; never repeat an
 unchanged failed action. Preserve crops, health, money, inventory, stamina, and the route
 home. At low stamina stop spending energy. Do not use cheats or debug commands.
@@ -90,7 +93,7 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
     fields = ("worldReady", "playerFree", "canMove", "location", "day", "season", "year", "saveId", "saveCount", "nightActive",
               "time", "weather", "menu", "eventUp", "minigame", "tileX", "tileY",
               "health", "stamina", "money", "toolbarIndex", "tool", "tilledTiles",
-              "plantedCrops", "wateredCrops", "harvestableCrops", "inventoryCounts",
+              "plantedCrops", "seedsSown", "wateredCrops", "harvestableCrops", "inventoryCounts",
               "wateringCanWater", "wateringCanMax", "bedTile",
               "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed",
               "harnessStalledDecisions", "harnessBlockedDirectionsHere")
