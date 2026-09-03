@@ -100,6 +100,9 @@ class LifePolicyTests(unittest.TestCase):
         state = {**STATE, "inventoryCounts": {"Bamboo Pole": 1}}
         bad = self.harness._execute_life_tool("review_quests", {**args, "deferred":[]}, state)
         self.assertEqual("rejected", bad["status"])
+        self.assertIn("has not been opened", bad["reason"])
+        self.assertIsNone(self.life.get("quest_reviewed_revision"))
+        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": state["quests"]})
         result = self.harness._execute_life_tool("review_quests", args, state)
         self.assertEqual("recorded", result["status"])
         active = self.harness.ledger.snapshot()["active"]
@@ -108,6 +111,23 @@ class LifePolicyTests(unittest.TestCase):
         self.assertFalse(life.quest_review_due(self.life, state))
         self.notebook.observe_life({**state, "inventoryCounts": {"Cauliflower":1}})
         self.assertTrue(life.quest_review_due(self.life, state))
+
+    def test_quest_review_can_preserve_an_unrelated_personal_pursuit(self):
+        state = {**STATE, "inventoryCounts": {"Bamboo Pole": 1}}
+        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": state["quests"]})
+        result = self.harness._execute_life_tool("review_quests", {
+            "quest_id": "", "next_step": "Try fishing from the beach pier",
+            "reason": "I just received a rod and want to learn how it works",
+            "deferred": [
+                {"quest_id": "100", "reason": "Resume when I reach the search area", "revisit_when": "location is Forest"},
+                {"quest_id": "101", "reason": "I do not have the requested crop", "revisit_when": "inventory.Cauliflower > 0"},
+            ],
+        }, state)
+        self.assertEqual("recorded", result["status"])
+        active = self.harness.ledger.snapshot()["active"]
+        self.assertEqual("Try fishing from the beach pier", active["goal"])
+        self.assertNotIn("Robin", active["goal"])
+        self.assertIsNone(active["success_condition"])
 
     def test_all_quests_and_full_descriptions_can_be_retrieved(self):
         state = {**STATE, "quests": [dict(STATE["quests"][0], id=str(i)) for i in range(8)]}
@@ -148,9 +168,23 @@ class LifePolicyTests(unittest.TestCase):
         notices = [dict(id=f"episode:{i}",kind="dialogue",text=text,location="Beach",day=24) for i,text in enumerate([
             "Here, have my old fishing rod.", "There is good water here.", "I will buy anything you catch."])]
         self.notebook.observe_life({**STATE, "location":"Beach", "eventUp":True, "notices":notices})
+        rod = next(n for n in life.pending(self.life) if n["kind"] == "new_tool")
+        life.respond(self.life, rod["id"], "act", "Listen to Willy", "He is speaking", "", STATE)
         self.notebook.observe_life({**STATE, "location":"Beach", "eventUp":False, "notices":notices})
-        episode = next(n for n in life.pending(self.life) if n['kind']=='conversation')
+        episode = next(n for n in self.life["texts"].values() if n['kind']=='conversation')
         for n in notices: self.assertIn(n['text'], episode['text'])
+        self.assertTrue(episode["completed"])
+        self.assertFalse(any(n["kind"] == "conversation" for n in life.pending(self.life)))
+        self.assertIsNone(self.life.get("responding_to"))
+
+    def test_old_pending_conversation_is_migrated_without_reopening_it(self):
+        self.life["notices"]["conversation:old"] = {
+            "id": "conversation:old", "kind": "conversation", "text": "Goodbye.", "status": "pending"}
+        self.life["responding_to"] = "conversation:old"
+        self.notebook.observe_life(STATE)
+        self.assertEqual("completed", self.life["notices"]["conversation:old"]["status"])
+        self.assertFalse(any(n["kind"] == "conversation" for n in life.pending(self.life)))
+        self.assertIsNone(self.life.get("responding_to"))
 
     def test_unfamiliar_door_requires_one_choice_not_every_step(self):
         state = {**STATE, "nearbyActions":[{"kind":"Action","value":"LockedDoorWarp 4 19 SeedShop 900 1700","x":64,"y":21}]}

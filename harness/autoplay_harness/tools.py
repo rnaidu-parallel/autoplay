@@ -51,7 +51,7 @@ def function_tool(name: str, description: str, properties: dict[str, Any], requi
 
 
 ACTOR_TOOLS = [
-    function_tool("review_quests", "Review every current journal quest before continuing an unrelated plan. Choose a real quest ID for the current pursuit, or an empty ID if a concrete practical need takes priority. Account for every other quest with a reason and a currently false revisit condition. The goal is linked to the chosen quest's actual title and completion state.",
+    function_tool("review_quests", "Review every current journal quest before continuing another plan. Choose a quest ID only when next_step directly advances that quest's observed objective. Use an empty ID to continue a concrete existing pursuit, practical need or chosen interest. Account for every deferred quest with a reason and a currently false revisit condition.",
                   {"quest_id": {"type": "string"}, "next_step": {"type": "string", "minLength": 1, "maxLength": 100},
                    "reason": {"type": "string", "minLength": 1, "maxLength": 160},
                    "deferred": {"type": "array", "items": {"type": "object", "properties": {

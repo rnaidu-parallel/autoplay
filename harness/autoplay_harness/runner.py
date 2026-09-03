@@ -1258,6 +1258,9 @@ class AutoplayHarness:
             return {"status": "rejected", "reason": "Finish & Save has priority."}
         active = self.ledger.snapshot().get("active")
         if name == "review_quests":
+            revision = state.get("questRevision")
+            if revision and life.get("journal_revision_read") != revision:
+                return {"status": "rejected", "reason": "The journal changed and has not been opened. Close the current dialogue or menu, call check_journal, read the entries, then review them."}
             quests = {q["id"]: q for q in state.get("quests", [])}
             selected = arguments["quest_id"]
             deferred = arguments["deferred"]
@@ -1285,8 +1288,7 @@ class AutoplayHarness:
                 self.ledger._save()
             else:
                 self.ledger.pursue_interest(arguments["next_step"], arguments["reason"])
-            life["quest_reviewed_revision"] = state.get("questRevision")
-            life["journal_revision_read"] = state.get("questRevision")
+            life["quest_reviewed_revision"] = revision
             life["quest_review"] = arguments
             life.pop("responding_to", None)
             self.notebook._save()

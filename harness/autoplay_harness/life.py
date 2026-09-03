@@ -23,6 +23,13 @@ def add_notice(life: dict, notice: dict) -> None:
 
 def observe(life: dict, state: dict) -> None:
     day = calendar_day(state)
+    notices = life.setdefault("notices", {})
+    for notice in notices.values():
+        if notice.get("kind") == "conversation":
+            notice.update(status="completed", completed=True)
+    responding_to = life.get("responding_to")
+    if responding_to in notices and notices[responding_to].get("kind") == "conversation":
+        life.pop("responding_to", None)
     if any(str(text).strip().casefold() == "inventory full" for text in state.get("hudMessages", [])):
         life["inventory_blocked"] = True
     if state.get("menu") == "LetterViewerMenu" and any(entry.get("canAccept") is False for entry in state.get("menuEntries", [])):
@@ -45,7 +52,14 @@ def observe(life: dict, state: dict) -> None:
         conversation = [texts[key] for key in life.pop("conversation")]
         content = "\n".join(dict.fromkeys(item["text"] for item in conversation))
         if not (state.get("location") == "FarmHouse" and "sleep" in content.casefold()):
-            add_notice(life, {**conversation[-1], "id": "conversation:" + conversation[-1]["id"], "kind": "conversation", "text": content})
+            identity = "conversation:" + conversation[-1]["id"]
+            completed = {**conversation[-1], "id": identity, "kind": "conversation", "text": content,
+                         "status": "completed", "completed": True}
+            notices.setdefault(identity, completed)
+            texts[identity] = completed
+        # The dialogue itself fulfilled the encounter response. Do not reopen it to
+        # acknowledge a transcript that was retained after the exchange closed.
+        life.pop("responding_to", None)
     if "quests" in state:
         current = {quest["id"]: quest for quest in state["quests"]}
         for key, quest in current.items():
