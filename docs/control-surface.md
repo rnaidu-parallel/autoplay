@@ -22,6 +22,7 @@ This checklist tracks controls verified through the C# SMAPI bridge. Build succe
 | Inventory | Partial | `D2` selected the hoe and `D1` restored the axe. Item movement and toolbar scrolling remain untested. |
 | Menus | Partial | `E` opened `GameMenu:0:InventoryPage`; `F` toggled `QuestLog`; `M` opened `GameMenu:3:MapPage`; `Escape` closed menus. Configured cancel key `V` did not close `QuestLog`. Lists and text entry remain untested. |
 | Cursor targeting | Partial | `cursor 100 100` reported exact screen coordinates. The bridge measured map-tab bounds, moved to their center, and `MouseLeft` changed `InventoryPage` to `MapPage`. It also clicked `Load` and the `BridgeTest` save from the title screen. World targeting and zoom changes remain untested. |
+| System cursor visibility | Verified on title and Load menu | Bridge control hides the white system cursor and retains the game's pointer. Native cursor-image checks and a normal Load click passed; original game settings restore on stop. |
 | Dialogue | Partial | `DialogueBox` made `player_free=false`; `X` advanced mailbox text. Question responses are now exposed by text and index, and `choose_dialogue_response` invokes the exact game component. NPC dialogue and non-binary choices remain untested. |
 | Cutscenes | Pending | Test detection, advancement, and loss of player control. |
 

@@ -74,6 +74,12 @@ Before launching Stardew, the supervisor sets its startup display preference to 
 
 The game clock and animations keep running between model decisions. The bridge does not write `Game1.paused`; native menus retain their normal pause behavior. Before game input, the actor rechecks the scene and rejects a stale decision after a day, location, menu, control-availability, or health change. Pointer actions also recheck player position, viewport, and nearby NPCs. The `idle` tool waits for bounded ticks without pressing a key. Windows application activation recovers a visible but inactive game window when ordinary foreground activation fails.
 
+During bridge control, the game uses its own pointer and hides the operating-system cursor. The bridge restores
+the prior hardware-cursor and visibility settings on `stop` or a bridge error. `systemCursorVisible` reports
+the game framework's setting. Windows may still mark the native cursor as showing when its image is fully
+transparent; the live check renders that image to verify it has no visible pixels. The title-screen check also
+opened Load with normal pointer input and retained the game's brown pointer. No save was opened or model called.
+
 ## World map and travel
 
 The bridge builds a read-only directed world graph once per loaded game session and exposes its cache version in structured state. The harness stores first-visit days and the last observed location in `harness/state/world.json` or the isolated run state directory. Each actor and director context includes only the current location, direct exits, up to 12 nearby unvisited locations, visited counts, and the route home. The `world_map` actor tool inspects a destination route without game input, while `travel_to` executes the shortest known multi-hop route with three bounded controls per hop. Travel stops before a closed locked door and stops during execution if an event, menu, dialogue, failed transition, or health loss changes the world. Failed map exits are persisted with their bridge reason, excluded from later routes, and surfaced as unreachable destinations in the compact summary.

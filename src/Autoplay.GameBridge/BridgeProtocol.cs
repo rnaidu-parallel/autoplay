@@ -44,6 +44,7 @@ internal sealed class GameStateSnapshot
 {
     public bool WorldReady { get; init; }
     public bool GameActive { get; init; }
+    public bool SystemCursorVisible { get; init; }
     public bool SimulationPaused { get; init; }
     public bool PlayerFree { get; init; }
     public bool CanMove { get; init; }

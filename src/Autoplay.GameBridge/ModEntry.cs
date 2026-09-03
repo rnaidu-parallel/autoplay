@@ -81,6 +81,8 @@ public sealed class ModEntry : Mod
     private int idleTicksRemaining;
     private bool focusPending;
     private bool? originalPauseWhenOutOfFocus;
+    private bool? originalHardwareCursor;
+    private bool originalSystemCursorVisible;
     private string? delayedStatus;
     private List<Point>? navigationPath;
     private int navigationIndex;
@@ -216,6 +218,7 @@ public sealed class ModEntry : Mod
                 break;
 
             case "stop":
+                this.RestoreSystemCursor();
                 this.RestorePauseWhenOutOfFocus();
                 this.StopOperation("stopped");
                 this.CompletePipeRequest("stopped");
@@ -1097,6 +1100,8 @@ public sealed class ModEntry : Mod
 
     private void UpdateTicked()
     {
+        if (this.originalHardwareCursor.HasValue && Game1.game1.IsActive)
+            this.HideSystemCursor();
         if (this.waitCondition is not null)
         {
             if (this.waitCondition())
@@ -1272,6 +1277,7 @@ public sealed class ModEntry : Mod
         {
             case "observe":
                 this.DisablePauseWhenOutOfFocus();
+                this.HideSystemCursor();
                 this.StartFocus();
                 return;
 
@@ -1365,6 +1371,7 @@ public sealed class ModEntry : Mod
                 return;
 
             case "stop":
+                this.RestoreSystemCursor();
                 this.RestorePauseWhenOutOfFocus();
                 this.StopOperation("stopped");
                 this.CompletePipeRequest("stopped");
@@ -1411,6 +1418,7 @@ public sealed class ModEntry : Mod
 
         try
         {
+            this.RestoreSystemCursor();
             this.RestorePauseWhenOutOfFocus();
         }
         catch (Exception)
@@ -1504,6 +1512,7 @@ public sealed class ModEntry : Mod
             {
                 WorldReady = false,
                 GameActive = Game1.game1.IsActive,
+                SystemCursorVisible = Game1.game1.IsMouseVisible,
                 SimulationPaused = Game1.paused,
                 PlayerFree = IsPlayerFreeStrict(),
                 CanMove = Context.CanPlayerMove && !nightActive,
@@ -1770,6 +1779,7 @@ public sealed class ModEntry : Mod
         {
             WorldReady = true,
             GameActive = Game1.game1.IsActive,
+            SystemCursorVisible = Game1.game1.IsMouseVisible,
             SimulationPaused = Game1.paused,
             PlayerFree = IsPlayerFreeStrict(),
             CanMove = Context.CanPlayerMove && !nightActive,
@@ -2143,6 +2153,26 @@ public sealed class ModEntry : Mod
     {
         this.originalPauseWhenOutOfFocus ??= Game1.options.pauseWhenOutOfFocus;
         Game1.options.pauseWhenOutOfFocus = false;
+    }
+
+    private void HideSystemCursor()
+    {
+        if (!this.originalHardwareCursor.HasValue)
+        {
+            this.originalHardwareCursor = Game1.options.hardwareCursor;
+            this.originalSystemCursorVisible = Game1.game1.IsMouseVisible;
+        }
+        Game1.options.hardwareCursor = false;
+        Game1.game1.IsMouseVisible = false;
+    }
+
+    private void RestoreSystemCursor()
+    {
+        if (this.originalHardwareCursor is not bool original)
+            return;
+        Game1.options.hardwareCursor = original;
+        Game1.game1.IsMouseVisible = this.originalSystemCursorVisible;
+        this.originalHardwareCursor = null;
     }
 
     private void RestorePauseWhenOutOfFocus()
