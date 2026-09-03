@@ -24,6 +24,7 @@ def summarize(events_path: Path) -> dict[str, Any]:
             "mean": round(statistics.mean(ordered), 1),
             "p50": round(statistics.median(ordered), 1),
             "p90": round(ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))], 1),
+            "p95": round(ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))], 1),
             "max": round(ordered[-1], 1),
         }
 
@@ -95,8 +96,45 @@ def summarize(events_path: Path) -> dict[str, Any]:
         if first is not None and last is not None:
             crop_changes[location] = last - first
     game_days = None
+    game_hours = None
     if len(world) >= 2 and world[0].get("day") is not None and world[-1].get("day") is not None:
         game_days = (world[-1]["day"] - world[0]["day"]) + ((world[-1].get("time") or 600) - (world[0].get("time") or 600)) / 2000
+        start_time = world[0].get("time") or 600
+        end_time = world[-1].get("time") or 600
+        start_minutes = (start_time // 100) * 60 + start_time % 100
+        end_minutes = (end_time // 100) * 60 + end_time % 100
+        day_delta = world[-1]["day"] - world[0]["day"]
+        seasons = ("spring", "summer", "fall", "winter")
+        if day_delta < 0 and world[0].get("season") in seasons and world[-1].get("season") in seasons:
+            day_delta += (seasons.index(world[-1]["season"]) - seasons.index(world[0]["season"])) * 28
+            day_delta += (world[-1].get("year", 1) - world[0].get("year", 1)) * 112
+        game_hours = max(0, day_delta * 24 + (end_minutes - start_minutes) / 60)
+
+    cache_latency = {}
+    bridge_values = [event["bridge_ms"] for event in results if "bridge_ms" in event]
+    for role in ("actor", "director"):
+        calls = [event for event in usage_events if event["type"] == f"{role}_decision"
+                 or (event["type"] == "model_error" and event.get("role") == role)]
+        prompt_values = [(event.get("usage") or {}).get("prompt_tokens") or 0 for event in calls]
+        completion_values = [(event.get("usage") or {}).get("completion_tokens") or 0 for event in calls]
+        cached = sum(((event.get("usage") or {}).get("prompt_tokens_details") or {}).get("cached_tokens") or 0 for event in calls)
+        prompt = sum(prompt_values)
+        attempt_latency = [attempt["latency_ms"] for event in calls for attempt in event.get("attempts", [])
+                           if isinstance(attempt.get("latency_ms"), (int, float))]
+        cost = sum((event.get("usage") or {}).get("cost") or 0 for event in calls)
+        cache_latency[role] = {
+            "calls": len(calls),
+            "prompt_median": statistics.median(prompt_values) if prompt_values else None,
+            "prompt_max": max(prompt_values) if prompt_values else None,
+            "cached_share": round(cached / prompt, 3) if prompt else None,
+            "completion_median": statistics.median(completion_values) if completion_values else None,
+            "model_latency_ms": percentiles(attempt_latency),
+            "bridge_p50_ms": statistics.median(bridge_values) if role == "actor" and bridge_values else None,
+            "cost_per_call": round(cost / len(calls), 6) if calls else None,
+            "cost_per_game_hour": round(cost / game_hours, 6) if game_hours else None,
+        }
+    actor_decisions = [event for event in events if event["type"] == "actor_decision"]
+    inspect_share = round(sum(event.get("tool") == "inspect_scene" for event in actor_decisions) / len(actor_decisions), 3) if actor_decisions else None
 
     director_gaps: list[float] = []
     since_director = 0
@@ -142,15 +180,29 @@ def summarize(events_path: Path) -> dict[str, Any]:
         "cache_hit_rate": round(cached_tokens / prompt_tokens, 3) if prompt_tokens else None,
         "cache_by_role": cache_by_role,
         "game_days_elapsed": round(game_days, 2) if game_days is not None else None,
+        "game_hours_elapsed": round(game_hours, 2) if game_hours is not None else None,
         "wall_hours_per_game_day": round(wall_seconds / 3600 / game_days, 2) if game_days else None,
         "start": None if not world else f"day {world[0].get('day')} {world[0].get('time')} {world[0].get('location')}",
         "end": None if not world else f"day {world[-1].get('day')} {world[-1].get('time')} {world[-1].get('location')}",
+        "cache_and_latency": cache_latency,
+        "inspect_scene_share": inspect_share,
     }
 
 
 def render(summary: dict[str, Any]) -> str:
     lines = []
     for key, value in summary.items():
+        if key == "cache_and_latency":
+            lines.append("Cache and latency")
+            for role, metrics in value.items():
+                latency = metrics["model_latency_ms"] or {}
+                lines.append(
+                    f"{role}: calls={metrics['calls']} prompt median/max={metrics['prompt_median']}/{metrics['prompt_max']} "
+                    f"cached share={metrics['cached_share']} completion median={metrics['completion_median']} "
+                    f"model p50/p95={latency.get('p50')}/{latency.get('p95')} bridge p50={metrics['bridge_p50_ms'] if metrics['bridge_p50_ms'] is not None else 'n/a'} "
+                    f"cost/call={metrics['cost_per_call']} cost/game-hour={metrics['cost_per_game_hour']}"
+                )
+            continue
         if isinstance(value, dict) and "p50" in value:
             value = f"n={value['n']} mean={value['mean']} p50={value['p50']} p90={value['p90']} max={value['max']}"
         elif isinstance(value, dict):

@@ -85,6 +85,22 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(700, summary["bridge_ms"]["p50"])
         self.assertIn("wasted_decision_rate", render(summary))
 
+    def test_cache_latency_breakdown_uses_attempts_and_game_hours(self) -> None:
+        events = [
+            {"at": "2026-09-02T00:00:00+00:00", "type": "observation", "state": {"worldReady": True, "day": 1, "time": 600}},
+            {"at": "2026-09-02T00:00:01+00:00", "type": "actor_decision", "tool": "inspect_scene", "usage": {"prompt_tokens": 100, "completion_tokens": 10, "cost": 0.02, "prompt_tokens_details": {"cached_tokens": 50}}, "attempts": [{"latency_ms": 200}]},
+            {"at": "2026-09-02T00:00:02+00:00", "type": "tool_result", "bridge_ms": 30, "result": {"status": "completed"}},
+            {"at": "2026-09-02T00:00:03+00:00", "type": "observation", "state": {"worldReady": True, "day": 1, "time": 700}},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            path.write_text("\n".join(json.dumps(event) for event in events), encoding="utf-8")
+            summary = summarize(path)
+        self.assertEqual(0.5, summary["cache_and_latency"]["actor"]["cached_share"])
+        self.assertEqual(200, summary["cache_and_latency"]["actor"]["model_latency_ms"]["p50"])
+        self.assertEqual(1.0, summary["inspect_scene_share"])
+        self.assertIn("Cache and latency", render(summary))
+
 
 if __name__ == "__main__":
     unittest.main()

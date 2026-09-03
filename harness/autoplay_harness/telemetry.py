@@ -80,7 +80,9 @@ class Telemetry:
                 ) or changed
             if event.get("tool") == "wiki_search" and isinstance(result, dict):
                 titles = [item.get("title", "") for item in result.get("results", [])]
-                return self._remember("learned", {"wiki_pages": titles}) or changed
+                for title in titles:
+                    changed = self._remember("learned", title) or changed
+                return changed
         return changed
 
     def _compact_usage(self, event: dict[str, Any]) -> bool:
@@ -141,9 +143,11 @@ class Telemetry:
                 compact[key] = event[key]
         return compact
 
-    def _remember(self, category: str, item: dict[str, Any]) -> bool:
+    def _remember(self, category: str, item: dict[str, Any] | str) -> bool:
+        if category == "learned":
+            item = str(item)[:160]
         if item in self.summary[category]:
             return False
         self.summary[category].append(item)
-        del self.summary[category][:-12]
+        del self.summary[category][:-(8 if category == "learned" else 12)]
         return True

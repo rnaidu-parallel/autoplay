@@ -61,6 +61,15 @@ class TelemetryTests(unittest.TestCase):
             self.assertNotIn("usage", recent[0])
             self.assertNotIn("inventory", recent[1]["result"]["state"])
 
+    def test_learned_is_capped_and_trimmed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            telemetry = Telemetry(Path(directory))
+            for index in range(10):
+                telemetry.record("tool_result", {"tool": "wiki_search", "result": {"results": [{"title": str(index) + "x" * 200}]}})
+            learned = telemetry.context()["episode_summary"]["learned"]
+            self.assertEqual(8, len(learned))
+            self.assertTrue(all(isinstance(item, str) and len(item) <= 160 for item in learned))
+
 
 if __name__ == "__main__":
     unittest.main()

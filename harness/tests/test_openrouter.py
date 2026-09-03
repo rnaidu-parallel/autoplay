@@ -23,6 +23,16 @@ class _Response:
 
 class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
+    def test_system_message_and_tools_serialize_identically(self, urlopen):
+        urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {"name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
+        client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
+        tools = [{"function": {"parameters": {"b": 2, "a": 1}, "name": "press"}, "type": "function"}]
+        client.choose_tool("system", "dynamic one", None, tools, cache_namespace="director")
+        client.choose_tool("system", "dynamic two", None, tools, cache_namespace="director")
+        payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual(json.dumps(payloads[0]["messages"][0], sort_keys=True, separators=(",", ":")), json.dumps(payloads[1]["messages"][0], sort_keys=True, separators=(",", ":")))
+        self.assertEqual(json.dumps(payloads[0]["tools"], sort_keys=True, separators=(",", ":")), json.dumps(payloads[1]["tools"], sort_keys=True, separators=(",", ":")))
+    @patch("urllib.request.urlopen")
     def test_official_trials_pin_provider_and_low_reasoning(self, urlopen):
         for model, slug, provider in (
             (OpenRouterClient.GEMINI_FLASH_MODEL, "google-ai-studio", "Google AI Studio"),
@@ -30,7 +40,7 @@ class OpenRouterClientTests(unittest.TestCase):
         ):
             with self.subTest(model=model):
                 urlopen.return_value = _Response({"provider": provider, "choices": [{"message": {"tool_calls": [{"function": {
-                    "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+                    "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
                 client = OpenRouterClient("secret", model, "run", reasoning_effort="low")
                 decision = client.choose_tool("prompt", "{}", "image", ACTOR_TOOLS)
                 payload = json.loads(urlopen.call_args.args[0].data)
@@ -49,7 +59,7 @@ class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_luna_cache_key_reuses_static_prefix_across_runs_without_caching_dynamic_context(self, urlopen):
         urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {
-            "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         for run_id, context in (("first", "state-1"), ("second", "state-2")):
             OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, run_id).choose_tool("stable", context, None, ACTOR_TOOLS)
         payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
@@ -62,7 +72,7 @@ class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_stable_objective_cache_boundary_excludes_changing_observation(self, urlopen):
         urlopen.return_value = _Response({"provider": "OpenAI", "choices": [{"message": {"tool_calls": [{"function": {
-            "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
         for context in ("state-1", "state-2"):
             client.choose_tool("static", context, None, ACTOR_TOOLS, stable_context="plant five")
@@ -79,7 +89,7 @@ class OpenRouterClientTests(unittest.TestCase):
             with self.subTest(provider=provider):
                 urlopen.reset_mock()
                 urlopen.return_value = _Response({"provider": provider, "usage": {"cost": 0.01}, "choices": [{"message": {"tool_calls": [{"function": {
-                    "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+                    "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
                 client = OpenRouterClient("secret", OpenRouterClient.LUNA_MODEL, "run")
                 with self.assertRaises(OpenRouterError) as caught:
                     client.choose_tool("prompt", "{}", "image", ACTOR_TOOLS)
@@ -90,7 +100,7 @@ class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_qwen_uses_alibaba_and_explicit_low_reasoning(self, urlopen):
         urlopen.return_value = _Response({"choices": [{"message": {"tool_calls": [{"function": {
-            "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         client = OpenRouterClient("secret", OpenRouterClient.QWEN_MODEL, "run", reasoning_effort="low")
         client.choose_tool("prompt", "{}", "image", ACTOR_TOOLS)
         payload = json.loads(urlopen.call_args.args[0].data)
@@ -104,7 +114,7 @@ class OpenRouterClientTests(unittest.TestCase):
     @patch("urllib.request.urlopen")
     def test_gemini_requires_tool_output_without_broadening_provider_policy(self, urlopen):
         urlopen.return_value = _Response({"choices": [{"message": {"tool_calls": [{"function": {
-            "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]})
+            "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]})
         client = OpenRouterClient("secret", OpenRouterClient.GEMINI_MODEL, "run")
         client.choose_tool("prompt", "{}", "image", ACTOR_TOOLS)
         payload = json.loads(urlopen.call_args.args[0].data)
@@ -124,7 +134,7 @@ class OpenRouterClientTests(unittest.TestCase):
                 "choices": [{"finish_reason": "length", "native_finish_reason": "length", "message": {}}]}),
             _Response({"id": "valid", "usage": {"completion_tokens": 20}, "choices": [{
                 "finish_reason": "tool_calls", "message": {"tool_calls": [{"function": {
-                    "name": "press", "arguments": '{"buttons":["D"]}'}}]}}]}),
+                    "name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}]}}]}),
         ]
         client = OpenRouterClient("secret", OpenRouterClient.GLM_MODEL, "run")
         with patch.object(client.cancelled, "wait"):
@@ -207,7 +217,7 @@ class OpenRouterClientTests(unittest.TestCase):
                                 {
                                     "function": {
                                         "name": "wait",
-                                        "arguments": '{"field":"menu","value":"none","timeout_ticks":1}',
+                                        "arguments": '{"field":"menu","value":"none","timeout_ticks":1,"say":"wait"}',
                                     }
                                 }
                             ]
@@ -229,8 +239,8 @@ class OpenRouterClientTests(unittest.TestCase):
                     {
                         "message": {
                             "tool_calls": [
-                                {"function": {"name": "press", "arguments": '{"buttons":["A"]}'}},
-                                {"function": {"name": "press", "arguments": '{"buttons":["S"]}'}},
+                                {"function": {"name": "press", "arguments": '{"buttons":["A"],"say":"move"}'}},
+                                {"function": {"name": "press", "arguments": '{"buttons":["S"],"say":"move"}'}},
                             ]
                         }
                     }
@@ -267,7 +277,7 @@ class OpenRouterClientTests(unittest.TestCase):
                         {
                             "message": {
                                 "tool_calls": [
-                                    {"function": {"name": "press", "arguments": '{"buttons":["D"]}'}}
+                                    {"function": {"name": "press", "arguments": '{"buttons":["D"],"say":"move"}'}}
                                 ]
                             }
                         }
@@ -312,7 +322,7 @@ class OpenRouterClientTests(unittest.TestCase):
                                     {
                                         "function": {
                                             "name": "objective_progress",
-                                            "arguments": '{"note":"Moved","evidence":"tile changed"}',
+                                            "arguments": '{"note":"Moved","evidence":"tile changed","say":"progress"}',
                                         }
                                     }
                                 ]
@@ -340,7 +350,7 @@ class OpenRouterClientTests(unittest.TestCase):
             "model": OpenRouterClient.GLM_MODEL,
             "provider": "Z.AI",
             "choices": [{"message": {"tool_calls": [{"function": {
-                "name": "hold", "arguments": '{"buttons":["D"],"ticks":120}'
+                "name": "hold", "arguments": '{"buttons":["D"],"ticks":120,"say":"move"}'
             }}]}}],
         })
         client = OpenRouterClient("secret", OpenRouterClient.GLM_MODEL, "run-1")

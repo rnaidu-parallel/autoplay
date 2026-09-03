@@ -141,7 +141,7 @@ class WorldMap:
              if name not in self.visited and name in distances
              and re.fullmatch(r"Cellar\d*", name) is None),
             key=lambda name: (not self.nodes[name].get("isOutdoors", False), distances[name], name),
-        )[:12]
+        )[:6]
         unreachable = list(dict.fromkeys(
             edge["to"] for edge in self.unreachable_edges if edge.get("to") in self.nodes
         ))[-12:]
@@ -171,14 +171,14 @@ class WorldMap:
         route_home = home.get("route", []) if isinstance(home, dict) else home
         return {
             "here": current,
-            "exits": exits,
+            "exits": exits[:8],
             "unvisited": unvisited,
             "unreachable": unreachable,
-            "blockedNow": blocked_now,
-            "closedNow": closed_now,
+            "blockedNow": blocked_now[:4],
+            "closedNow": closed_now[:4],
             "visitedCount": len(set(self.nodes) & set(self.visited)),
             "totalCount": len(self.nodes),
-            "routeHome": route_home,
+            "routeHome": route_home[:6],
         }
 
     def _find_path(

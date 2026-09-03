@@ -153,7 +153,7 @@ class OpenRouterClient:
         if self.reasoning_effort is not None:
             payload["reasoning"] = {"effort": self.reasoning_effort}
         if self.model == self.LUNA_MODEL:
-            prefix = json.dumps([self.model, system_prompt, tools, stable_context], separators=(",", ":"))
+            prefix = json.dumps([self.model, system_prompt, tools, stable_context], sort_keys=True, separators=(",", ":"))
             payload["prompt_cache_key"] = "autoplay:" + hashlib.sha256(prefix.encode()).hexdigest()[:24]
             payload["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
             if stable_context:
@@ -161,7 +161,7 @@ class OpenRouterClient:
             else:
                 payload["messages"][0]["content"] = [{"type": "text", "text": system_prompt,
                                                        "prompt_cache_breakpoint": {"mode": "explicit"}}]
-        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(
             self.API_URL,
             data=body,

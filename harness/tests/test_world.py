@@ -159,6 +159,18 @@ class WorldMapTests(unittest.TestCase):
             self.assertEqual(9, summary["totalCount"])
             self.assertEqual(["Farm", "FarmHouse"], summary["routeHome"])
 
+    def test_summary_caps_lists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            for index in range(20):
+                name = f"N{index}"
+                world.nodes[name] = {"name": name, "isOutdoors": True}
+                world.edges.append({"from": "A", "to": name, "kind": "warp"})
+            summary = world.summary("A", 800)
+            self.assertLessEqual(len(summary["exits"]), 8)
+            self.assertLessEqual(len(summary["unvisited"]), 6)
+            self.assertLessEqual(len(summary["routeHome"]), 6)
+
     def test_travel_to_completes_verified_hops(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             world = self.make_world(directory)
