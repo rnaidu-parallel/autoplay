@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any
+
+from .calendar import calendar_day
 import time
 
 from .bridge import NamedPipeBridge
@@ -447,7 +449,7 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
         return None
 
     def day_advanced() -> bool:
-        return runner.state.get("day") == (before["day"] or 0) + 1
+        return calendar_day(runner.state) == (calendar_day(state) or 0) + 1
 
     def slept() -> bool:
         return (day_advanced()

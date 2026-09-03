@@ -50,6 +50,7 @@ internal sealed class GameStateSnapshot
     public bool CanMove { get; init; }
     public bool NightActive { get; init; }
     public int SaveCount { get; init; }
+    public string? SaveId { get; init; }
     public int BridgeErrors { get; init; }
     public int WorldMapVersion { get; init; }
     public bool GraphicsFullScreen { get; init; }

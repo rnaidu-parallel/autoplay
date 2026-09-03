@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import BridgeError, NamedPipeBridge
+from .calendar import calendar_day
+from .checkpoint import Checkpoints
+from .control import OperatorControl
+from .history import History
 from .capture import CaptureError, Frame, ScreenCapture
 from .farming import clear_debris, go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 from .notebook import Notebook
@@ -59,6 +63,7 @@ class AutoplayHarness:
         budget_usd: float | None = None,
         max_minutes: int | None = None,
         forever: bool = False,
+        resume_checkpoint: bool = False,
     ) -> None:
         if max_actions < 1 or max_decisions < 1 or director_interval < 1:
             raise HarnessError("max_actions, max_decisions, and director_interval must be positive.")
@@ -68,6 +73,15 @@ class AutoplayHarness:
         self.run_id = str(uuid.uuid4())
         self.run_directory = repository_root / "harness" / "runs" / self.run_id
         self.state_directory = self.run_directory / "state" if isolated_state else repository_root / "harness" / "state"
+        self.checkpoints = Checkpoints(self.state_directory, Path(os.environ["APPDATA"]) / "StardewValley" / "Saves")
+        self.resumed_checkpoint = self.checkpoints.restore() if resume_checkpoint else None
+        self.control = OperatorControl(self.run_directory)
+        self.operator_mode = "playing"
+        self.operator_guidance = ""
+        self.operator_revision = 0
+        self.finish_baseline = None
+        self.history = History(repository_root / "harness" / "runs", self.state_directory)
+        self.latest_history_results = []
         self.world = WorldMap(self.state_directory)
         self.notebook = Notebook(self.state_directory)
         self.max_actions = max_actions
@@ -136,7 +150,7 @@ class AutoplayHarness:
 
     def run(self) -> str:
         started_at = time.monotonic()
-        self.bridge = self.supervisor.connect_bridge()
+        self.control.update(mode="starting", closed=False, message="Connecting to the farmer.")
         self.telemetry.record(
             "session_started",
             {
@@ -150,19 +164,35 @@ class AutoplayHarness:
             },
         )
         try:
+            self.bridge = self.supervisor.connect_bridge()
             self._observe()
             display_response = self.bridge.request("set_display_mode", mode="borderless")
             if display_response.get("status") != "completed":
                 raise HarnessError(f"Could not enable borderless full-screen mode: {display_response}")
             time.sleep(3)
             self._ensure_world_loaded()
+            if self.resumed_checkpoint:
+                state, _ = self._observe()
+                expected = self.resumed_checkpoint
+                if (state.get("saveId") != expected["save_id"]
+                        or any(state.get(key) != value for key, value in expected["date"].items())):
+                    self.keep_game_open = True
+                    raise HarnessError("Loaded game does not match the checkpoint. Load the matching save before resuming.")
+                self.telemetry.record("checkpoint_resumed", {"checkpoint": expected["id"]})
+            self.control.update(mode="playing", message="Farmer is playing.")
             consecutive_errors = 0
-            while not self.stop_reason and (self.continuous or (self.game_actions < self.max_actions and self.decisions < self.max_decisions)):
+            while not self.stop_reason and (self.continuous or self.operator_mode == "finishing" or (self.game_actions < self.max_actions and self.decisions < self.max_decisions)):
                 if self.max_minutes is not None and time.monotonic() - started_at >= self.max_minutes * 60:
                     self.stop_reason = "time_limit_reached"
                     break
                 try:
                     state, frame = self._observe()
+                    self._poll_operator(state)
+                    if self.stop_reason:
+                        continue
+                    if self.operator_mode == "finishing":
+                        self._finish_save_step(state, frame)
+                        continue
                     self._plan_day_if_needed(state, frame)
                     self._refill_agenda_if_needed(state, frame)
                     if self.stall_review_requested and self.director_future is not None:
@@ -237,6 +267,15 @@ class AutoplayHarness:
             self.telemetry.save_summary()
             return self.stop_reason
         finally:
+            if self.operator_mode == "finishing" and self.stop_reason != "finish_saved":
+                self.keep_game_open = True
+                self.operator_mode = "needs_attention"
+            if self.stop_reason == "finish_saved" and self.supervisor.process is None:
+                self.keep_game_open = True
+            self.control.update(mode=self.operator_mode if self.operator_mode != "playing" else "stopped",
+                                closed=True, reason=self.stop_reason,
+                                message=("Checkpoint incomplete. Game left open for assistance; see the error or stop reason." if self.operator_mode == "needs_attention"
+                                         else "Saved and stopped." if self.stop_reason == "finish_saved" else "Run stopped."))
             if self.recorder is not None:
                 try:
                     self.recorder.stop()
@@ -294,6 +333,102 @@ class AutoplayHarness:
                 self.telemetry.save_summary()
             except Exception:
                 pass
+
+    def _poll_operator(self, state: dict[str, Any]) -> bool:
+        if not hasattr(self, "control"):
+            return False
+        commands = self.control.consume()
+        if commands:
+            state = self.bridge.observe().get("state") or state
+        if (self.state_directory / "STOP").exists() and self.operator_mode == "playing":
+            commands.append({"id": "STOP", "kind": "finish_save", "message": "STOP file received"})
+        for command in commands:
+            self.operator_revision += 1
+            kind = command["kind"]
+            if kind == "finish_save" and self.operator_mode == "playing":
+                self.operator_mode = "finishing"
+                self.finish_baseline = dict(state)
+                self.finish_previous_objective = self.ledger.snapshot().get("active")
+                previous = self.finish_previous_objective or {}
+                if previous.get("agenda_id"):
+                    self.notebook.mark(previous["agenda_id"], "pending", "Operator requested a save and session end.")
+                self.ledger.set_objective(
+                    "Return home, sleep to save, then end this session.",
+                    f"saveCount > {state.get('saveCount') or 0}, location is FarmHouse, playerFree is true, nightActive is false",
+                    "Leave chores and detours. Return to FarmHouse and use the bed; early sleep is allowed.",
+                    interruption_reason="Operator requested Finish & Save.",
+                )
+                self.stall_review_requested = False
+                self.last_action_fingerprint = None
+                self._finish_director_review(apply=False)
+            elif kind == "steer":
+                self.operator_guidance = command["message"]
+                self.last_action_fingerprint = None
+                self.inspect_next_scene = True
+            elif kind == "hold":
+                self.operator_mode = "held"
+                self.keep_game_open = True
+                self.stop_reason = "operator_hold"
+            self.telemetry.record("operator_command", {"command": command, "mode": self.operator_mode})
+            self.control.update(mode=self.operator_mode, last_command={**command, "status": "received"},
+                                message="Returning home to save." if self.operator_mode == "finishing" else "Command received.")
+        return bool(commands)
+
+    def _finish_save_step(self, state: dict[str, Any], frame: Frame) -> None:
+        if self._checkpoint_if_saved(state):
+            return
+        self._finish_director_review(apply=False)
+        if self.stop_reason:
+            return
+        # The existing bedtime controller is a verified ordinary-input chore. Try it
+        # once per position; leave failed navigation/menu recovery to the actor.
+        position = (state.get("location"), state.get("tileX"), state.get("tileY"), calendar_day(state))
+        if (state.get("playerFree") and state.get("location") in {"Farm", "FarmHouse"}
+                and position != getattr(self, "finish_sleep_position", None)):
+            self.finish_sleep_position = position
+            self.telemetry.step += 1
+            result = go_home_and_sleep(self.bridge, state, 45)
+            self.game_actions += result["controls_executed"]
+            self.last_result = {"tool": "go_home_and_sleep", "status": result.get("status"), "reason": result.get("reason")}
+            self.telemetry.record("tool_result", {"tool": "go_home_and_sleep", "source": "operator_finish", "result": result})
+            after = result.get("state") or state
+            if not self._checkpoint_if_saved(after):
+                self._track_action_retries(ToolDecision("go_home_and_sleep", {}, {}, None), result, state, after)
+            return
+        if self.budget_usd is not None and float(self.telemetry.summary["usage"]["cost"]) >= self.budget_usd:
+            self.stop_reason = "budget_reached"
+            return
+        self._actor_step()
+
+    def _checkpoint_if_saved(self, state: dict[str, Any]) -> bool:
+        baseline = getattr(self, "finish_baseline", None)
+        if not baseline or self.operator_mode != "finishing":
+            return False
+        day, before_day = calendar_day(state), calendar_day(baseline)
+        if not (day is not None and before_day is not None and day > before_day
+                and (state.get("saveCount") or 0) > (baseline.get("saveCount") or 0)
+                and state.get("saveId") == baseline.get("saveId")
+                and state.get("worldReady") and state.get("playerFree") and not state.get("nightActive")
+                and state.get("location") == "FarmHouse" and state.get("menu") == "none"):
+            return False
+        self.ledger.complete_objective("Nightly save completed and next morning observed.")
+        previous = self.finish_previous_objective
+        if previous:
+            self.ledger.set_objective(previous["goal"], previous["success_condition"], previous["milestone"],
+                                      agenda_id=previous.get("agenda_id"))
+        self.world.observe(state)
+        try:
+            checkpoint = self.checkpoints.create(self.run_id, state)
+        except (OSError, ValueError, KeyError) as error:
+            self.stop_reason = "finish_checkpoint_failed"
+            self.control.update(error=str(error))
+            self.telemetry.record("checkpoint_failed", {"error": str(error)})
+            return True
+        self.operator_mode = "saved"
+        self.stop_reason = "finish_saved"
+        self.control.update(mode="saved", checkpoint={key: checkpoint[key] for key in ("id", "save_id", "date")})
+        self.telemetry.record("checkpoint_saved", {"checkpoint": checkpoint})
+        return True
 
     def _ensure_world_loaded(self) -> None:
         assert self.bridge is not None
@@ -464,9 +599,13 @@ class AutoplayHarness:
         self.decisions += 1
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
                                          context, frame, STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS, "actor")
+        if hasattr(self, "control"):
+            if self._poll_operator(state):
+                self.telemetry.record("operator_discarded_decision", {"tool": decision.name})
+                return
         current_state = state
         game_input = decision.name not in {"inspect_scene", "objective_progress", "record_opportunity", "remember_interaction", "change_objective",
-                                          "wiki_search", "world_map", "stop_session"}
+                                          "wiki_search", "search_history", "world_map", "stop_session"}
         if game_input or decision.name == "change_objective":
             current_state, _ = self._observe()
         fingerprint = self._action_fingerprint(decision, state)
@@ -507,6 +646,8 @@ class AutoplayHarness:
         self._update_stall_watchdog(decision.name, result_state)
         self._print_step("actor", decision, result, result_state, model_ms, bridge_ms)
         if result.get("state"):
+            if self._checkpoint_if_saved(result["state"]):
+                return
             self._complete_verified_objective(result["state"])
         self._track_action_retries(decision, result, current_state, result_state)
         if not self.continuous and self.decisions >= self.max_decisions and not self.stop_reason:
@@ -523,7 +664,7 @@ class AutoplayHarness:
     def _track_action_retries(self, decision: ToolDecision, result: dict[str, Any],
                              before: dict[str, Any], after: dict[str, Any]) -> None:
         active = self.ledger.snapshot().get("active")
-        if not self.continuous or active is None or result.get("reason") == "scene_changed_while_thinking":
+        if (not self.continuous and getattr(self, "operator_mode", None) != "finishing") or active is None or result.get("reason") == "scene_changed_while_thinking":
             return
         if decision.name == "change_objective" and result.get("status") == "completed":
             return
@@ -548,6 +689,10 @@ class AutoplayHarness:
         failures = self.failed_targets.get(target, 0)
         if failures < 3 and self.retry_no_progress < 6:
             return
+        if getattr(self, "operator_mode", None) == "finishing":
+            self.stop_reason = "finish_needs_attention"
+            self.telemetry.record("finish_blocked", {"failures": failures, "no_progress": self.retry_no_progress})
+            return
         evidence = (f"Retry limit reached: {failures} failed attempts at {name}; "
                     f"{self.retry_no_progress} decisions without progress. "
                     f"Last result: {result.get('reason') or result.get('error') or result.get('status')}.")
@@ -561,7 +706,7 @@ class AutoplayHarness:
         agenda_id = active.get("agenda_id")
         if agenda_id is not None:
             self.notebook.mark(agenda_id, "deferred", evidence)
-        self.notebook.add_lesson(f"retry_limit:{active['goal'][:40]}", evidence, "auto", after["day"])
+        self.notebook.add_lesson(f"retry_limit:{active['goal'][:40]}", evidence, "auto", calendar_day(after))
         self.telemetry.record("objective_deferred", {"objective_id": active["id"], "agenda_id": agenda_id,
                                                     "target": target, "failures": failures,
                                                     "no_progress_decisions": self.retry_no_progress, "evidence": evidence})
@@ -581,7 +726,7 @@ class AutoplayHarness:
         return ",".join(sorted(clauses))
 
     def _plan_day_if_needed(self, state: dict[str, Any], frame: Frame) -> None:
-        day = state.get("day")
+        day = calendar_day(state)
         if not isinstance(day, int):
             return
         existing = self.notebook.data["days"].get(str(day))
@@ -611,7 +756,7 @@ class AutoplayHarness:
         self.telemetry.record("day_planned", {"day": day, "agenda_size": len(agenda)})
 
     def _refill_agenda_if_needed(self, state: dict[str, Any], frame: Frame) -> None:
-        day = state.get("day")
+        day = calendar_day(state)
         if not isinstance(day, int) or self.notebook.current_day != day:
             return
         if self._bedtime_allowed(state) or self.ledger.snapshot().get("active") is not None:
@@ -691,7 +836,7 @@ class AutoplayHarness:
                     errors.append("return home is not an agenda item before the evening slot")
                     break
 
-        day = int(state["day"])
+        day = calendar_day(state)
         errors.extend(self.notebook.variety_errors(day, agenda, arguments.get("theme", ""), mode))
         carried = {
             item["id"] for item in self.notebook.remaining(day) if item["status"] == "carried"
@@ -724,7 +869,7 @@ class AutoplayHarness:
     def _strip_invalid_carried_ids(
         self, arguments: dict[str, Any], state: dict[str, Any]
     ) -> list[str]:
-        day = int(state["day"])
+        day = calendar_day(state)
         candidates = {
             item["id"] for item in self.notebook.remaining(day) if item["status"] == "carried"
         }
@@ -743,7 +888,7 @@ class AutoplayHarness:
 
     def _apply_agenda(self, arguments: dict[str, Any], state: dict[str, Any]) -> None:
         self.notebook.set_agenda(
-            int(state["day"]), arguments["agenda"], arguments["theme"], arguments.get("dropped", [])
+            calendar_day(state), arguments["agenda"], arguments["theme"], arguments.get("dropped", [])
         )
 
     def _apply_farm_plan(self, arguments: dict[str, Any], state: dict[str, Any]) -> None:
@@ -763,12 +908,12 @@ class AutoplayHarness:
                 and 0 <= zone["y1"] <= zone["y2"] < height
             ):
                 raise ValueError(f"zone {zone.get('name', '<unnamed>')} is outside Farm bounds")
-        self.notebook.set_farm_plan(zones, arguments["notes"], int(state["day"]))
+        self.notebook.set_farm_plan(zones, arguments["notes"], calendar_day(state))
 
     def _agenda_feedback(self, state: dict[str, Any]) -> None:
         if getattr(self, "director_feedback", None):
             return
-        day = state.get("day")
+        day = calendar_day(state)
         if not isinstance(day, int) or self.notebook.current_day != day:
             return
         pending = [
@@ -785,6 +930,8 @@ class AutoplayHarness:
         return (value // 100) * 60 + value % 100
 
     def _complete_verified_objective(self, state: dict[str, Any]) -> bool:
+        if getattr(self, "operator_mode", None) == "finishing":
+            return False
         active = self.ledger.snapshot().get("active")
         evaluation = evaluate_state_condition(active["success_condition"], state) if active else None
         if evaluation is not None and evaluation[0]:
@@ -820,6 +967,7 @@ class AutoplayHarness:
         fields = ("worldReady", "location", "day", "season", "year", "menu", "eventUp",
                   "inventory", "plantedCrops", "wateredCrops", "harvestableCrops", "money", "health")
         return json.dumps({"active": self.ledger.snapshot().get("active"),
+                           "operator_revision": getattr(self, "operator_revision", 0),
                            "state": {key: state.get(key) for key in fields},
                            "stamina_low": (state.get("stamina") or 0) < 30}, sort_keys=True)
 
@@ -919,7 +1067,8 @@ class AutoplayHarness:
         if budget_usd is None:
             return
         cumulative_cost = float(self.telemetry.summary["usage"]["cost"])
-        if cumulative_cost >= budget_usd and self.stop_reason != "budget_reached":
+        if (cumulative_cost >= budget_usd and self.stop_reason != "budget_reached"
+                and getattr(self, "operator_mode", None) not in {"saved", "held", "needs_attention"}):
             self.stop_reason = "budget_reached"
             self.telemetry.record(
                 "budget_reached",
@@ -947,9 +1096,15 @@ class AutoplayHarness:
         )
 
     def _apply_director_decision(self, decision: ToolDecision, state: dict[str, Any]) -> None:
+        if self._poll_operator(state):
+            return
+        if getattr(self, "operator_mode", None) == "finishing":
+            return
         arguments = decision.arguments
         self.director_feedback = None
-        if decision.name == "continue_objective":
+        if decision.name == "search_history":
+            self.latest_history_results = self.history.search(**arguments)
+        elif decision.name == "continue_objective":
             self.ledger.continue_objective(arguments["milestone"], arguments["reason"])
         elif decision.name == "block_objective":
             if self.continuous:
@@ -971,7 +1126,7 @@ class AutoplayHarness:
                     goal = active["goal"][:40]
                     self.notebook.add_lesson(
                         f"wasted_decisions:{goal}",
-                        f"Change tactic sooner when working on: {goal}.", "auto", state["day"],
+                        f"Change tactic sooner when working on: {goal}.", "auto", calendar_day(state),
                     )
                 self.ledger.block_objective(arguments["evidence"])
                 if agenda_id is not None and hasattr(self, "notebook"):
@@ -984,7 +1139,7 @@ class AutoplayHarness:
                 if evaluation is not None and any(" is unavailable" in item for item in evaluation[1]):
                     raise ObjectiveError("The proposed success condition uses an unavailable state field.")
                 agenda_id = arguments.get("agenda_id")
-                day = state.get("day")
+                day = calendar_day(state)
                 bedtime_return = False
                 if hasattr(self, "notebook") and isinstance(day, int):
                     deferred = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
@@ -1027,7 +1182,7 @@ class AutoplayHarness:
                 if attempts[key] >= 3:
                     self.stop_reason = "director_repeated_invalid_objective"
         elif decision.name == "plan_day":
-            day = state.get("day")
+            day = calendar_day(state)
             entry = self.notebook.data["days"].get(str(day)) if isinstance(day, int) else None
             mode = "refill" if entry and entry["theme"] and not self.notebook.remaining(day) else "morning"
             ignored_carried_ids = self._strip_invalid_carried_ids(arguments, state)
@@ -1044,7 +1199,7 @@ class AutoplayHarness:
             except ValueError as error:
                 self.director_feedback = f"Farm plan was rejected: {error}"
         elif decision.name == "reflect":
-            self._record_reflection(int(state["day"]), arguments)
+            self._record_reflection(calendar_day(state), arguments)
         else:
             raise HarnessError(f"Unknown director tool: {decision.name}")
 
@@ -1057,6 +1212,9 @@ class AutoplayHarness:
         assert self.bridge is not None
         name = decision.name
         arguments = decision.arguments
+        finishing = getattr(self, "operator_mode", None) == "finishing"
+        if finishing and name in {"change_objective", "stop_session", "objective_progress", "plant_seeds", "plant_nearest_seeds", "till_tiles", "water_crops"}:
+            return {"status": "rejected", "reason": "Operator requested saving. Return home and sleep; the harness verifies the save before stopping."}
         if name == "change_objective":
             return self._change_actor_objective(arguments, before_state or {})
         if name == "inspect_scene":
@@ -1092,17 +1250,17 @@ class AutoplayHarness:
             self.game_actions += response["controls_executed"]
             return response
         if name == "go_home_and_sleep":
-            if not self._bedtime_allowed(before_state or {}):
+            if not finishing and not self._bedtime_allowed(before_state or {}):
                 return {
                     "status": "rejected",
                     "reason": "bedtime_not_allowed_before_2000_unless_exhausted",
                     "time": (before_state or {}).get("time"),
                     "stamina": (before_state or {}).get("stamina"),
                 }
-            if hasattr(self, "notebook"):
+            if hasattr(self, "notebook") and not finishing:
                 self._reflect_before_sleep(before_state or {}, frame)
             response = go_home_and_sleep(self.bridge, before_state or {},
-                                         45 if self.continuous else self.max_actions - self.game_actions)
+                                         45 if self.continuous or finishing else self.max_actions - self.game_actions)
             self.game_actions += response["controls_executed"]
             return response
         if name == "travel_to":
@@ -1148,7 +1306,7 @@ class AutoplayHarness:
                 self.world.record_blocked_path(
                     (before_state or {}).get("location") or "",
                     arguments["location"],
-                    int(response_state.get("day") or (before_state or {}).get("day") or 1),
+                    calendar_day(response_state) or calendar_day(before_state or {}) or 1,
                 )
         elif name == "press":
             response = self.bridge.request("press", buttons=arguments["buttons"])
@@ -1208,6 +1366,9 @@ class AutoplayHarness:
                 return {"status": "rejected", "reason": str(error)}
             self.last_interaction = None
             return {"status": "recorded", "subject": entry["subject"], "outcome": entry["outcome"], "preference": entry["preference"]}
+        elif name == "search_history":
+            self.latest_history_results = self.history.search(arguments["query"], arguments.get("kind", "all"), arguments.get("limit", 5))
+            return {"status": "completed", "results": self.latest_history_results}
         elif name == "wiki_search":
             self.latest_wiki_results = self.wiki.search(arguments["query"])
             return {"status": "completed", "results": self.latest_wiki_results}
@@ -1255,7 +1416,7 @@ class AutoplayHarness:
         target = self._retry_condition_key(condition)
         if active and target == self._retry_condition_key(active["success_condition"]):
             return {"status": "rejected", "reason": "This is the current target; act or change tactic without resetting its objective."}
-        day = state.get("day")
+        day = calendar_day(state)
         agenda = self.notebook.data["days"].get(str(day), {}).get("agenda", [])
         bedtime_return = target == "location=farmhouse" and self._bedtime_allowed(state)
         if self._target_deferred_today(target, state):
@@ -1281,7 +1442,7 @@ class AutoplayHarness:
     def _target_deferred_today(self, target: str, state: dict[str, Any]) -> bool:
         if target == "location=farmhouse" and self._bedtime_allowed(state):
             return False
-        agenda = self.notebook.data["days"].get(str(state.get("day")), {}).get("agenda", [])
+        agenda = self.notebook.data["days"].get(str(calendar_day(state)), {}).get("agenda", [])
         today = [state.get(key) for key in ("year", "season", "day")]
         deferred = [item for item in agenda if item["status"] == "deferred"]
         deferred += [item for item in self.ledger.data["history"] if item.get("retry_deferred_on") == today]
@@ -1302,7 +1463,7 @@ class AutoplayHarness:
         return {"status": "rejected", "reason": "outside_crop_zone", "zones": zones}
 
     def _reflect_before_sleep(self, state: dict[str, Any], frame: Frame) -> None:
-        day = state.get("day")
+        day = calendar_day(state)
         if not isinstance(day, int):
             self.telemetry.record("reflection_skipped", {"reason": "day_unavailable"})
             return
@@ -1332,7 +1493,7 @@ class AutoplayHarness:
         self, decision: ToolDecision, result: dict[str, Any], state: dict[str, Any],
         blocked_before: list[dict[str, Any]],
     ) -> None:
-        day = state.get("day")
+        day = calendar_day(state)
         if not hasattr(self, "notebook") or not isinstance(day, int):
             return
         reason = str(result.get("reason") or result.get("error") or "rejected")
@@ -1512,7 +1673,7 @@ class AutoplayHarness:
             if hasattr(self, "notebook") and isinstance(state.get("day"), int):
                 self.notebook.add_lesson(
                     f"stall:{tools}", f"Change tactic when {tools.replace('_', ' ')} makes no progress.",
-                    "auto", state["day"],
+                    "auto", calendar_day(state),
                 )
             self.director_feedback = (
                 f"The last 8 decisions changed nothing in the world: {tools}. "
@@ -1542,7 +1703,7 @@ class AutoplayHarness:
             "harnessBlockedDirectionsHere": blocked_here,
             "harnessLastResult": self.last_result,
             "harnessStaminaLow": (state.get("stamina") or 0) < 30 if state.get("worldReady") else False,
-            "harnessBedtimeAllowed": self._bedtime_allowed(state),
+            "harnessBedtimeAllowed": getattr(self, "operator_mode", None) == "finishing" or self._bedtime_allowed(state),
             "harnessStalledDecisions": getattr(self, "stalled_decisions", 0),
         }
         # Slow-changing fields first so a caching provider can reuse the longest possible prefix.
@@ -1550,11 +1711,13 @@ class AutoplayHarness:
             "role": role,
             "objective_ledger": prompt_ledger(self.ledger.snapshot()),
             "notebook": (
-                self.notebook.context(state.get("day"), role, state) if hasattr(self, "notebook") else None
+                self.notebook.context(calendar_day(state), role, state) if hasattr(self, "notebook") else None
             ),
             "world": self.world.summary(state.get("location"), state.get("time")),
             "memory": self.telemetry.context(),
             "wiki_results": self.latest_wiki_results,
+            "history_results": getattr(self, "latest_history_results", []),
+            "operator": {"mode": getattr(self, "operator_mode", "playing"), "guidance": getattr(self, "operator_guidance", "")},
             "director_feedback": self.director_feedback if role == "director" else None,
             "game_state": compact_state(harness_state) if state_only else harness_state,
             "frame": None if state_only else {
@@ -1595,11 +1758,11 @@ class AutoplayHarness:
         context = serialize()
         initial_tokens = len(context) / 3.5
         cuts = []
-        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories"):
+        for field in ("wiki_results", "history_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby", "controller_geometry", "interaction_memories"):
             if len(context) / 3.5 <= budget:
                 break
-            if field == "wiki_results":
-                packet["wiki_results"] = []
+            if field in {"wiki_results", "history_results"}:
+                packet[field] = []
             elif field == "memory_recent":
                 memory = packet["memory"]
                 memory["recent_events"] = memory.get("recent_events", [])[-6:]

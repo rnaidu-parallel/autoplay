@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from copy import deepcopy
 
 
 AGENT_BUTTONS = [
@@ -280,6 +281,16 @@ ACTOR_TOOLS = [
 ]
 
 
+HISTORY_TOOL = function_tool(
+    "search_history",
+    "Search recorded actions and objectives across earlier runs. Returns up to five compact excerpts with source references; no game input.",
+    {"query": {"type": "string", "minLength": 1, "maxLength": 120},
+     "kind": {"type": "string", "enum": ["all", "actions", "objectives"]},
+     "limit": {"type": "integer", "minimum": 1, "maximum": 5}},
+    ["query"],
+)
+ACTOR_TOOLS.append(deepcopy(HISTORY_TOOL))
+
 for _actor_tool in ACTOR_TOOLS:
     _parameters = _actor_tool["function"]["parameters"]
     _parameters["properties"]["say"] = {
@@ -375,6 +386,7 @@ REFLECT_TOOL = function_tool(
 
 
 DIRECTOR_TOOLS = [
+    HISTORY_TOOL,
     PLAN_DAY_TOOL,
     UPDATE_FARM_PLAN_TOOL,
     REFLECT_TOOL,

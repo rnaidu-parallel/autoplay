@@ -39,6 +39,9 @@ if os.name == "nt":
         wintypes.LPVOID,
     ]
     _kernel32.ReadFile.restype = wintypes.BOOL
+    _kernel32.PeekNamedPipe.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                                      wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPDWORD]
+    _kernel32.PeekNamedPipe.restype = wintypes.BOOL
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     _kernel32.CloseHandle.restype = wintypes.BOOL
 
@@ -114,13 +117,24 @@ class NamedPipeBridge:
     def _read_line(self) -> bytes:
         assert self._handle is not None
         payload = bytearray()
+        deadline = time.monotonic() + 90
         while True:
+            available = wintypes.DWORD()
+            if not _kernel32.PeekNamedPipe(self._handle, None, 0, None, ctypes.byref(available), None):
+                self.close()
+                raise BridgeError("The game bridge disconnected while awaiting a response.")
+            if time.monotonic() >= deadline:
+                self.close()
+                raise BridgeError("The game bridge did not respond within 90 seconds.")
+            if not available.value:
+                time.sleep(0.01)
+                continue
             buffer = ctypes.create_string_buffer(4096)
             read = wintypes.DWORD()
             success = _kernel32.ReadFile(
                 self._handle,
                 buffer,
-                len(buffer),
+                min(len(buffer), available.value),
                 ctypes.byref(read),
                 None,
             )

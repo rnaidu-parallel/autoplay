@@ -41,6 +41,7 @@ def main() -> int:
     run_parser = subparsers.add_parser("run", help="Run the autonomous tool loop")
     run_parser.add_argument("--objective")
     run_parser.add_argument("--success-condition")
+    run_parser.add_argument("--resume-checkpoint", action="store_true", help="Resume the latest verified game/harness checkpoint; reject a changed game save.")
     run_parser.add_argument("--max-actions", type=int, default=10)
     run_parser.add_argument("--max-decisions", type=int, default=15)
     run_parser.add_argument("--director-interval", type=int, default=12)
@@ -131,8 +132,10 @@ def main() -> int:
         return 0
 
     if arguments.command == "run":
-        if not arguments.forever and (arguments.objective is None or arguments.success_condition is None):
-            parser.error("run requires --objective and --success-condition unless --forever is set")
+        if arguments.resume_checkpoint and (arguments.isolated_state or arguments.objective or arguments.success_condition):
+            parser.error("--resume-checkpoint uses shared checkpoint objectives; omit --isolated-state, --objective and --success-condition")
+        if not arguments.forever and not arguments.resume_checkpoint and (arguments.objective is None or arguments.success_condition is None):
+            parser.error("run requires --objective and --success-condition unless --forever or --resume-checkpoint is set")
         if arguments.forever and ((arguments.objective is None) != (arguments.success_condition is None)):
             parser.error("--objective and --success-condition must be provided together")
         if arguments.forever and arguments.isolated_state:
@@ -141,7 +144,7 @@ def main() -> int:
         def build_harness() -> AutoplayHarness:
             objective = arguments.objective
             success_condition = arguments.success_condition
-            if arguments.forever and objective is None:
+            if arguments.forever and objective is None and not arguments.resume_checkpoint:
                 ledger_path = root / "harness" / "state" / "objectives.json"
                 active_objective = None
                 if not arguments.isolated_state and ledger_path.exists():
@@ -174,9 +177,13 @@ def main() -> int:
                 budget_usd=arguments.budget_usd,
                 max_minutes=arguments.max_minutes,
                 forever=arguments.forever,
+                resume_checkpoint=arguments.resume_checkpoint,
             )
+            # Restoration is a one-time startup operation, not a supervisor retry.
+            arguments.resume_checkpoint = False
             if arguments.forever and harness.ledger.snapshot().get("active") is None:
-                assert objective is not None and success_condition is not None
+                objective = objective or "Step outside to start the day."
+                success_condition = success_condition or "location is Farm"
                 harness.ledger.set_objective(
                     objective,
                     success_condition,

@@ -90,6 +90,10 @@ def run_forever(
                 ledger["runs"].append(run_id)
             _write_json_atomic(ledger_path, ledger)
 
+        if harness is not None and getattr(harness, "operator_mode", "playing") in {"saved", "held", "needs_attention"}:
+            write_status("stopped")
+            return last_stop_reason
+
         if stop_file.exists():
             last_stop_reason = "stop_requested"
             write_status("stopped")

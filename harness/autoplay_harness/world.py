@@ -7,6 +7,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from .calendar import calendar_day
+
 from .bridge import BridgeError, NamedPipeBridge
 
 
@@ -49,7 +51,7 @@ class WorldMap:
 
     def observe(self, state: dict[str, Any]) -> None:
         changed = False
-        day = state.get("day")
+        day = calendar_day(state)
         if isinstance(day, int) and day != self.current_day:
             self.current_day = day
             self.blocked_paths = []
@@ -62,7 +64,7 @@ class WorldMap:
         changed = location != self.last_location or changed
         self.last_location = location
         if location not in self.visited:
-            self.visited[location] = int(state.get("day") or 1)
+            self.visited[location] = calendar_day(state) or 1
             changed = True
         if changed:
             self._save()
@@ -339,7 +341,7 @@ def travel_to(
 
     def remember_failed_edge(from_name: str, to_name: str, response: dict[str, Any]) -> str:
         reason = response_reason(response, "location_did_not_change")
-        day = int(current.get("day") or state.get("day") or 1)
+        day = calendar_day(current) or calendar_day(state) or 1
         if reason == "no_walkable_path":
             world_map.record_blocked_path(from_name, to_name, day)
         elif reason.startswith("no_exit_") or reason.startswith("door_action_"):

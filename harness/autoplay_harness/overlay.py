@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+from .control import OperatorControl
+
 INDEX_PATH = Path(__file__).with_name("overlay") / "index.html"
 
 
@@ -190,6 +192,11 @@ class OverlayState:
                     self.pending_action = (event.get("step"), event["tool"])
         elif event_type == "tool_result":
             result = event.get("result")
+            if event.get("source") == "operator_finish":
+                self.actions.insert(0, {"at": event.get("at"), "role": "operator", "tool": event["tool"],
+                                       "toolName": "Return home and save", "say": None, "summary": "Finish & Save",
+                                       "gist": "", "outcome": action_outcome(result), "_step": event.get("step")})
+                del self.actions[8:]
             if event.get("tool") == "world_map" and isinstance(result, dict) and isinstance(result.get("summary"), dict):
                 self.world_summary = result["summary"]
             for action in self.actions:
@@ -198,6 +205,11 @@ class OverlayState:
                     break
             if self.pending_action == (event.get("step"), event.get("tool")):
                 self.pending_action = None
+        elif event_type == "operator_discarded_decision":
+            for action in self.actions:
+                if action["_step"] == event.get("step") and action["tool"] == event.get("tool"):
+                    action["outcome"] = "Discarded: operator direction received"
+            self.pending_action = None
         elif event_type == "model_error":
             self.pending_requests.pop(str(event.get("role") or "actor"), None)
             self._add_usage(event)
@@ -398,8 +410,41 @@ def make_handler(
                 self._serve(index_path, "text/html; charset=utf-8")
             elif self.path.split("?", 1)[0] == "/state.json":
                 self._serve(current_path(), "application/json; charset=utf-8")
+            elif self.path.split("?", 1)[0] == "/control.json":
+                self._json(200, OperatorControl(current_path().parent.parent).status())
             else:
                 self.send_error(404)
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path != "/commands":
+                self.send_error(404)
+                return
+            host = self.headers.get("Host", "")
+            allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+            if host not in allowed or self.headers.get("Origin", f"http://{host}") != f"http://{host}":
+                self._json(403, {"error": "Commands require the local operator view."})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 4096 or self.headers.get_content_type() != "application/json":
+                    raise ValueError("Send a JSON command of at most 4096 bytes.")
+                command = json.loads(self.rfile.read(length))
+                if not isinstance(command, dict):
+                    raise ValueError("Expected a command object.")
+                control = OperatorControl(current_path().parent.parent)
+                result = control.submit(command.get("run_id"), command.get("kind"), command.get("message", ""))
+                self._json(202, result)
+            except (ValueError, TypeError) as error:
+                self._json(400, {"error": str(error)})
+
+        def _json(self, status: int, value: dict[str, Any]) -> None:
+            content = json.dumps(value).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(content)
 
         def _serve(self, path: Path, content_type: str) -> None:
             try:

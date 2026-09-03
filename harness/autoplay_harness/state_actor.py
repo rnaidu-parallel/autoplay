@@ -65,7 +65,7 @@ Include a warm, slightly wry first-person `say` sentence with every action, in p
 STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in {
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
-    "change_objective", "record_opportunity",
+    "change_objective", "record_opportunity", "search_history",
 }] + [function_tool(
     "inspect_scene",
     "Request a fresh screenshot and the full control set for the next decision.",
@@ -87,7 +87,7 @@ def can_use_state_actor(state: dict[str, Any]) -> bool:
 
 def compact_state(state: dict[str, Any]) -> dict[str, Any]:
     # Geometry/pathfinding belongs to the bridge; these tools cannot issue pointer inputs.
-    fields = ("worldReady", "playerFree", "canMove", "location", "day", "season", "year",
+    fields = ("worldReady", "playerFree", "canMove", "location", "day", "season", "year", "saveId", "saveCount", "nightActive",
               "time", "weather", "menu", "eventUp", "minigame", "tileX", "tileY",
               "health", "stamina", "money", "toolbarIndex", "tool", "tilledTiles",
               "plantedCrops", "wateredCrops", "harvestableCrops", "inventoryCounts",
