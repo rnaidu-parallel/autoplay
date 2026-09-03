@@ -64,8 +64,8 @@ any, recovered within a minute with the overlay showing "restarting"; cost withi
 
 ## Known gaps before Phase C
 
-- Narration channel (the agent speaking in first person on the overlay) is not built yet; the overlay shows the
-  plan, goal, and actions.
+- Narration and the Speech panel are implemented and checked with a 1080p replay. The new recorded gameplay
+  session is still required to verify the farmer's live narration and the complete viewing checklist.
 - Progression state (skills, friendship, quests, mail) is not exposed; town social play is shallow until then.
 - Festivals and seasonal events are untested.
 - Fishing, mining, and combat are untested; the director is steered away from them until proven.

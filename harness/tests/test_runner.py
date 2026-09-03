@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,9 +8,10 @@ from autoplay_harness.capture import Frame
 from autoplay_harness.notebook import Notebook
 from autoplay_harness.objectives import ObjectiveLedger
 from autoplay_harness.openrouter import OpenRouterClient, OpenRouterError, ToolDecision
-from autoplay_harness.runner import AutoplayHarness, HarnessError
+from autoplay_harness.runner import ACTOR_CONTEXT_BUDGET, DIRECTOR_CONTEXT_BUDGET, AutoplayHarness, HarnessError
+from autoplay_harness.state_actor import STATE_ACTOR_TOOLS, STATE_ACTOR_PROMPT
 from autoplay_harness.telemetry import Telemetry
-from autoplay_harness.tools import PLAN_DAY_TOOL, REFLECT_TOOL, UPDATE_FARM_PLAN_TOOL
+from autoplay_harness.tools import ACTOR_TOOLS, DIRECTOR_TOOLS, PLAN_DAY_TOOL, REFLECT_TOOL, UPDATE_FARM_PLAN_TOOL
 from autoplay_harness.world import WorldMap
 
 
@@ -239,7 +241,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIsNone(AutoplayHarness._movement_key("hold", {"buttons": ["W"], "ticks": 3}, state))
         self.assertIsNotNone(AutoplayHarness._movement_key("hold", {"buttons": ["W"], "ticks": 15}, state))
 
-    def test_context_puts_stable_fields_first_and_surfaces_blocked_directions(self) -> None:
+    def test_context_surfaces_blocked_directions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
             harness.ledger = ObjectiveLedger(Path(directory) / "objectives.json", "Reach the farm", "location is Farm")
@@ -261,14 +263,14 @@ class RunnerTests(unittest.TestCase):
                           "time": 1200, "health": 100, "stamina": 12}, self.frame
             )
 
-            self.assertLess(context.index('"objective_ledger"'), context.index('"game_state"'))
-            self.assertLess(context.index('"game_state"'), context.index('"counters"'))
+            packet = json.loads(context)
+            self.assertEqual("Reach the farm", packet["objective_ledger"]["active"]["goal"])
             self.assertIn('"harnessBlockedDirectionsHere":["W"]', context)
             self.assertIn('"harnessStaminaLow":true', context)
             self.assertIn('"harnessBedtimeAllowed":true', context)
             self.assertIn('"harnessStalledDecisions":5', context)
-            self.assertIn('"harnessLastResult":{"tool":"hold","status":"blocked"}', context)
-            self.assertIn('"world":{"here":"FarmHouse","exits":["Farm"]}', context)
+            self.assertEqual({"tool": "hold", "status": "blocked"}, packet["game_state"]["harnessLastResult"])
+            self.assertEqual({"here": "FarmHouse", "exits": ["Farm"]}, packet["world"])
 
     @patch("autoplay_harness.runner.travel_to")
     def test_dispatches_travel_to_and_includes_world_in_actor_context(self, travel_skill) -> None:
@@ -307,7 +309,7 @@ class RunnerTests(unittest.TestCase):
             travel_skill.assert_called_once_with(
                 harness.bridge, {"location": "Farm", "time": 900}, harness.world, "Town", 9
             )
-            self.assertIn('"world":{"here":"Farm","exits":["Town"]}', context)
+            self.assertEqual({"here": "Farm", "exits": ["Town"]}, json.loads(context)["world"])
 
     def test_stale_frame_is_rejected(self) -> None:
         with self.assertRaises(HarnessError):
@@ -752,11 +754,11 @@ class RunnerTests(unittest.TestCase):
                 {}, None,
             )
             agenda = [
-                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "morning"},
-                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "midday"},
-                {"goal": "Clear debris", "success_condition": "stamina <= 200", "slot": "afternoon"},
-                {"goal": "Return home", "success_condition": "location is FarmHouse", "slot": "evening"},
-                {"goal": "Organize tools", "success_condition": "toolbarIndex >= 0", "slot": "evening"},
+                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "morning", "category": "exploring"},
+                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "midday", "category": "foraging"},
+                {"goal": "Clear debris", "success_condition": "stamina <= 200", "slot": "afternoon", "category": "clearing"},
+                {"goal": "Return home", "success_condition": "location is FarmHouse", "slot": "evening", "category": "home"},
+                {"goal": "Organize tools", "success_condition": "toolbarIndex >= 0", "slot": "evening", "category": "home"},
             ]
             day_plan = ToolDecision("plan_day", {"theme": "Explore", "agenda": agenda, "dropped": []}, {}, None)
             harness._decide = Mock(side_effect=[(farm_plan, 1), (day_plan, 1)])
@@ -788,14 +790,16 @@ class RunnerTests(unittest.TestCase):
             invalid = ToolDecision(
                 "plan_day",
                 {"theme": "Short", "agenda": [
-                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning"}
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning",
+                     "category": "farming" if index < 2 else "exploring"}
                     for index in range(4)
                 ], "dropped": []}, {}, None,
             )
             valid = ToolDecision(
                 "plan_day",
                 {"theme": "Full", "agenda": [
-                    {"goal": f"Goal {index}", "slot": "evening" if index == 4 else "morning"}
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 4 else "morning",
+                     "category": "farming" if index < 2 else "exploring"}
                     for index in range(5)
                 ], "dropped": []}, {}, None,
             )
@@ -832,6 +836,7 @@ class RunnerTests(unittest.TestCase):
                 {
                     "goal": f"Fresh goal {index}",
                     "slot": "evening" if index == 4 else "morning",
+                    "category": "farming" if index < 2 else "exploring",
                     "carried_id": f"explore-backwoods-{index}",
                 }
                 for index in range(5)
@@ -876,7 +881,8 @@ class RunnerTests(unittest.TestCase):
             invalid = ToolDecision(
                 "plan_day",
                 {"theme": "Short", "agenda": [
-                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning"}
+                    {"goal": f"Goal {index}", "slot": "evening" if index == 3 else "morning",
+                     "category": "farming" if index < 2 else "exploring"}
                     for index in range(4)
                 ], "dropped": []}, {}, None,
             )
@@ -902,15 +908,15 @@ class RunnerTests(unittest.TestCase):
             harness.notebook.start_day(2)
             harness.world = Mock()
             refill = {"agenda": [
-                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "morning"},
-                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "midday"},
+                {"goal": "Gather wood", "success_condition": "inventory.Wood >= 10", "slot": "morning", "category": "foraging"},
+                {"goal": "Visit Town", "success_condition": "location is Town", "slot": "midday", "category": "exploring"},
             ], "dropped": []}
 
             self.assertEqual([], harness._agenda_errors(refill, {"day": 2, "time": 1200}, "refill"))
 
             refill["agenda"][0] = {
                 "goal": "Return home", "success_condition": "location is FarmHouse, playerFree is true",
-                "slot": "morning",
+                "slot": "morning", "category": "home",
             }
             self.assertEqual(
                 ["return home is not an agenda item before the evening slot"],
@@ -1012,7 +1018,7 @@ class RunnerTests(unittest.TestCase):
             harness.notebook.start_day(3)
             harness.notebook.set_agenda(
                 3,
-                [{"goal": "Earn money", "success_condition": "money >= 10", "slot": "morning"}],
+                [{"goal": "Earn money", "success_condition": "money >= 10", "slot": "morning", "category": "shopping"}],
                 "Progress",
             )
             agenda_id = harness.notebook.remaining(3)[0]["id"]
@@ -1034,7 +1040,7 @@ class RunnerTests(unittest.TestCase):
             harness.notebook = Notebook(Path(directory))
             harness.notebook.start_day(4)
             harness.notebook.set_agenda(
-                4, [{"goal": "Late task", "slot": "evening"}], "Long day"
+                4, [{"goal": "Late task", "slot": "evening", "category": "home"}], "Long day"
             )
             harness.telemetry = Mock(step=0)
             harness._context = Mock(return_value="context")
@@ -1088,6 +1094,173 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual("outside_crop_zone", result["reason"])
             self.assertEqual([], harness.bridge.calls)
             till_skill.assert_not_called()
+
+
+class LongRunIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.harness = AutoplayHarness.__new__(AutoplayHarness)
+        harness = self.harness
+        harness.notebook = Notebook(root)
+        harness.notebook.start_day(9)
+        harness.ledger = ObjectiveLedger(root / "objectives.json", "Gather wood", "inventory.Wood >= 50")
+        harness.world = WorldMap(root)
+        harness.telemetry = Telemetry(root / "run")
+        harness.latest_wiki_results = []
+        harness.blocked_movements = set()
+        harness.last_result = {"tool": "navigate_to", "status": "blocked", "reason": "no_walkable_path"}
+        harness.director_feedback = None
+        harness.continuous = True
+        harness.game_actions = harness.decisions = harness.stalled_decisions = 0
+        harness.director_interval = 12
+        harness.last_action_fingerprint = harness.last_progress_fingerprint = None
+        harness.recent_actor_tools = []
+        harness.stall_review_requested = False
+        harness.stop_reason = None
+        harness.inspect_next_scene = False
+        harness.actor_mode = "state-first"
+        harness._print_step = Mock()
+        self.frame = Frame("frame-1", 1920, 1080, "image", None)
+        self.state = {"day": 9, "time": 800, "location": "Town", "worldReady": True,
+                      "playerFree": True, "canMove": True, "menu": "none", "eventUp": False,
+                      "minigame": "none", "stamina": 100, "health": 100, "inventoryCounts": {"Wood": 1}}
+
+    def test_repeated_rejection_merges_lesson_in_actor_path(self):
+        harness = self.harness
+        harness.bridge = _Bridge()
+        harness.world.edges = [{"from": "Town", "to": "SeedShop", "kind": "action_warp", "openTime": 900, "closeTime": 2100}]
+        harness._observe = lambda: (dict(self.state), self.frame)
+        harness._decide = Mock(return_value=(ToolDecision("go_to_location", {"location": "SeedShop", "say": "I check the shop."}, {}, None), 1))
+        harness._actor_step()
+        self.state["time"] = 810
+        harness._actor_step()
+        lessons = harness.notebook.data["lessons"]
+        self.assertEqual(1, len(lessons))
+        self.assertEqual("rejected:door_closed_until_900", lessons[0]["key"])
+        self.assertEqual(2, lessons[0]["count"])
+        self.assertIn("SeedShop is closed until 9:00 AM", lessons[0]["text"])
+        self.assertEqual([], harness.bridge.calls)
+
+    def test_speech_does_not_change_action_identity(self):
+        first = ToolDecision("navigate_to", {"tile_x": 1, "tile_y": 2, "say": "I try the path."}, {}, None)
+        repeated = ToolDecision("navigate_to", {"tile_x": 1, "tile_y": 2, "say": "I try it again."}, {}, None)
+        self.assertEqual(AutoplayHarness._action_fingerprint(first, self.state),
+                         AutoplayHarness._action_fingerprint(repeated, self.state))
+
+    def test_variety_feedback_retries_without_changing_existing_rules(self):
+        harness = self.harness
+        old_items = [{"goal": "Old task", "slot": "morning", "category": category}
+                     for category in ("farming", "farming", "farming", "clearing", "clearing")]
+        harness.notebook.set_agenda(9, old_items, "Farm day")
+        for item in harness.notebook.remaining(9):
+            harness.notebook.mark(item["id"], "done")
+        harness.notebook.start_day(10)
+        items = [{"goal": "Fresh task", "slot": "evening", "category": category}
+                 for category in ("farming", "farming", "farming", "exploring", "social")]
+        invalid = ToolDecision("plan_day", {"theme": " farm DAY ", "agenda": items, "dropped": []}, {}, None)
+        valid = ToolDecision("plan_day", {"theme": "Town friends", "agenda": items, "dropped": []}, {}, None)
+        harness._decide = Mock(side_effect=[(invalid, 1), (valid, 1)])
+        harness._request_agenda({**self.state, "day": 10}, self.frame, "morning")
+        events = [json.loads(line) for line in harness.telemetry.events_path.read_text().splitlines()]
+        rejected = next(event for event in events if event["type"] == "agenda_plan_rejected")
+        self.assertIn("theme", " ".join(rejected["errors"]))
+        self.assertEqual("Town friends", harness.notebook.data["days"]["10"]["theme"])
+        self.assertIsNone(harness.director_feedback)
+
+    def test_weekly_rollup_preserves_recent_theme_validation(self):
+        notebook = self.harness.notebook
+        notebook.data["days"] = {
+            str(day): {"theme": f"Theme {day}", "agenda": [], "reflection": None, "learned": []}
+            for day in range(1, 9)
+        }
+        notebook.current_day = 8
+        notebook.rollup_week()
+        notebook.start_day(9)
+        self.assertEqual(["8", "9"], list(notebook.data["days"]))
+        self.assertEqual(["Theme 6", "Theme 7", "Theme 8"], notebook.recent_themes(3))
+        self.assertTrue(any("theme" in error for error in notebook.variety_errors(9, [], "Theme 6", "morning")))
+
+    def test_timeout_blocked_path_stall_reflection_and_wasted_objective_lessons(self):
+        harness = self.harness
+        harness.world.record_blocked_path("Farm", "Backwoods", 9)
+        harness._record_actor_lessons(ToolDecision("travel_to", {}, {}, None),
+                                     {"status": "blocked", "reason": "hop_failed:tick_budget_exhausted"}, self.state, [])
+        harness.last_progress_fingerprint = harness._progress_fingerprint(self.state)
+        for _ in range(8):
+            harness._update_stall_watchdog("navigate_to", self.state)
+        harness._apply_director_decision(ToolDecision("reflect", {
+            "summary": "The path was blocked.", "learned": [], "lessons": ["Try another path tomorrow."]}, {}, None), self.state)
+        harness.continuous = False
+        harness.objective_decision_id = harness.ledger.snapshot()["active"]["id"]
+        harness.objective_decisions = 8
+        harness._apply_director_decision(ToolDecision("block_objective", {"evidence": "No accessible wood"}, {}, None), self.state)
+        keys = [lesson["key"] for lesson in harness.notebook.data["lessons"]]
+        for prefix in ("timeout:travel_to", "blocked_path:Farm->Backwoods", "stall:", "reflection:", "wasted_decisions:Gather wood"):
+            self.assertTrue(any(key.startswith(prefix) for key in keys), keys)
+
+    def test_context_budgets_trim_in_order_without_mutating_state_or_notebook(self):
+        harness = self.harness
+        harness.latest_wiki_results = [{"text": "wiki " * 8000}]
+        for index in range(12):
+            harness.telemetry.record("tool_result", {"tool": "navigate_to",
+                                     "result": {"status": "blocked", "reason": str(index) + "e" * 350}})
+        for index in range(6):
+            harness.notebook.add_lesson(str(index), "lesson " * 25, "auto", 9)
+        harness.notebook.set_agenda(9, [{"goal": "goal " * 75, "slot": "morning", "category": "farming"} for _ in range(8)], "Big plan")
+        state = {**self.state,
+                 "nearbyObjects": [{"x": i, "y": 1, "name": "object " * 20} for i in range(100)],
+                 "cropsNearby": [{"x": i, "y": 1, "crop": "crop " * 40} for i in range(200)]}
+        original = json.dumps(harness.notebook.data, sort_keys=True)
+        sizes = {}
+        for role, state_only, budget in (("actor", True, ACTOR_CONTEXT_BUDGET), ("director", False, DIRECTOR_CONTEXT_BUDGET)):
+            with self.subTest(role=role):
+                context = harness._context(role, state, self.frame, state_only=state_only)
+                sizes[role] = round(len(context) / 3.5, 1)
+                self.assertLessEqual(len(context) / 3.5, budget)
+                packet = json.loads(context)
+                self.assertEqual("Gather wood", packet["objective_ledger"]["active"]["goal"])
+                self.assertEqual(harness.last_result, packet["game_state"]["harnessLastResult"])
+                event = json.loads(harness.telemetry.events_path.read_text().splitlines()[-1])
+                expected = ["wiki_results", "memory_recent"]
+                if role == "director":
+                    expected.append("lessons")
+                expected.append("agenda_goals")
+                if role == "actor":
+                    expected.append("nearbyObjects")
+                expected.append("cropsNearby")
+                self.assertEqual(expected, event["cuts"])
+        self.assertEqual(original, json.dumps(harness.notebook.data, sort_keys=True))
+        self.assertEqual(100, len(state["nearbyObjects"]))
+        self.assertEqual(200, len(state["cropsNearby"]))
+        print("Estimated context tokens:", sizes)
+
+    def test_oversized_protected_context_is_not_sent_or_dropped(self):
+        harness = self.harness
+        active = harness.ledger.data["active"]
+        active["goal"] = "protected " * 5000
+        with self.assertRaisesRegex(HarnessError, "protected fields retained"):
+            harness._context("actor", self.state, self.frame)
+        self.assertEqual("protected " * 5000, active["goal"])
+
+    def test_consecutive_requests_share_stable_ledger_notebook_world_bytes(self):
+        harness = self.harness
+        harness.client = Mock()
+        harness.client.choose_tool.return_value = ToolDecision("inspect_scene", {"say": "I look around."}, {}, None)
+        for role, tools in (("actor", STATE_ACTOR_TOOLS), ("actor", ACTOR_TOOLS), ("director", DIRECTOR_TOOLS)):
+            with self.subTest(role=role, tools=len(tools)):
+                harness.client.reset_mock()
+                for clock_time in (800, 810):
+                    context = harness._context(role, {**self.state, "time": clock_time}, self.frame,
+                                               state_only=tools is STATE_ACTOR_TOOLS)
+                    harness._choose(STATE_ACTOR_PROMPT, context, self.frame, tools, role)
+                first, second = harness.client.choose_tool.call_args_list
+                self.assertEqual(first.kwargs["stable_context"], second.kwargs["stable_context"])
+                blocks = first.kwargs["stable_context"].splitlines()
+                self.assertEqual(["objective_ledger", "notebook", "world"], [next(iter(json.loads(block))) for block in blocks])
+                self.assertNotEqual(first.args[1], second.args[1])
+                self.assertNotIn("objective_ledger", json.loads(first.args[1]))
 
 
 if __name__ == "__main__":

@@ -26,6 +26,11 @@ from .wiki import StardewWiki
 from .world import WorldMap, travel_to
 
 
+# Context JSON estimates; fixed instructions, tool schemas and images are measured separately.
+ACTOR_CONTEXT_BUDGET = 4500
+DIRECTOR_CONTEXT_BUDGET = 8000
+
+
 class HarnessError(RuntimeError):
     pass
 
@@ -73,6 +78,8 @@ class AutoplayHarness:
         self.actor_mode = actor_mode
         self.inspect_next_scene = False
         self.decisions = 0
+        self.objective_decision_id: str | None = None
+        self.objective_decisions = 0
         self.stop_reason: str | None = None
         self.keep_game_open = keep_game_open
         self.continuous = continuous
@@ -444,11 +451,17 @@ class AutoplayHarness:
         if getattr(self, "last_progress_fingerprint", None) is None:
             self.last_progress_fingerprint = self._progress_fingerprint(state)
         context = self._context("actor", state, frame, state_only=state_only)
+        objective_id = (self.ledger.snapshot().get("active") or {}).get("id")
+        if objective_id != getattr(self, "objective_decision_id", None):
+            self.objective_decision_id = objective_id
+            self.objective_decisions = 0
+        self.objective_decisions = getattr(self, "objective_decisions", 0) + 1
         self.decisions += 1
         decision, model_ms = self._decide(STATE_ACTOR_PROMPT if state_only else ACTOR_SYSTEM_PROMPT,
                                          context, frame, STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS, "actor")
         fingerprint = self._action_fingerprint(decision, state)
         execute_started = time.perf_counter()
+        blocked_before = list(self.world.blocked_paths) if hasattr(self, "world") else []
         if fingerprint == self.last_action_fingerprint:
             result = {
                 "status": "rejected",
@@ -465,6 +478,7 @@ class AutoplayHarness:
         self.telemetry.record("tool_result", {"tool": decision.name, "bridge_ms": bridge_ms, "result": result,
                                              "actor_cycle_ms": round((time.perf_counter() - cycle_started) * 1000)})
         result_state = result.get("state") or state
+        self._record_actor_lessons(decision, result, result_state, blocked_before)
         self._update_stall_watchdog(decision.name, result_state)
         self._print_step("actor", decision, result, result_state, model_ms, bridge_ms)
         if result.get("state"):
@@ -479,6 +493,8 @@ class AutoplayHarness:
         existing = self.notebook.data["days"].get(str(day))
         if self.notebook.current_day == day and existing is not None and existing["theme"]:
             return
+        if self.notebook.current_day != day:
+            self.notebook.rollup_week()
         self.notebook.start_day(day)
         self.director_feedback = None
         if self.notebook.farm_plan is None:
@@ -582,6 +598,7 @@ class AutoplayHarness:
                     break
 
         day = int(state["day"])
+        errors.extend(self.notebook.variety_errors(day, agenda, arguments.get("theme", ""), mode))
         carried = {
             item["id"] for item in self.notebook.remaining(day) if item["status"] == "carried"
         }
@@ -768,11 +785,13 @@ class AutoplayHarness:
     def _choose(self, system_prompt: str, context: str, frame: Frame,
                 tools: list[dict[str, Any]], role: str) -> tuple[ToolDecision, int]:
         started = time.perf_counter()
-        stable_context = None
-        if tools is STATE_ACTOR_TOOLS:
-            packet = json.loads(context)
-            stable_context = json.dumps({"objective_ledger": packet.pop("objective_ledger")}, separators=(",", ":"))
-            context = json.dumps(packet, separators=(",", ":"))
+        packet = json.loads(context)
+        # Keep the ledger first even though each block is serialized with sorted keys.
+        stable_context = "\n".join(
+            json.dumps({key: packet.pop(key)}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            for key in ("objective_ledger", "notebook", "world")
+        )
+        context = json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         decision = self.client.choose_tool(system_prompt, context, None if tools is STATE_ACTOR_TOOLS else frame.data_url,
                                            tools, cache_namespace=role, stable_context=stable_context)
         model_ms = round((time.perf_counter() - started) * 1000)
@@ -847,7 +866,16 @@ class AutoplayHarness:
                         {"reason": reason, "evidence": arguments["evidence"]},
                     )
             else:
-                agenda_id = (self.ledger.snapshot().get("active") or {}).get("agenda_id")
+                active = self.ledger.snapshot().get("active") or {}
+                agenda_id = active.get("agenda_id")
+                if (active.get("id") == getattr(self, "objective_decision_id", None)
+                        and getattr(self, "objective_decisions", 0) >= 8
+                        and hasattr(self, "notebook") and isinstance(state.get("day"), int)):
+                    goal = active["goal"][:40]
+                    self.notebook.add_lesson(
+                        f"wasted_decisions:{goal}",
+                        f"Change tactic sooner when working on: {goal}.", "auto", state["day"],
+                    )
                 self.ledger.block_objective(arguments["evidence"])
                 if agenda_id is not None and hasattr(self, "notebook"):
                     self.notebook.mark(agenda_id, "carried", arguments["evidence"])
@@ -903,7 +931,7 @@ class AutoplayHarness:
             except ValueError as error:
                 self.director_feedback = f"Farm plan was rejected: {error}"
         elif decision.name == "reflect":
-            self.notebook.reflect(int(state["day"]), arguments["summary"], arguments["learned"])
+            self._record_reflection(int(state["day"]), arguments)
         else:
             raise HarnessError(f"Unknown director tool: {decision.name}")
 
@@ -1113,12 +1141,54 @@ class AutoplayHarness:
             )
             if decision.name != "reflect":
                 raise HarnessError(f"Expected reflect, received {decision.name}")
-            self.notebook.reflect(day, decision.arguments["summary"], decision.arguments["learned"])
+            self._record_reflection(day, decision.arguments)
             self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
         except (HarnessError, OpenRouterError, KeyError, TypeError, ValueError) as error:
             self.telemetry.record("reflection_skipped", {"reason": str(error)})
         for item in self.notebook.remaining(day):
             self.notebook.mark(item["id"], "carried", "Unfinished at bedtime.")
+
+    def _record_reflection(self, day: int, arguments: dict[str, Any]) -> None:
+        self.notebook.reflect(day, arguments["summary"], arguments["learned"])
+        for lesson in arguments.get("lessons", []):
+            text = " ".join(lesson.split())
+            if text:
+                self.notebook.add_lesson(f"reflection:{text.casefold()}", text, "reflection", day)
+
+    def _record_actor_lessons(
+        self, decision: ToolDecision, result: dict[str, Any], state: dict[str, Any],
+        blocked_before: list[dict[str, Any]],
+    ) -> None:
+        day = state.get("day")
+        if not hasattr(self, "notebook") or not isinstance(day, int):
+            return
+        reason = str(result.get("reason") or result.get("error") or "rejected")
+        if result.get("status") == "rejected":
+            text = {
+                "outside_crop_zone": "Planting and tilling must stay in the crop zone.",
+                "bedtime_not_allowed_before_2000_unless_exhausted":
+                    "Bedtime is after 8 PM unless exhausted; fill the day.",
+            }.get(reason, "Avoid: " + reason.replace("_", " ") + ".")
+            match = re.fullmatch(r"door_closed_until_(\d+)", reason)
+            if match:
+                door_time = int(match[1])
+                hour, minute = divmod(door_time, 100)
+                destination = decision.arguments.get("destination") or decision.arguments.get("location") or "The destination"
+                text = f"{destination} is closed until {hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}; plan visits after that."
+            self.notebook.add_lesson(f"rejected:{reason}", text, "auto", day)
+        if "tick_budget_exhausted" in reason:
+            self.notebook.add_lesson(
+                f"timeout:{decision.name}",
+                f"Use a shorter route or a different tactic after {decision.name.replace('_', ' ')} runs out of time.",
+                "auto", day,
+            )
+        for path in self.world.blocked_paths if hasattr(self, "world") else []:
+            if path not in blocked_before:
+                self.notebook.add_lesson(
+                    f"blocked_path:{path['from']}->{path['to']}",
+                    f"The path from {path['from']} to {path['to']} is blocked; clear it or use another route.",
+                    "auto", day,
+                )
 
     def _execute_control_sequence(
         self,
@@ -1227,7 +1297,8 @@ class AutoplayHarness:
             "inventory": inventory,
         }
         return json.dumps(
-            {"tool": decision.name, "arguments": decision.arguments, "state": observable},
+            {"tool": decision.name, "arguments": {key: value for key, value in decision.arguments.items() if key != "say"},
+             "state": observable},
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -1264,6 +1335,11 @@ class AutoplayHarness:
                 "stall_detected",
                 {"count": self.stalled_decisions, "tools": list(self.recent_actor_tools)},
             )
+            if hasattr(self, "notebook") and isinstance(state.get("day"), int):
+                self.notebook.add_lesson(
+                    f"stall:{tools}", f"Change tactic when {tools.replace('_', ' ')} makes no progress.",
+                    "auto", state["day"],
+                )
             self.director_feedback = (
                 f"The last 8 decisions changed nothing in the world: {tools}. "
                 "Choose a different tactic or objective."
@@ -1299,13 +1375,13 @@ class AutoplayHarness:
         packet = {
             "role": role,
             "objective_ledger": prompt_ledger(self.ledger.snapshot()),
+            "notebook": (
+                self.notebook.context(state.get("day"), role) if hasattr(self, "notebook") else None
+            ),
+            "world": self.world.summary(state.get("location"), state.get("time")),
             "memory": self.telemetry.context(),
             "wiki_results": self.latest_wiki_results,
             "director_feedback": self.director_feedback if role == "director" else None,
-            "world": self.world.summary(state.get("location"), state.get("time")),
-            "notebook": (
-                self.notebook.context(state.get("day")) if hasattr(self, "notebook") else None
-            ),
             "game_state": compact_state(harness_state) if state_only else harness_state,
             "frame": None if state_only else {
                 "frame_id": frame.frame_id,
@@ -1331,7 +1407,63 @@ class AutoplayHarness:
                 }
             ),
         }
-        return json.dumps(packet, ensure_ascii=False, separators=(",", ":"))
+        return self._budget_context(packet, role)
+
+    def _budget_context(self, packet: dict[str, Any], role: str) -> str:
+        """Estimate context tokens at 3.5 JSON characters per token and trim in priority order."""
+        budget = ACTOR_CONTEXT_BUDGET if role == "actor" else DIRECTOR_CONTEXT_BUDGET
+
+        def serialize() -> str:
+            return json.dumps(packet, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+        context = serialize()
+        initial_tokens = len(context) / 3.5
+        cuts = []
+        for field in ("wiki_results", "memory_recent", "lessons", "agenda_goals", "nearbyObjects", "cropsNearby"):
+            if len(context) / 3.5 <= budget:
+                break
+            if field == "wiki_results":
+                packet["wiki_results"] = []
+            elif field == "memory_recent":
+                memory = packet["memory"]
+                memory["recent_events"] = memory.get("recent_events", [])[-6:]
+            elif field == "lessons":
+                if packet.get("notebook"):
+                    packet["notebook"]["lessons"] = packet["notebook"].get("lessons", [])[:3]
+            elif field == "agenda_goals":
+                today = (packet.get("notebook") or {}).get("today") or {}
+                for key in ("agenda", "carried"):
+                    items = []
+                    for item in today.get(key, []):
+                        if isinstance(item, str):
+                            parts = item.split("|", 3)
+                            parts[-1] = parts[-1][:40]
+                            items.append("|".join(parts))
+                        else:
+                            items.append({**item, "goal": item.get("goal", "")[:40]})
+                    if key in today:
+                        today[key] = items
+            elif field != "nearbyObjects" or role == "actor":
+                limit = 12 if field == "nearbyObjects" else 24
+                value = packet["game_state"].get(field)
+                if isinstance(value, dict) and "rows" in value:
+                    packet["game_state"][field] = {**value, "rows": value["rows"][:limit]}
+                elif isinstance(value, list):
+                    packet["game_state"][field] = value[:limit]
+            updated = serialize()
+            if updated != context:
+                cuts.append(field)
+            context = updated
+        estimated_tokens = len(context) / 3.5
+        if cuts or estimated_tokens > budget:
+            self.telemetry.record("context_trimmed", {
+                "role": role, "budget": budget, "initial_tokens": round(initial_tokens, 1),
+                "estimated_tokens": round(estimated_tokens, 1), "cuts": cuts,
+                "within_budget": estimated_tokens <= budget,
+            }, include_recent=False)
+        if estimated_tokens > budget:
+            raise HarnessError(f"{role} context exceeds {budget} estimated tokens after allowed trims ({estimated_tokens:.0f}); protected fields retained.")
+        return context
 
     @staticmethod
     def _require_current_frame(arguments: dict[str, Any], frame: Frame) -> None:

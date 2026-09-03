@@ -284,9 +284,10 @@ PLAN_DAY_TOOL = function_tool(
                     "goal": {"type": "string", "maxLength": 400},
                     "success_condition": {"type": "string", "maxLength": 300},
                     "slot": {"type": "string", "enum": ["morning", "midday", "afternoon", "evening"]},
+                    "category": {"type": "string", "enum": ["farming", "clearing", "exploring", "social", "shopping", "fishing", "mining", "foraging", "crafting", "event", "home"]},
                     "carried_id": {"type": "string", "maxLength": 40},
                 },
-                "required": ["goal", "slot"],
+                "required": ["goal", "slot", "category"],
                 "additionalProperties": False,
             },
         },
@@ -343,8 +344,12 @@ REFLECT_TOOL = function_tool(
             "maxItems": 12,
             "items": {"type": "string", "maxLength": 300},
         },
+        "lessons": {
+            "type": "array", "minItems": 1, "maxItems": 3,
+            "items": {"type": "string", "maxLength": 300},
+        },
     },
-    ["summary", "learned"],
+    ["summary", "learned", "lessons"],
 )
 
 
