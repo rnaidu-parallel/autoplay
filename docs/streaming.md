@@ -57,7 +57,7 @@ any, recovered within a minute with the overlay showing "restarting"; cost withi
 
 ## Operations
 
-- Stop cleanly: create the file `harness/state/STOP`; the supervisor exits after the current run.
+- Finish the session: use **Finish & Save** in `http://127.0.0.1:8765/?operator=1`. Wait for **Saved and stopped**. The active-run STOP file requests the same flow. See [operator controls](operator-controls.md) for steering, handoff and checkpoint resume.
 - Emergency stop: close OBS streaming first, then Ctrl+C the harness; the finally block restores the display
   mode and closes the game.
 - Status: `harness/state/forever_status.json` (running, restarting, sleeping_budget, stopped) and
