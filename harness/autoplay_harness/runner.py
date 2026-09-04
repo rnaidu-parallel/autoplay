@@ -381,6 +381,9 @@ class AutoplayHarness:
                 self.operator_guidance = command["message"]
                 self.last_action_fingerprint = None
                 self.inspect_next_scene = True
+                # Steering cannot redirect the actor while a compulsory chore still owns the tool list.
+                life_policy.pause_gates(self.notebook.data["life"], state)
+                self.telemetry.record("gates_paused", {"tool": "steer", "evidence": command["message"]})
             elif kind == "hold":
                 self.operator_mode = "held"
                 self.keep_game_open = True
@@ -618,7 +621,7 @@ class AutoplayHarness:
                       and not self.inspect_next_scene and can_use_state_actor(state))
         self.inspect_next_scene = False
         if getattr(self, "last_progress_fingerprint", None) is None:
-            self.last_progress_fingerprint = self._progress_fingerprint(state)
+            self.last_progress_fingerprint = self._stall_fingerprint(state)
         context = self._context("actor", state, frame, state_only=state_only)
         objective_id = (self.ledger.snapshot().get("active") or {}).get("id")
         if objective_id != getattr(self, "objective_decision_id", None):
@@ -731,7 +734,7 @@ class AutoplayHarness:
             self.retry_no_progress = 0
         # Clock ticks alone must not disguise a blocked action. Tool work, movement,
         # inventory changes, menus, and day changes still count as real progress.
-        progressed = self._progress_fingerprint({**before, "time": 0}) != self._progress_fingerprint({**after, "time": 0})
+        progressed = self._stall_fingerprint(before) != self._stall_fingerprint(after)
         intentional_wait = decision.name in {"idle", "wait"} and result.get("status") == "completed"
         self.retry_no_progress = 0 if progressed or intentional_wait else self.retry_no_progress + 1
         arguments = {key: value for key, value in decision.arguments.items() if key not in {"say", "frame_id"}}
@@ -758,6 +761,11 @@ class AutoplayHarness:
             self.telemetry.record("home_return_blocked", {"objective_id": active["id"], "evidence": evidence})
             return
         evidence += " Deferred until another day; choose a different agenda task."
+        # A compulsory chore the game refuses narrows the tool set to that chore alone.
+        # Deferring only the objective leaves that narrowing in place with nothing able to lift it.
+        if decision.name in {"check_mail", "check_journal"}:
+            life_policy.pause_gates(self.notebook.data["life"], after)
+            self.telemetry.record("gates_paused", {"tool": decision.name, "evidence": evidence})
         self.ledger.data["active"]["retry_deferred_on"] = [after.get(key) for key in ("year", "season", "day")]
         self.ledger.block_objective(evidence)
         agenda_id = active.get("agenda_id")
@@ -1835,6 +1843,11 @@ class AutoplayHarness:
         )
 
     @staticmethod
+    def _stall_fingerprint(state: dict[str, Any]) -> tuple[Any, ...]:
+        """Progress with the clock masked: time ticks on its own and is never progress."""
+        return AutoplayHarness._progress_fingerprint({**state, "time": 0})
+
+    @staticmethod
     def _progress_fingerprint(state: dict[str, Any]) -> tuple[Any, ...]:
         inventory_counts = tuple(sorted((state.get("inventoryCounts") or {}).items()))
         return tuple(state.get(field) for field in (
@@ -1844,7 +1857,7 @@ class AutoplayHarness:
         )) + (inventory_counts, state.get("menu"))
 
     def _update_stall_watchdog(self, tool_name: str, state: dict[str, Any]) -> None:
-        fingerprint = self._progress_fingerprint(state)
+        fingerprint = self._stall_fingerprint(state)
         self.recent_actor_tools.append(tool_name)
         del self.recent_actor_tools[:-3]
         if fingerprint == self.last_progress_fingerprint:

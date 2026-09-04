@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from autoplay_harness import life as life_policy
 from autoplay_harness.calendar import calendar_day
 from autoplay_harness.bridge import NamedPipeBridge, BridgeError
 from autoplay_harness.checkpoint import Checkpoints, STATE_FILES
@@ -73,6 +74,20 @@ class OperatorTests(unittest.TestCase):
         self.harness._actor_step()
         self.harness._execute_actor_tool.assert_not_called()
         self.assertEqual("Try the town route", self.harness.operator_guidance)
+
+    def test_steer_releases_a_compulsory_chore_that_owns_the_tool_list(self):
+        farm = {**STATE, "location": "Farm", "mailCount": 1, "time": 630}
+        self.harness.bridge.observe.return_value = {"state": farm}
+        self.harness.notebook.observe_life(farm)
+        life = self.harness.notebook.data["life"]
+        self.assertTrue(life_policy.mail_due(life, farm))
+
+        self.harness.control.submit(self.harness.run_id, "steer", "Stop retrying the mailbox.")
+        self.assertTrue(self.harness._poll_operator(farm))
+
+        # Steering is useless while the mailbox is still the only tool the actor is offered.
+        self.assertFalse(life_policy.mail_due(life, farm))
+        self.assertEqual("Stop retrying the mailbox.", self.harness.operator_guidance)
 
     def test_save_requires_event_identity_date_and_settled_world(self):
         self.finish()

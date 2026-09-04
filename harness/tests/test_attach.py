@@ -66,7 +66,7 @@ class AttachTests(unittest.TestCase):
         self.assertIn('handoff_resumed', events)
         self.harness._recover(BridgeError('test reconnect'))
         self.harness.stalled_decisions = 15
-        self.harness.last_progress_fingerprint = self.harness._progress_fingerprint(self.state)
+        self.harness.last_progress_fingerprint = self.harness._stall_fingerprint(self.state)
         self.harness._update_stall_watchdog('inspect_scene', self.state)
         self.bridge.request.assert_any_call('focus')
         self.assertFalse(any(call.args[0] == 'set_display_mode' for call in self.bridge.request.call_args_list))

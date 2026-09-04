@@ -533,6 +533,32 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("completed", evening["status"])
         self.assertEqual([("sleep_test", {}), ("sleep_test", {})], harness.bridge.calls)
 
+    def test_stall_watchdog_still_counts_while_the_game_clock_runs(self) -> None:
+        harness = object.__new__(AutoplayHarness)
+        harness.attach = False
+        harness.supervisor = Mock(launch_if_needed=True)
+        harness.bridge = _Bridge()
+        harness.telemetry = Mock()
+        harness.stalled_decisions = 0
+        harness.recent_actor_tools = []
+        harness.stall_review_requested = False
+        harness.director_feedback = None
+        harness.stop_reason = None
+        state = {
+            "location": "Farm", "tileX": 68, "tileY": 15, "day": 5, "time": 650,
+            "money": 514, "stamina": 258, "plantedCrops": 1, "wateredCrops": 0,
+            "tilledTiles": 1, "harvestableCrops": 0, "inventoryCounts": {"Wood": 3},
+            "menu": "none",
+        }
+        harness.last_progress_fingerprint = harness._stall_fingerprint(state)
+
+        # Standing still at the mailbox all morning is a stall, however far the clock moves.
+        for minutes in range(8):
+            harness._update_stall_watchdog("inspect_scene", {**state, "time": 650 + minutes * 10})
+
+        self.assertEqual(8, harness.stalled_decisions)
+        self.assertTrue(harness.stall_review_requested)
+
     def test_stall_watchdog_detects_resets_recovers_and_stops(self) -> None:
         harness = object.__new__(AutoplayHarness)
         harness.attach = False
@@ -550,7 +576,7 @@ class RunnerTests(unittest.TestCase):
             "tilledTiles": 4, "harvestableCrops": 0, "inventoryCounts": {"Wood": 3},
             "menu": "none",
         }
-        harness.last_progress_fingerprint = harness._progress_fingerprint(state)
+        harness.last_progress_fingerprint = harness._stall_fingerprint(state)
 
         for _ in range(8):
             harness._update_stall_watchdog("navigate_to", state)
@@ -1354,7 +1380,7 @@ class LongRunIntegrationTests(unittest.TestCase):
         harness.world.record_blocked_path("Farm", "Backwoods", 9)
         harness._record_actor_lessons(ToolDecision("travel_to", {}, {}, None),
                                      {"status": "blocked", "reason": "hop_failed:tick_budget_exhausted"}, self.state, [])
-        harness.last_progress_fingerprint = harness._progress_fingerprint(self.state)
+        harness.last_progress_fingerprint = harness._stall_fingerprint(self.state)
         for _ in range(8):
             harness._update_stall_watchdog("navigate_to", self.state)
         harness._apply_director_decision(ToolDecision("reflect", {

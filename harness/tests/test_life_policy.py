@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 from autoplay_harness import life
 from autoplay_harness.notebook import Notebook
@@ -61,6 +61,42 @@ class LifePolicyTests(unittest.TestCase):
         self.assertFalse(life.mail_due(self.life, {**farm, "mailCount": 0}))
         self.assertTrue(life.mail_due(self.life, farm))
         self.assertIsNone(life.guard(self.life, "travel_to", {"destination": "FarmHouse"}, farm, urgent=True))
+
+    def test_blocked_compulsory_chore_releases_every_gate_until_the_next_day(self):
+        farm = {**STATE, "day": 25, "location": "Farm", "mailCount": 1, "time": 630}
+        self.assertTrue(life.mail_due(self.life, farm))
+        self.assertTrue(life.quest_review_due(self.life, farm))
+        self.assertIn("mail", life.guard(self.life, "go_home_and_sleep", {}, farm))
+
+        life.pause_gates(self.life, farm)
+
+        self.assertFalse(life.mail_due(self.life, farm))
+        self.assertFalse(life.quest_review_due(self.life, farm))
+        self.assertIsNone(life.guard(self.life, "go_home_and_sleep", {}, farm))
+        # Tomorrow the letter may open, so the compulsory chore returns on its own.
+        self.assertTrue(life.mail_due(self.life, {**farm, "day": 26}))
+
+    def test_mailbox_the_game_refuses_stops_owning_the_tool_list(self):
+        harness = self.harness
+        harness.continuous = True
+        harness.failed_targets = {}
+        harness.retry_no_progress = 0
+        harness.retry_objective_id = None
+        harness.stalled_decisions = 0
+        harness.stall_review_requested = False
+        harness.director_feedback = None
+        harness.last_action_fingerprint = None
+        farm = {**STATE, "day": 25, "location": "Farm", "mailCount": 1, "time": 630}
+        blocked = {"status": "blocked", "reason": "letter_did_not_open", "state": farm}
+        decision = ToolDecision("check_mail", {}, {}, None)
+
+        self.assertTrue(life.mail_due(self.life, farm))
+        for _ in range(3):
+            harness._track_action_retries(decision, blocked, farm, farm)
+
+        self.assertFalse(life.mail_due(self.life, farm))
+        harness.telemetry.record.assert_any_call(
+            "gates_paused", {"tool": "check_mail", "evidence": ANY})
 
     def test_full_inventory_parsnip_attempt_blocks_but_storage_remains_available(self):
         state = {**STATE, "hudMessages": ["Inventory Full"],

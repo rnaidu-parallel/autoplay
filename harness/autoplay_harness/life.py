@@ -101,13 +101,24 @@ def observe(life: dict, state: dict) -> None:
                 break
 
 
+def gates_paused(life: dict, state: dict) -> bool:
+    """A compulsory chore the game refuses must not hold attention for the rest of the day."""
+    return life.get("gate_paused_day") == calendar_day(state)
+
+
+def pause_gates(life: dict, state: dict) -> None:
+    life["gate_paused_day"] = calendar_day(state)
+
+
 def mail_due(life: dict, state: dict) -> bool:
     return (state.get("location") in {"Farm", "FarmHouse"} and isinstance(state.get("mailCount"), int)
+            and not gates_paused(life, state)
             and (state["mailCount"] > 0 or life.get("mail_checked_day") != calendar_day(state)))
 
 
 def quest_review_due(life: dict, state: dict) -> bool:
-    return bool(state.get("quests") and state.get("questRevision") != life.get("quest_reviewed_revision"))
+    return bool(state.get("quests") and not gates_paused(life, state)
+                and state.get("questRevision") != life.get("quest_reviewed_revision"))
 
 
 def pending(life: dict) -> list[dict]:
