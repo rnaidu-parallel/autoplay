@@ -38,6 +38,7 @@ class Notebook:
         self.data.setdefault("weeks", [])
         self.data.setdefault("interactions", [])
         self.data.setdefault("life", {"journal_revision_read": None, "quests": {}, "letters": []})
+        self.data.setdefault("audience", {"demand": None, "recent": []})
         self.current_day: int | None = None
         if self.data["days"]:
             self.current_day = int(next(reversed(self.data["days"])))
@@ -171,6 +172,7 @@ class Notebook:
                 item["status"] = status
                 if note is not None:
                     item["note"] = note
+                self._resolve_audience_item(item, status, note)
                 self._save()
                 return
         raise ValueError(f"unknown agenda item: {item_id}")
@@ -194,6 +196,52 @@ class Notebook:
         entry["learned"] = facts
         self.data["learned"] = (self.data["learned"] + facts)[-40:]
         self._save()
+
+    def set_audience_demand(self, demand_id: str, goal: str, support: int, day: int) -> None:
+        """One live audience demand at a time; a newer one replaces whatever was still waiting."""
+        goal = goal.strip()
+        if not goal:
+            raise ValueError("audience demand needs a goal")
+        current = self.data["audience"]["demand"]
+        if current is not None and current["status"] == "pending":
+            self._retire_audience(current, "replaced")
+        self.data["audience"]["demand"] = {
+            "id": demand_id, "goal": goal, "support": support, "day": day, "status": "pending", "note": None,
+        }
+        self._save()
+
+    def audience_demand(self) -> dict[str, Any] | None:
+        demand = self.data["audience"]["demand"]
+        return demand if demand and demand["status"] in {"pending", "bound"} else None
+
+    def mark_audience(self, status: str, note: str | None = None) -> None:
+        if status not in {"bound", "missed", "done", "failed"}:
+            raise ValueError("unknown audience status")
+        demand = self.data["audience"]["demand"]
+        if demand is None:
+            return
+        demand["status"] = status
+        demand["note"] = note
+        if status != "bound":
+            self._retire_audience(demand, status)
+            self.data["audience"]["demand"] = None
+        self._save()
+
+    def _resolve_audience_item(self, item: dict[str, Any], status: str, note: str | None) -> None:
+        """The audience is told what became of its demand, whether or not it worked."""
+        demand = self.data["audience"]["demand"]
+        source = str(item.get("source") or "")
+        if demand is None or not source.startswith("chat:") or source[5:] != demand["id"]:
+            return
+        if status == "done":
+            self.mark_audience("done", note)
+        elif status in {"deferred", "dropped"}:
+            self.mark_audience("failed", note)
+
+    def _retire_audience(self, demand: dict[str, Any], status: str) -> None:
+        recent = self.data["audience"]["recent"]
+        recent.insert(0, {**demand, "status": status})
+        del recent[8:]
 
     def add_lesson(self, key: str, text: str, kind: str, day: int) -> None:
         if kind not in {"auto", "reflection"}:

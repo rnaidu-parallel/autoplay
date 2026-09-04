@@ -31,17 +31,20 @@ class OperatorControl:
         write_json(self.status_path, {**self.status(), **fields, "run_id": self.run_id,
                                      "updated_at": datetime.now(timezone.utc).isoformat()})
 
-    def submit(self, run_id: str, kind: str, message: str = "") -> dict[str, Any]:
+    def submit(self, run_id: str, kind: str, message: str = "", support: int = 0) -> dict[str, Any]:
         if run_id != self.run_id or self.status().get("closed", True):
             raise ValueError("This run is no longer accepting commands. Refresh the operator view.")
-        if kind not in {"finish_save", "steer", "hold"}:
+        if kind not in {"finish_save", "steer", "hold", "audience"}:
             raise ValueError("Unknown operator command.")
         if not isinstance(message, str) or len(message) > 600:
             raise ValueError("Guidance must be at most 600 characters.")
-        if kind == "steer" and not message.strip():
+        if kind in {"steer", "audience"} and not message.strip():
             raise ValueError("Enter guidance for the farmer.")
+        # Chat speaks through "audience" only: it never stops, holds or preempts a run.
+        if not isinstance(support, int) or isinstance(support, bool) or not 0 <= support <= 100000:
+            raise ValueError("Support must be a viewer count between 0 and 100000.")
         command = {"id": uuid.uuid4().hex, "run_id": run_id, "kind": kind, "message": message.strip(),
-                   "at": datetime.now(timezone.utc).isoformat()}
+                   "support": support, "at": datetime.now(timezone.utc).isoformat()}
         write_json(self.directory / "inbox" / f"{time.time_ns():020d}-{command['id']}.json", command)
         return {**command, "status": "queued"}
 

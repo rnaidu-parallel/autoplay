@@ -388,10 +388,17 @@ class AutoplayHarness:
                 self.operator_mode = "held"
                 self.keep_game_open = True
                 self.stop_reason = "operator_hold"
+            elif kind == "audience":
+                self.notebook.set_audience_demand(
+                    command["id"], command["message"], command.get("support", 0), calendar_day(state) or 0
+                )
+                self.telemetry.record("audience_demand", {"id": command["id"], "goal": command["message"],
+                                                          "support": command.get("support", 0)})
             self.telemetry.record("operator_command", {"command": command, "mode": self.operator_mode})
             self.control.update(mode=self.operator_mode, last_command={**command, "status": "received"},
                                 message="Returning home to save." if self.operator_mode == "finishing" else "Command received.")
-        return bool(commands)
+        # The audience waits for the next review. Only the operator is worth a discarded decision.
+        return any(command["kind"] != "audience" for command in commands)
 
     def _finish_save_step(self, state: dict[str, Any], frame: Frame) -> None:
         if self._checkpoint_if_saved(state):
@@ -839,9 +846,10 @@ class AutoplayHarness:
             ignored_carried_ids = self._strip_invalid_carried_ids(decision.arguments, state)
             if ignored_carried_ids:
                 self.telemetry.record("ignored_carried_ids", {"ids": ignored_carried_ids})
-            last_errors = self._agenda_errors(decision.arguments, state, mode)
+            last_errors = self._agenda_errors(decision.arguments, state, mode, bind_audience=attempt == 1)
             if not last_errors:
                 self._apply_agenda(decision.arguments, state)
+                self._settle_audience_demand(decision.arguments)
                 self.director_feedback = None
                 self._print_step("director", decision, {"status": "applied"}, state, model_ms, 0)
                 return
@@ -858,10 +866,18 @@ class AutoplayHarness:
         raise HarnessError("Intention review rejected: " + "; ".join(last_errors))
 
     def _agenda_errors(
-        self, arguments: dict[str, Any], state: dict[str, Any], mode: str
+        self, arguments: dict[str, Any], state: dict[str, Any], mode: str, bind_audience: bool = True
     ) -> list[str]:
         agenda = arguments.get("agenda", [])
         errors = []
+        demand = self.notebook.audience_demand() if hasattr(self, "notebook") else None
+        if demand is not None and bind_audience and not any(
+            str(item.get("source") or "").startswith("chat:") for item in agenda
+        ):
+            errors.append(
+                f"the audience asked for \"{demand['goal']}\" ({demand['support']} viewers): include exactly one "
+                "agenda item that pursues it, with source \"chat:" + demand["id"] + "\""
+            )
         if len(agenda) > 8:
             errors.append("Keep the current review to at most 8 intentions; existing work persists.")
         if int(state.get("time") or 0) < 1800:
@@ -907,6 +923,21 @@ class AutoplayHarness:
         self.notebook.set_agenda(
             calendar_day(state), arguments["agenda"], arguments["theme"], arguments.get("dropped", [])
         )
+
+    def _settle_audience_demand(self, arguments: dict[str, Any]) -> None:
+        """Say plainly whether the plan took the demand up; the overlay reports either way."""
+        demand = self.notebook.audience_demand()
+        if demand is None:
+            return
+        bound = next((item for item in arguments.get("agenda", [])
+                      if str(item.get("source") or "").startswith("chat:")), None)
+        if bound is None:
+            self.notebook.mark_audience("missed", "The plan did not take it up.")
+        else:
+            self.notebook.mark_audience("bound", bound["goal"])
+        self.telemetry.record("audience_demand_settled",
+                              {"id": demand["id"], "status": "bound" if bound else "missed",
+                               "goal": bound["goal"] if bound else None})
 
     def _apply_farm_plan(self, arguments: dict[str, Any], state: dict[str, Any]) -> None:
         layout = state.get("farmLayout")
@@ -1936,6 +1967,7 @@ class AutoplayHarness:
             "wiki_results": self.latest_wiki_results,
             "history_results": getattr(self, "latest_history_results", []),
             "operator": {"mode": getattr(self, "operator_mode", "playing"), "guidance": getattr(self, "operator_guidance", "")},
+            "audience": self.notebook.audience_demand() if role == "director" and hasattr(self, "notebook") else None,
             "director_feedback": self.director_feedback if role == "director" else None,
             "game_state": compact_state(harness_state) if state_only else harness_state,
             "frame": None if state_only else {

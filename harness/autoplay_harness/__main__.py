@@ -19,6 +19,7 @@ import imageio_ffmpeg
 from . import overlay
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
+from .control import OperatorControl
 from .forever import run_forever
 from .openrouter import OpenRouterClient
 from .prompts import ACTOR_SYSTEM_PROMPT
@@ -119,11 +120,34 @@ def main() -> int:
     overlay_parser.add_argument("--port", type=int, default=8765)
     overlay_parser.add_argument("--state-dir", default="harness/state")
 
+    demand_parser = subparsers.add_parser(
+        "audience-demand", help="Send one audience demand to a run, as the chat agent will")
+    demand_parser.add_argument("goal")
+    demand_parser.add_argument("--support", type=int, default=1, help="How many chatters asked for it")
+    demand_parser.add_argument("--run", default="latest")
+
     arguments = parser.parse_args()
     root = repository_root()
 
     if arguments.command == "overlay":
         return overlay.main(arguments)
+
+    if arguments.command == "audience-demand":
+        runs = root / "harness" / "runs"
+        run_directory = (
+            runs / arguments.run
+            if arguments.run != "latest"
+            else max((path for path in runs.iterdir() if (path / "control").exists()),
+                     key=lambda path: path.stat().st_mtime)
+        )
+        control = OperatorControl(run_directory)
+        try:
+            command = control.submit(run_directory.name, "audience", arguments.goal, arguments.support)
+        except ValueError as error:
+            print(f"rejected: {error}")
+            return 1
+        print(f"queued {command['id']} for {run_directory.name}: {command['message']} ({command['support']})")
+        return 0
 
     if arguments.command == "report":
         runs = root / "harness" / "runs"

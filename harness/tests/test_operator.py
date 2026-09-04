@@ -89,6 +89,81 @@ class OperatorTests(unittest.TestCase):
         self.assertFalse(life_policy.mail_due(life, farm))
         self.assertEqual("Stop retrying the mailbox.", self.harness.operator_guidance)
 
+    def test_audience_demand_records_without_preempting_or_pausing_gates(self):
+        farm = {**STATE, "location": "Farm", "mailCount": 1, "time": 630, "day": 25}
+        self.harness.bridge.observe.return_value = {"state": farm}
+        self.harness.notebook.observe_life(farm)
+        life = self.harness.notebook.data["life"]
+
+        self.harness.control.submit(self.harness.run_id, "audience", "go fishing at the beach", 12)
+        # Chat is never worth a discarded actor decision, and never suppresses a compulsory chore.
+        self.assertFalse(self.harness._poll_operator(farm))
+        self.assertTrue(life_policy.mail_due(life, farm))
+
+        demand = self.harness.notebook.audience_demand()
+        self.assertEqual("go fishing at the beach", demand["goal"])
+        self.assertEqual(12, demand["support"])
+        self.assertEqual("pending", demand["status"])
+        self.assertEqual("playing", self.harness.operator_mode)
+
+    def test_operator_commands_still_preempt_alongside_an_audience_demand(self):
+        self.harness.control.submit(self.harness.run_id, "audience", "chop every tree", 4)
+        self.harness.control.submit(self.harness.run_id, "hold")
+        self.assertTrue(self.harness._poll_operator(STATE))
+        self.assertEqual("held", self.harness.operator_mode)
+
+    def test_audience_rejects_a_stop_and_a_negative_vote_count(self):
+        for kind in ("stop_session", "shutdown", ""):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                self.harness.control.submit(self.harness.run_id, kind, "stop the stream")
+        with self.assertRaises(ValueError):
+            self.harness.control.submit(self.harness.run_id, "audience", "go fishing", -3)
+        with self.assertRaises(ValueError):
+            self.harness.control.submit(self.harness.run_id, "audience", "   ")
+
+    def test_binding_slot_is_required_once_then_never_crashes_the_run(self):
+        day = {**STATE, "location": "Farm", "day": 25, "time": 630}
+        self.harness.notebook.start_day(calendar_day(day))
+        self.harness.notebook.set_audience_demand("abc123", "go fishing at the beach", 12, calendar_day(day))
+        without = {"theme": "Farm chores", "agenda": [
+            {"goal": "Water the potato", "slot": "morning", "category": "farming", "success_condition": "wateredCrops >= 1"}]}
+
+        errors = self.harness._agenda_errors(without, day, "morning")
+        self.assertTrue(any("go fishing at the beach" in error and "12 viewers" in error for error in errors))
+        # A second attempt is accepted regardless: chat must never be able to stop the stream.
+        self.assertEqual([], self.harness._agenda_errors(without, day, "morning", bind_audience=False))
+
+        withchat = {"theme": "A day by the water", "agenda": [
+            {"goal": "Take the pole to the Beach and fish", "slot": "morning", "category": "fishing",
+             "success_condition": "location is Beach", "source": "chat:abc123"}]}
+        self.assertEqual([], self.harness._agenda_errors(withchat, day, "morning"))
+
+    def test_missed_and_failed_demands_are_reported_not_hidden(self):
+        day = {**STATE, "location": "Farm", "day": 25, "time": 630}
+        number = calendar_day(day)
+        self.harness.notebook.start_day(number)
+        self.harness.notebook.set_audience_demand("abc123", "go fishing", 12, number)
+
+        self.harness._settle_audience_demand({"agenda": [
+            {"goal": "Water the potato", "slot": "morning", "category": "farming"}]})
+        self.assertEqual("missed", self.harness.notebook.data["audience"]["recent"][0]["status"])
+        self.assertIsNone(self.harness.notebook.audience_demand())
+
+        self.harness.notebook.set_audience_demand("def456", "visit the mines", 9, number)
+        self.harness.notebook.set_agenda(number, [
+            {"goal": "Walk to the mine entrance", "slot": "morning", "category": "mining",
+             "success_condition": "location is Mountain", "source": "chat:def456"}], "Underground")
+        self.harness._settle_audience_demand({"agenda": [{"goal": "Walk to the mine entrance", "slot": "morning",
+                                                          "category": "mining", "source": "chat:def456"}]})
+        self.assertEqual("bound", self.harness.notebook.audience_demand()["status"])
+
+        item = self.harness.notebook.data["days"][str(number)]["agenda"][0]
+        self.harness.notebook.mark(item["id"], "deferred", "The path was blocked.")
+        self.assertIsNone(self.harness.notebook.audience_demand())
+        retired = self.harness.notebook.data["audience"]["recent"][0]
+        self.assertEqual("failed", retired["status"])
+        self.assertEqual("The path was blocked.", retired["note"])
+
     def test_save_requires_event_identity_date_and_settled_world(self):
         self.finish()
         for change in ({"saveCount":0}, {"saveId":"Other"}, {"nightActive":True}, {"playerFree":False},

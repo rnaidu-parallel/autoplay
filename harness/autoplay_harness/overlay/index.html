@@ -18,6 +18,14 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
     #checkpoint { font-size:13px !important; overflow-wrap:anywhere; }
 
 #rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
+#audience { flex-shrink:0; display:none; padding-bottom:24px; border-bottom:1px solid var(--edge); }
+#audience.visible { display:block; }
+#audience-label { color:var(--muted); font-size:13px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px; }
+#audience-goal { font-size:19px; line-height:1.35; overflow-wrap:anywhere; }
+#audience-outcome { margin-top:8px; font-size:15px; color:var(--muted); }
+#audience-outcome.bound { color:var(--blue); }
+#audience-outcome.done { color:var(--green); }
+#audience-outcome.failed, #audience-outcome.missed { color:var(--amber); }
 #feed-status { min-height:54px; flex-shrink:0; padding-top:24px; }
 #brand { margin-top:8px; color:var(--muted); font-size:13px; letter-spacing:.08em; text-transform:uppercase; }
 #badge { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:18px; }
@@ -77,6 +85,11 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
   <div><dt>Cached input</dt><dd id="cached-input">—</dd></div>
 </dl>
 <aside id="rail" aria-label="Farmer activity">
+  <div id="audience" aria-label="Audience request">
+    <div id="audience-label">Chat asked for</div>
+    <div id="audience-goal"></div>
+    <div id="audience-outcome" aria-live="polite"></div>
+  </div>
   <div id="actions" role="log" aria-live="polite"></div>
   <div id="empty">The next action will appear here.</div>
   <div id="feed-status" role="status"><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for the activity feed…</div><div id="brand">Neon · @can_we_reverse_entropy</div></div>
@@ -124,6 +137,21 @@ function render(state) {
       goalTimer = setTimeout(()=>$('new-goal').classList.remove('visible'),4000);
     }
     renderedGoal = goal;
+  }
+  const audience = state.audience;
+  $('audience').classList.toggle('visible', Boolean(audience));
+  if (audience) {
+    const viewers = audience.support > 0 ? ` · ${audience.support} viewers` : '';
+    $('audience-label').textContent = `Chat asked for${viewers}`;
+    $('audience-goal').textContent = audience.goal;
+    $('audience-outcome').className = audience.status;
+    $('audience-outcome').textContent = ({
+      pending: 'Waiting for the next plan',
+      bound: audience.note || 'Added to the plan',
+      done: 'Done',
+      failed: audience.note || 'Tried it — it did not work out',
+      missed: 'The plan went another way',
+    })[audience.status] || '';
   }
   $('badge').className = status;
   $('badge').classList.toggle('hidden',status === 'acting' || status === 'running');

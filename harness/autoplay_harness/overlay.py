@@ -363,6 +363,7 @@ class OverlayState:
                 "routeHome": route_home,
             },
             "lessons": list(reversed(lessons))[:3],
+            "audience": self._audience(),
             "stats": {
                 "decisions": self.actor_decisions,
                 "directorReviews": self.director_reviews,
@@ -375,6 +376,14 @@ class OverlayState:
             },
             "session": {"runId": self.run_id, "model": self.model, "stopReason": self.stop_reason},
         }
+
+    def _audience(self) -> dict[str, Any] | None:
+        audience = self.notebook.get("audience") or {}
+        demand = audience.get("demand") or next(iter(audience.get("recent") or []), None)
+        if not demand:
+            return None
+        return {"goal": demand["goal"], "support": demand.get("support", 0),
+                "status": demand["status"], "note": demand.get("note")}
 
     def _agenda(self) -> tuple[dict[str, Any], str | None]:
         days = self.notebook.get("days") or {}
@@ -466,7 +475,8 @@ def make_handler(
                 if not isinstance(command, dict):
                     raise ValueError("Expected a command object.")
                 control = OperatorControl(current_path().parent.parent)
-                result = control.submit(command.get("run_id"), command.get("kind"), command.get("message", ""))
+                result = control.submit(command.get("run_id"), command.get("kind"), command.get("message", ""),
+                                        command.get("support", 0))
                 self._json(202, result)
             except (ValueError, TypeError) as error:
                 self._json(400, {"error": str(error)})

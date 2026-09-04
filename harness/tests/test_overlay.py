@@ -40,6 +40,24 @@ class OverlayStateTests(unittest.TestCase):
         self.start = "2026-09-03T10:00:00+00:00"
         self.now = datetime(2026, 9, 3, 10, 0, 5, tzinfo=timezone.utc)
 
+    def test_audience_panel_reports_the_outcome_after_the_demand_retires(self) -> None:
+        overlay = OverlayState("audience-test")
+        self.assertIsNone(overlay.snapshot()["audience"])
+
+        overlay.update_files(notebook={"audience": {"demand": {
+            "id": "abc123", "goal": "go fishing at the beach", "support": 12,
+            "day": 25, "status": "pending", "note": None}, "recent": []}})
+        panel = overlay.snapshot()["audience"]
+        self.assertEqual(("go fishing at the beach", 12, "pending"),
+                         (panel["goal"], panel["support"], panel["status"]))
+
+        # A retired demand still shows: chat is told what became of what it asked for.
+        overlay.update_files(notebook={"audience": {"demand": None, "recent": [{
+            "id": "abc123", "goal": "go fishing at the beach", "support": 12,
+            "day": 25, "status": "failed", "note": "The path was blocked."}]}})
+        panel = overlay.snapshot()["audience"]
+        self.assertEqual(("failed", "The path was blocked."), (panel["status"], panel["note"]))
+
     def test_thinking_acting_running_and_action_outcome(self) -> None:
         state = OverlayState("run-1")
         state.apply({"at": self.start, "step": 0, "type": "session_started", "model": "test-model"})
