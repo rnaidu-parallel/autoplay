@@ -8,7 +8,7 @@ The harness has completed a continuous full-screen run with MiniMax M3's free Op
 
 - Game-only client-area screenshots in windowed or full-screen mode.
 - Structured SMAPI state for the player, world, menu, time, inventory, nearby objects, map actions, local collision grid, dialogue responses, cursor, events, and minigames.
-- Bounded keyboard, cursor, click, drag, scroll, wait, idle, dialogue-choice, navigation, and stop operations.
+- Bounded keyboard, cursor, click, scroll, wait, idle, dialogue-choice, navigation, inventory, menu-close, dialogue-watching, and stop operations.
 - Bridge-side `navigate_to` and `go_to_location` that plan with the game's real collision rules across the whole location and still emit ordinary W/A/S/D controls and the action key.
 - A cached world graph, persistent visited-location tracking, compact exploration context, and verified multi-hop `travel_to` routing.
 - A per-save daily notebook with agenda carry-over, evening reflection, durable learned facts, and enforced farm-use zones.
@@ -36,6 +36,8 @@ dotnet build .\src\Autoplay.GameBridge\Autoplay.GameBridge.csproj
 .\harness\run-harness.ps1 bridge-test --fullscreen
 .\harness\run-harness.ps1 wiki-test Inventory
 ```
+
+Twitch audience steering runs as a separate, shadow-first process. See [docs/chat.md](docs/chat.md).
 
 `bridge-test` starts SMAPI, captures a game-only frame, exercises every bounded input primitive at harmless title-screen coordinates, and stops the game process that it started. `--fullscreen` waits for the stable title menu, temporarily selects Stardew's true full-screen mode, asserts primary-display dimensions, runs the same controls, and restores the original display mode.
 

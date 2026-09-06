@@ -34,10 +34,12 @@ class LifeTests(unittest.TestCase):
 
     def test_journal_revision_and_letters_are_remembered_without_icon_loop(self):
         state = {"worldReady": True, "menu": "none", "questRevision": "a", "mailCount": 2}
-        self.assertEqual(2, len(self.notebook.life_context(state)["attention"]))
-        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": [{"id": "9", "title": "Lost axe", "description": "Search the forest"}]})
+        # The journal is already in structured state; only unread mail deserves a nudge.
         self.assertEqual(1, len(self.notebook.life_context(state)["attention"]))
-        self.assertEqual(2, len(self.notebook.life_context({**state, "questRevision": "b"})["attention"]))
+        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": [{"id": "9", "title": "Lost axe", "description": "Search the forest"}]})
+        self.assertEqual("Search the forest", self.notebook.data["life"]["quests"]["9"]["description"])
+        self.assertEqual(1, len(self.notebook.life_context({**state, "questRevision": "b"})["attention"]))
+        self.assertEqual([], self.notebook.life_context({**state, "mailCount": 0})["attention"])
         letter = {**state, "menu": "LetterViewerMenu", "letterText": "Please bring my axe."}
         self.notebook.observe_life(letter)
         self.notebook.observe_life(letter)
@@ -54,8 +56,9 @@ class LifeTests(unittest.TestCase):
             bridge.request("navigate", x=50, y=10, ticks=600)
         self.assertEqual(after, error.exception.result["state"])
         self.assertEqual(1, error.exception.result["controls_executed"])
-        self.assertEqual(300, raw.request.call_args.kwargs["segmentTicks"])
-        self.assertTrue(raw.request.call_args.kwargs["noticeEncounters"])
+        # Whole segments, no interruption for passers-by: the greet reflex handles them at the boundary.
+        self.assertEqual(900, raw.request.call_args.kwargs["segmentTicks"])
+        self.assertFalse(raw.request.call_args.kwargs["noticeEncounters"])
 
     def test_arrival_and_operator_commands_stop_before_next_control(self):
         raw = Mock()

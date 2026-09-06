@@ -51,17 +51,6 @@ def function_tool(name: str, description: str, properties: dict[str, Any], requi
 
 
 ACTOR_TOOLS = [
-    function_tool("review_quests", "Review every current journal quest before continuing another plan. Choose a quest ID only when next_step directly advances that quest's observed objective. Use an empty ID to continue a concrete existing pursuit, practical need or chosen interest. Account for every deferred quest with a reason and a currently false revisit condition.",
-                  {"quest_id": {"type": "string"}, "next_step": {"type": "string", "minLength": 1, "maxLength": 100},
-                   "reason": {"type": "string", "minLength": 1, "maxLength": 160},
-                   "deferred": {"type": "array", "items": {"type": "object", "properties": {
-                       "quest_id": {"type": "string"}, "reason": {"type": "string", "maxLength": 100},
-                         "revisit_when": {"type": "string", "maxLength": 120, "description": "A currently false structured state comparison, not prose. Examples: location is Town; inventory.Cauliflower > 0; time >= 1700. Use exact observed location names. Join comparisons with 'and'."}}, "required": ["quest_id", "reason", "revisit_when"], "additionalProperties": False}}},
-                  ["quest_id", "next_step", "reason", "deferred"]),
-    function_tool("respond_to_notice", "Respond to a retained event, conversation, new tool or discovery. Act now with a concrete next step, or defer with a reason and a currently false state condition for revisiting. An act response changes the current intention; it does not claim the action happened. Use read_life_text first if the excerpt is insufficient.",
-                  {"notice_id": {"type": "string"}, "choice": {"type": "string", "enum": ["act", "defer"]},
-                   "next_step": {"type": "string", "minLength": 1, "maxLength": 100}, "reason": {"type": "string", "minLength": 1, "maxLength": 160},
-                   "revisit_when": {"type": "string", "maxLength": 120, "description": "For defer, a currently false structured comparison such as time >= 1700 or inventoryFreeSlots > 0, not prose. For act, use an empty string."}}, ["notice_id", "choice", "next_step", "reason", "revisit_when"]),
     function_tool("read_life_text", "Read retained game text in pages of up to 4000 characters. Use a notice/text ID from life or quest:<id> for a journal quest. Continue at nextOffset until null. Does not open or dismiss a game screen.",
                   {"id": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}}, ["id"]),
     function_tool("open_menu_tab", "Open a named game menu tab through normal controls. Inspect inventory capacity and slots, skill levels, social relationships, map labels, crafting recipes or collections. This is a menu inspection, not a pause command.",
@@ -70,7 +59,6 @@ ACTOR_TOOLS = [
                   {"goal": {"type": "string", "minLength": 1, "maxLength": 180}, "reason": {"type": "string", "minLength": 1, "maxLength": 180}}, ["goal", "reason"]),
     function_tool("consider_interest", "Finish considering your current open-ended interest after an observed interaction. Records considered, never claims a quest/task completed. Explain what you learned or why you are moving on.",
                   {"evidence": {"type": "string", "maxLength": 200}}, ["evidence"]),
-    function_tool("check_journal", "Open the game's quest journal with its normal hotkey. Read journal entries and menuEntries, then select an entry for details or a reward.", {}, []),
     function_tool("check_mail", "On the Farm, walk beside the observed nearby mailbox and open one unread letter using normal controls. Read the letter and use menuEntries to accept or collect its contents before closing it. Can yield during walking.", {}, []),
     function_tool("click_menu_entry", "Click an exact currently visible menuEntries control: journal, letter, game tabs, crafting, inventory or chest. Use its zero-based index. canAccept=false means make room before taking that item. Verify the resulting page, quest or inventory change. Never discard a tool or quest item to make space.",
                   {"index": {"type": "integer", "minimum": 0}}, ["index"]),
@@ -231,18 +219,26 @@ ACTOR_TOOLS = [
         ["frame_id", "x", "y", "button"],
     ),
     function_tool(
-        "drag",
-        "Drag between normalized coordinates in the current screenshot.",
-        {
-            "frame_id": {"type": "string"},
-            "start_x": {"type": "number", "minimum": 0, "maximum": 1},
-            "start_y": {"type": "number", "minimum": 0, "maximum": 1},
-            "end_x": {"type": "number", "minimum": 0, "maximum": 1},
-            "end_y": {"type": "number", "minimum": 0, "maximum": 1},
-            "button": {"type": "string", "enum": ["left", "right"]},
-            "ticks": {"type": "integer", "minimum": 1, "maximum": 120},
-        },
-        ["frame_id", "start_x", "start_y", "end_x", "end_y", "button", "ticks"],
+        "close_menu",
+        "Close the current menu, letter or journal. Returns any item held on the cursor to the bag first. Does not answer a question dialogue.",
+        {}, [],
+    ),
+    function_tool(
+        "inventory_move",
+        "Move or swap an inventory stack between two zero-based slots (0-11 are the toolbar row). Stacks of the same item merge.",
+        {"from_slot": {"type": "integer", "minimum": 0, "maximum": 35}, "to_slot": {"type": "integer", "minimum": 0, "maximum": 35}},
+        ["from_slot", "to_slot"],
+    ),
+    function_tool(
+        "inventory_trash",
+        "Throw away the whole stack in a zero-based inventory slot. Tools and quest items are refused. Use for worthless surplus when the bag is full.",
+        {"slot": {"type": "integer", "minimum": 0, "maximum": 35}}, ["slot"],
+    ),
+    function_tool(
+        "ship_item",
+        "Put a stack (count 0 = all) from a zero-based inventory slot into the shipping bin for sale overnight. Stand within two tiles of the shipping bin, or have its menu open. Money arrives the next morning.",
+        {"slot": {"type": "integer", "minimum": 0, "maximum": 35}, "count": {"type": "integer", "minimum": 0, "maximum": 999}},
+        ["slot", "count"],
     ),
     function_tool(
         "scroll",
@@ -319,8 +315,8 @@ for _actor_tool in ACTOR_TOOLS:
     _parameters = _actor_tool["function"]["parameters"]
     _parameters["properties"]["say"] = {
         "type": "string",
-        "maxLength": 140,
-        "description": "One short public first-person sentence as the farmer: what you are doing or noticing and why now; no private deliberation, tool names, coordinates, or brackets.",
+        "maxLength": 200,
+        "description": "What Neon is thinking right now, in her own voice, for the people watching: one or two short sentences, present tense. React to what just happened before saying what is next. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
     }
     _parameters["required"].append("say")
 

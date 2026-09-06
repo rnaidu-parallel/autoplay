@@ -102,14 +102,21 @@ class _Controls:
 
 def check_mail(bridge: NamedPipeBridge, state: dict[str, Any]) -> dict[str, Any]:
     target = state.get("mailboxTile")
-    if not target or state.get("menu") != "none" or not state.get("mailCount"):
+    if state.get("location") != "Farm" or not target or state.get("menu") != "none" or not state.get("mailCount"):
         return {"status": "rejected", "reason": "Open mail from the farm with unread letters and no menu open."}
     runner = _Controls(bridge, state, 5)
     stand, error = runner.stand_beside(target)
     if not error:
         error = runner.face((target["x"] - stand[0], target["y"] - stand[1]))
     if not error:
-        error = runner.send("press", buttons=["X"])
+        # The action key can use a nearby cursor tile instead of the faced tile.
+        # Navigation also moves the viewport, so aim using the latest bridge snapshot.
+        current = runner.state.get("mailboxTile") or {}
+        if (current.get("x"), current.get("y")) != (target["x"], target["y"]) or not all(
+                isinstance(current.get(key), int) for key in ("screenX", "screenY")):
+            error = "mailbox_target_unavailable"
+        else:
+            error = runner.send("click", x=current["screenX"], y=current["screenY"], button="right")
     opened = runner.state.get("menu") == "LetterViewerMenu"
     return {"status": "completed" if opened else "blocked", "reason": "letter_opened" if opened else error or "letter_did_not_open",
             "state": runner.state, "controls_executed": runner.executed}
@@ -479,10 +486,10 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
     if not (state.get("worldReady") and state.get("playerFree") and state.get("menu") == "none"
             and before["day"] is not None):
         return finish("rejected", "player_must_be_free_in_a_loaded_world_outside_menus")
-    if state.get("location") not in {"Farm", "FarmHouse"}:
+    if state.get("location") not in {"Farm", "FarmHouse"} and world_map is None:
         return finish("blocked", "not_on_farm")
 
-    if state.get("location") == "Farm" and world_map is not None:
+    if state.get("location") != "FarmHouse" and world_map is not None:
         travel = travel_to(bridge, state, world_map, "FarmHouse", action_budget)
         runner.state = travel["state"]
         runner.executed += travel["controls_executed"]

@@ -28,7 +28,7 @@ class OpenRouterClientTests(unittest.TestCase):
         def reply(say, cost):
             return _Response({"provider":"DeepInfra", "usage":{"cost":cost}, "choices":[{"message":{"tool_calls":[{"function":{
                 "name":"press","arguments":json.dumps({"buttons":["D"],"say":say})}}]}}]})
-        urlopen.side_effect=[reply('x'*200, .001), reply('I head outside.', .0004)]
+        urlopen.side_effect=[reply('x'*260, .001), reply('I head outside.', .0004)]
         client=OpenRouterClient('secret',OpenRouterClient.GLM_MODEL,'run')
         decision=client.choose_tool('fixed system','dynamic state',None,ACTOR_TOOLS,stable_context='notes')
         first,second=[json.loads(call.args[0].data) for call in urlopen.call_args_list]

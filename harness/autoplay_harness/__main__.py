@@ -16,7 +16,7 @@ from pathlib import Path
 
 import imageio_ffmpeg
 
-from . import overlay
+from . import chat, overlay
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
 from .control import OperatorControl
@@ -125,6 +125,7 @@ def main() -> int:
     demand_parser.add_argument("goal")
     demand_parser.add_argument("--support", type=int, default=1, help="How many chatters asked for it")
     demand_parser.add_argument("--run", default="latest")
+    chat.configure_parser(subparsers)
 
     arguments = parser.parse_args()
     root = repository_root()
@@ -148,6 +149,13 @@ def main() -> int:
             return 1
         print(f"queued {command['id']} for {run_directory.name}: {command['message']} ({command['support']})")
         return 0
+
+    if arguments.command == "chat-agent":
+        try:
+            return chat.main(arguments, root)
+        except (RuntimeError, ValueError) as error:
+            print(f"chat agent: {error}", file=sys.stderr)
+            return 1
 
     if arguments.command == "report":
         runs = root / "harness" / "runs"

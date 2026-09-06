@@ -1,0 +1,193 @@
+{
+  "save_hashes_unchanged": true,
+  "model_calls": 0,
+  "events": [
+    {
+      "label": "loaded",
+      "status": null,
+      "reason": null,
+      "state": {
+        "location": "FarmHouse",
+        "day": 13,
+        "time": 600,
+        "menu": "none",
+        "mailCount": 3,
+        "tileX": 9,
+        "tileY": 9,
+        "facing": 1,
+        "cursorTileX": 6,
+        "cursorTileY": 3,
+        "mailboxTile": null
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "farm",
+      "status": null,
+      "reason": null,
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 600,
+        "menu": "none",
+        "mailCount": 3,
+        "tileX": 64,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 64,
+        "cursorTileY": 13,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 896,
+          "screenY": 424
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "windowed_cursor_above_player",
+      "status": null,
+      "reason": null,
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 600,
+        "menu": "none",
+        "mailCount": 3,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 14,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 639,
+          "screenY": 414
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "windowed_baseline_action_key",
+      "status": "completed",
+      "reason": "control_released",
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 600,
+        "menu": "none",
+        "mailCount": 3,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 14,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 639,
+          "screenY": 414
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "windowed_fixed_aimed_mail",
+      "status": "completed",
+      "reason": "letter_opened",
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 600,
+        "menu": "LetterViewerMenu",
+        "mailCount": 2,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 16,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 639,
+          "screenY": 414
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "borderless_cursor_above_player",
+      "status": null,
+      "reason": null,
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 610,
+        "menu": "none",
+        "mailCount": 2,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 14,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 1184,
+          "screenY": 590
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "borderless_baseline_action_key",
+      "status": "completed",
+      "reason": "control_released",
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 610,
+        "menu": "none",
+        "mailCount": 2,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 14,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 1184,
+          "screenY": 590
+        }
+      },
+      "foregroundIsGame": true
+    },
+    {
+      "label": "borderless_fixed_aimed_mail",
+      "status": "completed",
+      "reason": "letter_opened",
+      "state": {
+        "location": "Farm",
+        "day": 13,
+        "time": 610,
+        "menu": "LetterViewerMenu",
+        "mailCount": 1,
+        "tileX": 68,
+        "tileY": 15,
+        "facing": 2,
+        "cursorTileX": 68,
+        "cursorTileY": 16,
+        "mailboxTile": {
+          "x": 68,
+          "y": 16,
+          "screenX": 1184,
+          "screenY": 590
+        }
+      },
+      "foregroundIsGame": true
+    }
+  ]
+}

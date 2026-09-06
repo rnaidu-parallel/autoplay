@@ -50,6 +50,7 @@ class OverlayStateTests(unittest.TestCase):
         panel = overlay.snapshot()["audience"]
         self.assertEqual(("go fishing at the beach", 12, "pending"),
                          (panel["goal"], panel["support"], panel["status"]))
+        self.assertEqual(("abc123", 25), (panel["id"], panel["day"]))
 
         # A retired demand still shows: chat is told what became of what it asked for.
         overlay.update_files(notebook={"audience": {"demand": None, "recent": [{
@@ -57,6 +58,32 @@ class OverlayStateTests(unittest.TestCase):
             "day": 25, "status": "failed", "note": "The path was blocked."}]}})
         panel = overlay.snapshot()["audience"]
         self.assertEqual(("failed", "The path was blocked."), (panel["status"], panel["note"]))
+
+    def test_audience_panel_shows_chat_agent_shadow_selection(self) -> None:
+        overlay = OverlayState("audience-test")
+        overlay.game = {"day": 25, "season": "spring", "year": 1}
+        overlay.update_files(chat={"selection": {
+            "day": 25, "goal": "go fishing", "support": 4, "status": "shadow",
+        }})
+
+        panel = overlay.snapshot()["audience"]
+
+        self.assertEqual(("go fishing", 4, "shadow"),
+                         (panel["goal"], panel["support"], panel["status"]))
+        self.assertIn("not sent", panel["note"])
+
+    def test_current_shadow_selection_precedes_an_old_retired_demand(self) -> None:
+        overlay = OverlayState("audience-test")
+        overlay.game = {"day": 1, "season": "summer", "year": 1}
+        overlay.update_files(
+            notebook={"audience": {"demand": None, "recent": [{
+                "id": "old", "day": 28, "goal": "visit town", "support": 2,
+                "status": "done", "note": "Done.",
+            }]}},
+            chat={"selection": {"day": 29, "goal": "go fishing", "support": 4, "status": "shadow"}},
+        )
+
+        self.assertEqual("go fishing", overlay.snapshot()["audience"]["goal"])
 
     def test_thinking_acting_running_and_action_outcome(self) -> None:
         state = OverlayState("run-1")

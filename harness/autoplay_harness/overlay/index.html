@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Autoplay activity feed</title><style>
-:root { color-scheme:dark; --panel:#201e1b; --edge:#413b33; --text:#f4f1e9; --muted:#bbb4a9; --green:#a6d7b1; --amber:#e8ba78; --red:#ef9292; --blue:#9bcbdf; }
+<title>Neon on the farm</title><style>
+:root { color-scheme:dark; --panel:#1d1b18; --panel-2:#26231f; --edge:#3d372f; --text:#f4f1e9; --muted:#b3ab9f; --dim:#7d766c; --green:#a6d7b1; --amber:#e8ba78; --red:#ef9292; --blue:#9bcbdf; --lilac:#c9b8e8; }
 * { box-sizing:border-box; }
-html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:transparent; color:var(--text); font:20px/1.5 "Segoe UI",sans-serif; }
-    #operator { display:none; position:fixed; left:22px; top:22px; width:470px; padding:24px; border:1px solid var(--edge); border-radius:16px; background:var(--panel); z-index:5; }
+html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:transparent; color:var(--text); font:20px/1.45 "Segoe UI",sans-serif; }
+    #operator { display:none; position:fixed; left:22px; top:130px; width:470px; padding:24px; border:1px solid var(--edge); border-radius:16px; background:var(--panel); z-index:5; }
     #operator h2 { margin:0 0 8px; font:600 24px "Segoe UI",sans-serif; }
     #operator p { font:16px/1.45 "Segoe UI",sans-serif; color:var(--muted); }
     #operator button, #operator textarea { font:16px "Segoe UI",sans-serif; border:1px solid var(--edge); border-radius:8px; padding:12px; }
@@ -17,50 +17,68 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
     #control-receipt { overflow-wrap:anywhere; }
     #checkpoint { font-size:13px !important; overflow-wrap:anywhere; }
 
-#rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; }
-#audience { flex-shrink:0; display:none; padding-bottom:24px; border-bottom:1px solid var(--edge); }
+/* Top band: where and when, and what is on her mind. */
+#top { position:absolute; left:0; top:0; width:1536px; height:108px; padding:0 28px; background:var(--panel); display:flex; align-items:center; gap:28px; }
+#name { font:700 30px "Segoe UI",sans-serif; letter-spacing:.01em; flex-shrink:0; }
+#name small { display:block; font:500 13px "Segoe UI",sans-serif; color:var(--dim); letter-spacing:.1em; text-transform:uppercase; margin-top:2px; }
+#when { flex-shrink:0; color:var(--muted); font-size:18px; line-height:1.35; border-left:1px solid var(--edge); padding-left:24px; min-width:190px; }
+#when b { display:block; color:var(--text); font-weight:600; font-size:20px; }
+#mind { flex:1; min-width:0; border-left:1px solid var(--edge); padding-left:24px; }
+#mind-label { color:var(--dim); font-size:13px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:2px; }
+#mind-label .new { color:var(--green); margin-left:10px; visibility:hidden; }
+#mind-label .new.visible { visibility:visible; }
+#goal { font-size:22px; line-height:1.3; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; text-wrap:balance; }
+
+/* Bottom band: her running thought, like a subtitle. */
+#bottom { position:absolute; left:0; top:972px; width:1536px; height:108px; padding:0 28px; background:var(--panel); display:flex; align-items:center; gap:22px; }
+#pulse { flex-shrink:0; width:12px; height:12px; border-radius:50%; background:var(--green); transition:background 200ms; }
+#pulse.thinking { background:var(--blue); animation:pulse 1.6s ease-in-out infinite; }
+#pulse.stalled { background:var(--amber); }
+#pulse.stopped, #pulse.restarting { background:var(--red); }
+@keyframes pulse { 50% { opacity:.25; } }
+#thought { flex:1; min-width:0; font-size:28px; line-height:1.3; font-weight:500; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; }
+#thought.quiet { color:var(--muted); font-weight:400; font-style:italic; }
+#thought-time { flex-shrink:0; color:var(--dim); font-size:16px; font-variant-numeric:tabular-nums; }
+
+/* Right rail: context. */
+#rail { position:absolute; left:1536px; top:0; width:384px; height:1080px; padding:24px; background:var(--panel); border-left:1px solid var(--edge); display:flex; flex-direction:column; gap:18px; }
+.card { flex-shrink:0; padding:16px 18px; border-radius:14px; background:var(--panel-2); border:1px solid var(--edge); }
+.card-label { color:var(--dim); font-size:12px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:6px; }
+#audience { display:none; }
 #audience.visible { display:block; }
-#audience-label { color:var(--muted); font-size:13px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:8px; }
-#audience-goal { font-size:19px; line-height:1.35; overflow-wrap:anywhere; }
-#audience-outcome { margin-top:8px; font-size:15px; color:var(--muted); }
-#audience-outcome.bound { color:var(--blue); }
+#audience-goal { font-size:18px; line-height:1.35; overflow-wrap:anywhere; }
+#audience-outcome { margin-top:6px; font-size:14px; color:var(--muted); }
+#audience-outcome.bound, #audience-outcome.shadow { color:var(--blue); }
 #audience-outcome.done { color:var(--green); }
 #audience-outcome.failed, #audience-outcome.missed { color:var(--amber); }
-#feed-status { min-height:54px; flex-shrink:0; padding-top:24px; }
-#brand { margin-top:8px; color:var(--muted); font-size:13px; letter-spacing:.08em; text-transform:uppercase; }
-#badge { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:18px; }
-#badge::before { content:""; flex-shrink:0; width:8px; height:8px; border-radius:50%; background:var(--green); }
-#badge.thinking::before { background:var(--blue); animation:pulse 1.6s ease-in-out infinite; }
-#badge.stalled,#badge.restarting { color:var(--amber); }
-#badge.stalled::before,#badge.restarting::before { background:var(--amber); }
-#badge.stopped { color:var(--red); }
-#badge.stopped::before { background:var(--red); }
-@keyframes pulse { 50% { opacity:.3; } }
-#objective { position:absolute; left:0; top:0; width:1536px; height:108px; padding:12px 24px; background:var(--panel); display:flex; align-items:center; gap:24px; }
-#objective-label { width:108px; flex-shrink:0; font-size:16px; color:var(--muted); }
-#new-goal { display:block; color:var(--green); visibility:hidden; }
-#new-goal.visible { visibility:visible; }
-#goal { font-size:26px; line-height:1.4; overflow-wrap:anywhere; text-wrap:balance; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
-#session-stats { position:absolute; left:0; top:972px; width:1536px; height:108px; margin:0; padding:0 24px; display:grid; grid-template-columns:repeat(5,1fr); align-items:center; gap:24px; background:var(--panel); }
-#session-stats dt { color:var(--muted); font-size:16px; }
-#session-stats dd { margin:0; color:var(--text); font-size:24px; font-weight:500; font-variant-numeric:tabular-nums; }
-#actions { display:flex; flex-direction:column; gap:12px; margin-top:auto; overflow:hidden; }
-.action { flex-shrink:0; overflow-wrap:anywhere; }
-.action.previous { color:var(--muted); }
-.action-label { color:var(--muted); font-size:14px; margin-bottom:4px; }
-.action.current .action-label { color:var(--green); }
-.action-say { font-size:20px; font-weight:500; line-height:1.35; }
-.action-tool { display:none; margin-top:12px; color:var(--blue); font:16px/1.5 Consolas,monospace; }
-.operator-view .action-tool { display:block; }
-.action-outcome { margin-top:4px; color:var(--muted); font-size:16px; transition:color 150ms; }
-.action-outcome::before { content:'●'; margin-right:12px; font-size:16px; }
-.completed .action-outcome { color:var(--green); }
-.action.previous.completed .action-outcome { display:none; }
-.blocked .action-outcome { color:var(--amber); }
-.rejected .action-outcome,.error .action-outcome,.timeout .action-outcome { color:var(--red); }
-#empty { color:var(--muted); font-size:18px; }
-#waiting { display:none; color:var(--amber); font-size:18px; }
+#scene { display:none; border-color:#4a4260; }
+#scene.visible { display:block; }
+#scene-text { font-size:17px; line-height:1.4; color:var(--lilac); font-style:italic; overflow-wrap:anywhere; }
+#conversation { display:none; }
+#conversation.visible { display:block; }
+#conversation-text { font-size:16px; line-height:1.4; color:var(--text); display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:6; overflow:hidden; overflow-wrap:anywhere; }
+#reflex { display:none; color:var(--green); font-size:17px; }
+#reflex.visible { display:block; }
+#thoughts { flex:1; min-height:0; display:flex; flex-direction:column; justify-content:flex-end; gap:14px; overflow:hidden; }
+.thought { flex-shrink:0; overflow-wrap:anywhere; }
+.thought-meta { color:var(--dim); font-size:13px; margin-bottom:3px; font-variant-numeric:tabular-nums; }
+.thought-say { font-size:18px; line-height:1.35; color:var(--muted); }
+.thought.current .thought-say { color:var(--text); font-weight:500; }
+.thought-tool { display:none; margin-top:6px; color:var(--blue); font:14px/1.4 Consolas,monospace; }
+.operator-view .thought-tool { display:block; }
+.thought-outcome { display:none; margin-top:3px; font-size:14px; color:var(--amber); }
+.thought-outcome.visible { display:block; }
+#feed-status { flex-shrink:0; padding-top:16px; border-top:1px solid var(--edge); display:flex; justify-content:space-between; align-items:center; gap:12px; }
+#brand { color:var(--dim); font-size:13px; letter-spacing:.08em; text-transform:uppercase; }
+#badge { color:var(--muted); font-size:15px; }
+#badge.stalled { color:var(--amber); }
+#badge.stopped, #badge.restarting { color:var(--red); }
+#waiting { display:none; color:var(--amber); font-size:16px; }
 #waiting.visible { display:block; }
+#session-stats { display:none; margin:0; padding:0; grid-template-columns:repeat(2,1fr); gap:8px 16px; }
+.operator-view #session-stats { display:grid; }
+#session-stats dt { color:var(--dim); font-size:12px; }
+#session-stats dd { margin:0; color:var(--muted); font-size:15px; font-variant-numeric:tabular-nums; }
 .hidden { display:none!important; }
 </style></head><body>
   <section id="operator" aria-label="Operator controls">
@@ -76,60 +94,76 @@ html,body { width:1920px; height:1080px; margin:0; overflow:hidden; background:t
     <p id="checkpoint"></p>
   </section>
 
-<section id="objective" aria-label="Current intention"><div id="objective-label">On my mind<span id="new-goal">New intention</span></div><div id="goal">Looking around.</div></section>
-<dl id="session-stats" aria-label="Session statistics">
-  <div><dt>Session</dt><dd id="session-duration">—</dd></div>
-  <div><dt>LLM calls</dt><dd id="model-calls">—</dd></div>
-  <div><dt>Reported cost · USD</dt><dd id="model-cost">—</dd></div>
-  <div><dt>Input tokens</dt><dd id="input-tokens">—</dd></div>
-  <div><dt>Cached input</dt><dd id="cached-input">—</dd></div>
-</dl>
-<aside id="rail" aria-label="Farmer activity">
-  <div id="audience" aria-label="Audience request">
-    <div id="audience-label">Chat asked for</div>
-    <div id="audience-goal"></div>
-    <div id="audience-outcome" aria-live="polite"></div>
+<section id="top" aria-label="Day and intention">
+  <div id="name">Neon<small>Pelican Town</small></div>
+  <div id="when"><b id="when-date">—</b><span id="when-where">—</span></div>
+  <div id="mind"><div id="mind-label">On my mind<span class="new" id="new-goal">new</span></div><div id="goal">Looking around.</div></div>
+</section>
+
+<section id="bottom" aria-label="Current thought">
+  <div id="pulse"></div>
+  <div id="thought" class="quiet">Getting my bearings…</div>
+  <div id="thought-time"></div>
+</section>
+
+<aside id="rail" aria-label="Context">
+  <div id="audience" class="card"><div class="card-label" id="audience-label">Chat asked for</div><div id="audience-goal"></div><div id="audience-outcome" aria-live="polite"></div></div>
+  <div id="scene" class="card"><div class="card-label">Listening</div><div id="scene-text"></div></div>
+  <div id="conversation" class="card"><div class="card-label" id="conversation-label">They said</div><div id="conversation-text"></div></div>
+  <div id="reflex"></div>
+  <div id="thoughts" role="log" aria-live="polite"></div>
+  <div id="feed-status" role="status">
+    <div><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for Neon…</div><div id="brand">@can_we_reverse_entropy</div></div>
+    <dl id="session-stats" aria-label="Session statistics">
+      <div><dt>Session</dt><dd id="session-duration">—</dd></div>
+      <div><dt>Model calls</dt><dd id="model-calls">—</dd></div>
+      <div><dt>Cost USD</dt><dd id="model-cost">—</dd></div>
+      <div><dt>Cached input</dt><dd id="cached-input">—</dd></div>
+    </dl>
   </div>
-  <div id="actions" role="log" aria-live="polite"></div>
-  <div id="empty">The next action will appear here.</div>
-  <div id="feed-status" role="status"><div id="badge" class="hidden"></div><div id="waiting" class="visible">Waiting for the activity feed…</div><div id="brand">Neon · @can_we_reverse_entropy</div></div>
 </aside>
 <script>
 const $ = id => document.getElementById(id);
-let renderedRun = null, previousKey = null, renderedGoal = null, goalTimer;
+let renderedRun = null, renderedGoal = null, goalTimer, renderedThought = null, conversationKey = null, conversationShownAt = 0, reflexKey = null, reflexShownAt = 0;
 const compactNumber = new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
 function duration(seconds) {
   const whole = Math.floor(Math.max(0,seconds));
   return [Math.floor(whole/3600),Math.floor(whole/60)%60,whole%60].map(n=>String(n).padStart(2,'0')).join(':');
 }
-function publicOutcome(item, status) {
+function title(text) { return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; }
+const WEATHER = {sun:'sunny', rain:'raining', storm:'stormy', snow:'snowing'};
+function trouble(item) {
+  // Only things worth a viewer's attention: something she could not do, in plain words.
   const outcome = String(item.outcome || ''), kind = outcome.split(':',1)[0].toLowerCase();
+  if (!['blocked','rejected','error','timeout'].includes(kind)) return '';
   const reason = outcome.includes(':') ? outcome.slice(outcome.indexOf(':')+1).trim() : '';
-  if (kind === 'yielded') return reason.includes('encounter') ? 'Something caught my attention' : reason.includes('operator') ? 'Listening to guidance' : 'Taking a look before continuing';
-  if (kind === 'recorded') return 'Remembered';
-  const label = {completed:'Action finished',blocked:'Couldn’t',rejected:'Couldn’t',error:'Something went wrong',timeout:'Took too long',discarded:'Changed plans'}[kind];
-  if (kind === 'discarded') return label;
-  return label ? label + (reason ? ` — ${reason}` : '') : outcome || (status === 'stopped' ? 'No outcome recorded' : 'Working on it');
+  return reason ? `Couldn’t — ${reason}` : 'Couldn’t';
 }
 function render(state) {
   const run = (state.session || {}).runId;
-  const farmerName = (state.game || {}).playerName || 'Farmer';
+  const game = state.game || {};
+  const farmerName = game.playerName || 'Neon';
   $('control-title').textContent = `${farmerName} controls`;
+  $('name').firstChild.textContent = farmerName;
   if (run !== renderedRun) {
-    $('actions').replaceChildren(); previousKey = null; renderedRun = run; renderedGoal = null;
+    $('thoughts').replaceChildren(); renderedRun = run; renderedGoal = null; renderedThought = null;
     clearTimeout(goalTimer); $('new-goal').classList.remove('visible');
   }
   const status = state.status || 'running', thinking = state.thinking || {};
   const stats = state.stats || {};
   $('session-duration').textContent = Number.isFinite(stats.uptimeSeconds) ? duration(stats.uptimeSeconds) : '—';
   $('model-calls').textContent = Number.isFinite(stats.modelCalls) ? stats.modelCalls.toLocaleString('en-US') : '—';
-  $('model-cost').textContent = Number.isFinite(stats.cost) ? `$${stats.cost.toFixed(6)}` : '—';
-  $('input-tokens').textContent = Number.isFinite(stats.inputTokens) ? compactNumber.format(stats.inputTokens) : '—';
+  $('model-cost').textContent = Number.isFinite(stats.cost) ? `$${stats.cost.toFixed(4)}` : '—';
   $('cached-input').textContent = stats.inputTokens > 0 && Number.isFinite(stats.cacheHitRate) ? `${Math.round(stats.cacheHitRate*100)}%` : '—';
+
+  if (game.season && game.day) {
+    $('when-date').textContent = `${title(game.season)} ${game.day}${game.time ? ' · ' + game.time : ''}`;
+    $('when-where').textContent = [game.location ? game.location.replace(/([a-z])([A-Z])/g,'$1 $2') : null, WEATHER[game.weather] || null].filter(Boolean).join(' · ');
+  }
+
   const goal = state.focus || (state.objective || {}).goal || 'Taking stock of the farm';
   if (renderedGoal !== goal) {
-    $('goal').textContent = goal; $('goal').style.fontSize = '26px';
-    if ($('goal').scrollHeight > $('goal').clientHeight) $('goal').style.fontSize = '22px';
+    $('goal').textContent = goal;
     if (renderedGoal !== null) {
       $('goal').animate([{opacity:0},{opacity:1}],{duration:220});
       clearTimeout(goalTimer);
@@ -138,6 +172,7 @@ function render(state) {
     }
     renderedGoal = goal;
   }
+
   const audience = state.audience;
   $('audience').classList.toggle('visible', Boolean(audience));
   if (audience) {
@@ -146,48 +181,79 @@ function render(state) {
     $('audience-goal').textContent = audience.goal;
     $('audience-outcome').className = audience.status;
     $('audience-outcome').textContent = ({
-      pending: 'Waiting for the next plan',
-      bound: audience.note || 'Added to the plan',
-      done: 'Done',
-      failed: audience.note || 'Tried it — it did not work out',
-      missed: 'The plan went another way',
+      pending: 'Waiting for the next plan', shadow: audience.note || 'Noted — not sent to Neon yet',
+      bound: audience.note || 'Added to the plan', done: 'Done',
+      failed: audience.note || 'Tried it — it did not work out', missed: 'The plan went another way',
     })[audience.status] || '';
   }
+
+  const scene = state.scene;
+  $('scene').classList.toggle('visible', Boolean(scene));
+  if (scene) $('scene-text').textContent = scene.opening ? `“${scene.opening}”` : 'Watching what happens…';
+
+  const now = Date.now();
+  const conversation = state.conversation;
+  if (conversation) {
+    const key = conversation.id;
+    if (key !== conversationKey) { conversationKey = key; conversationShownAt = now; }
+    const speaker = (conversation.text.match(/^([A-Z][a-z]+):/) || [])[1];
+    $('conversation-label').textContent = speaker ? `${speaker} said` : 'They said';
+    $('conversation-text').textContent = conversation.text.replace(/^[A-Z][a-z]+:\s*/,'');
+  }
+  $('conversation').classList.toggle('visible', Boolean(conversation) && now - conversationShownAt < 30000 && !scene);
+
+  const reflex = state.reflex;
+  if (reflex) {
+    const key = reflex.at + reflex.text;
+    if (key !== reflexKey) { reflexKey = key; reflexShownAt = now; }
+    $('reflex').textContent = reflex.text;
+  }
+  $('reflex').classList.toggle('visible', Boolean(reflex) && now - reflexShownAt < 12000);
+
+  $('pulse').className = status;
   $('badge').className = status;
-  $('badge').classList.toggle('hidden',status === 'acting' || status === 'running');
+  $('badge').classList.toggle('hidden', status === 'acting' || status === 'running');
   $('badge').textContent = status === 'thinking' ? `Thinking · ${Math.floor((thinking.sinceMs || 0) / 1000)}s` :
-    ({stalled:'Stuck — looking for another way',restarting:'Reconnecting',stopped:'Session stopped'}[status] || status);
-  const items = (state.actorActions || (state.actions || []).filter(a => a.role !== 'director')).slice(0,7).reverse();
+    ({stalled:'Changing plans', restarting:'Back in a moment', stopped:'Taking a break'}[status] || status);
+
+  const items = (state.actorActions || (state.actions || []).filter(a => a.role !== 'director')).slice(0,6).reverse();
+  const current = items[items.length-1];
+  if (current) {
+    const text = current.say || current.summary || '';
+    if (text !== renderedThought) {
+      $('thought').textContent = text; $('thought').classList.remove('quiet');
+      $('thought').animate([{opacity:0,transform:'translateY(6px)'},{opacity:1,transform:'translateY(0)'}],{duration:240});
+      renderedThought = text;
+    }
+    $('thought-time').textContent = current.gameTime || '';
+  }
   const keys = new Set();
   items.forEach((item, index) => {
     const key = JSON.stringify([item.at,item.tool,item.say,item.summary]); keys.add(key);
-    let card = Array.from($('actions').children).find(node => node.dataset.key === key);
+    let card = Array.from($('thoughts').children).find(node => node.dataset.key === key);
     const fresh = !card;
     if (!card) {
       card = document.createElement('article'); card.dataset.key = key;
-      for (const cls of ['action-label','action-say','action-tool','action-outcome']) {
+      for (const cls of ['thought-meta','thought-say','thought-tool','thought-outcome']) {
         const node = document.createElement('div'); node.className = cls; card.append(node);
       }
-      $('actions').append(card);
+      $('thoughts').append(card);
     }
-    const current = index === items.length - 1, outcome = String(item.outcome || '');
-    card.className = `action ${current ? 'current' : 'previous'} ${outcome.split(':',1)[0].toLowerCase()}`;
+    card.className = `thought ${index === items.length - 1 ? 'current' : 'previous'}`;
     const set = (selector, value) => { const node=card.querySelector(selector); if(node.textContent!==value)node.textContent=value; };
-    set('.action-label', [item.role === 'operator' ? 'Operator' : farmerName,item.gameTime].filter(Boolean).join(' · '));
-    set('.action-say', item.say || item.summary || 'Taking the next step.');
-    set('.action-tool', [item.toolName || item.tool,item.gist].filter(Boolean).join(' · '));
-    set('.action-outcome', publicOutcome(item,status));
-    if (fresh && previousKey !== null) card.animate([{opacity:0,transform:'translateY(12px)'},{opacity:1,transform:'translateY(0)'}],{duration:220});
+    set('.thought-meta', [item.role === 'operator' ? 'Operator' : null, item.gameTime].filter(Boolean).join(' · '));
+    set('.thought-say', item.say || item.summary || '…');
+    set('.thought-tool', [item.toolName || item.tool,item.gist].filter(Boolean).join(' · '));
+    const why = trouble(item);
+    set('.thought-outcome', why);
+    card.querySelector('.thought-outcome').classList.toggle('visible', Boolean(why));
+    if (fresh && renderedThought !== null) card.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'translateY(0)'}],{duration:220});
   });
-  for (const node of Array.from($('actions').children)) if(!keys.has(node.dataset.key))node.remove();
-  for (const node of $('actions').children) node.hidden = false;
-  const available = $('rail').clientHeight - $('feed-status').offsetHeight - 48;
-  while ($('actions').scrollHeight > available && Array.from($('actions').children).filter(n => !n.hidden).length > 1) {
-    Array.from($('actions').children).find(n => !n.hidden).hidden = true;
+  for (const node of Array.from($('thoughts').children)) if(!keys.has(node.dataset.key))node.remove();
+  for (const node of $('thoughts').children) node.hidden = false;
+  while ($('thoughts').scrollHeight > $('thoughts').clientHeight && Array.from($('thoughts').children).filter(n => !n.hidden).length > 1) {
+    Array.from($('thoughts').children).find(n => !n.hidden).hidden = true;
   }
-  $('actions').scrollTop = $('actions').scrollHeight;
-  previousKey = items.length ? items[items.length-1].at : null;
-  $('empty').classList.toggle('hidden',items.length>0);
   $('waiting').classList.remove('visible');
 }
 async function poll() {
@@ -195,7 +261,7 @@ async function poll() {
     const response = await fetch(`/state.json?t=${Date.now()}`, {cache:'no-store'});
     if (!response.ok) throw new Error('Feed unavailable');
     render(await response.json());
-  } catch (_) { $('waiting').textContent = 'Reconnecting to the activity feed…'; $('waiting').classList.add('visible'); $('badge').classList.add('hidden'); }
+  } catch (_) { $('waiting').textContent = 'Reconnecting…'; $('waiting').classList.add('visible'); $('badge').classList.add('hidden'); }
 }
     const operatorView = new URLSearchParams(location.search).get("operator") === "1";
     let controlRun = null;

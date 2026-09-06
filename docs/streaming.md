@@ -1,5 +1,9 @@
 # Broadcast setup and acceptance gate
 
+For the preferred title, bio, and nonregional language setting, use
+[public channel copy](channel-copy.md). The account values recorded below are historical;
+the new copy has not yet been published from this session.
+
 Updated 2026-09-03. Target: simultaneous Twitch, Kick, and YouTube. Twitch and Kick are the priorities.
 Rahul's gate is **finish preparation → one successful 30-minute recorded rehearsal → public streaming**.
 This replaces the earlier six-hour and two-test-stream proposal. No public broadcast has started.

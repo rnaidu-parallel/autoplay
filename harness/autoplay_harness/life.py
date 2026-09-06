@@ -1,5 +1,6 @@
 """Persistent player-visible information and explicit responses to important changes."""
 import hashlib
+import time
 from typing import Any
 
 from .calendar import calendar_day
@@ -24,6 +25,7 @@ def add_notice(life: dict, notice: dict) -> None:
 def observe(life: dict, state: dict) -> None:
     day = calendar_day(state)
     notices = life.setdefault("notices", {})
+    expire_notices(life, state)
     for notice in notices.values():
         if notice.get("kind") == "conversation":
             notice.update(status="completed", completed=True)
@@ -82,7 +84,8 @@ def observe(life: dict, state: dict) -> None:
         if notice.get("status") == "deferred" and (evaluate_state_condition(notice.get("revisit_when"), state) or (False,))[0]:
             notice["status"] = "pending"
     for item in (life.get("quest_review") or {}).get("deferred", []):
-        if (evaluate_state_condition(item.get("revisit_when"), state) or (False,))[0]:
+        if not item.get("triggered") and (evaluate_state_condition(item.get("revisit_when"), state) or (False,))[0]:
+            item["triggered"] = True
             life["quest_reviewed_revision"] = None
     if state.get("menu") == "none" and not state.get("eventUp"):
         here = state.get("location")
@@ -97,42 +100,64 @@ def observe(life: dict, state: dict) -> None:
         for key, kind, text in targets:
             if key not in life["notices"]:
                 add_notice(life, {"id": key, "kind": kind, "text": text, "location": here,
-                                  "day": state.get("day"), "time": state.get("time")})
+                                  "day": state.get("day"), "season": state.get("season"), "year": state.get("year"),
+                                  "time": state.get("time"), "seen_at": time.time(),
+                                  "target_id": key.split(":")[1] if kind == "encounter" else None})
                 break
 
 
-def gates_paused(life: dict, state: dict) -> bool:
-    """A compulsory chore the game refuses must not hold attention for the rest of the day."""
-    return life.get("gate_paused_day") == calendar_day(state)
+def encounter_target(notice: dict, state: dict) -> dict | None:
+    identity = notice.get("target_id") or notice["id"].split(":")[1]
+    return next((npc for npc in state.get("npcsNearby", [])
+                 if npc.get("id", npc.get("name")) == identity), None)
 
 
-def pause_gates(life: dict, state: dict) -> None:
-    life["gate_paused_day"] = calendar_day(state)
+def expire_notices(life: dict, state: dict) -> None:
+    if not state.get("worldReady"):
+        return
+    for notice in life.get("notices", {}).values():
+        if notice.get("status") not in {"pending", "deferred", "acted"}:
+            continue
+        kind = notice.get("kind")
+        # HUD announcements are dated opportunities; tools and quests persist.
+        wrong_day = notice.get("day") != state.get("day") or any(
+            notice.get(key) is not None and notice[key] != state.get(key) for key in ("season", "year"))
+        reason = None
+        if kind in {"hud", "encounter", "place"} and wrong_day:
+            reason = "The notice belongs to a previous game day."
+        elif kind in {"encounter", "place"} and notice.get("location") != state.get("location"):
+            reason = "The player has left this location."
+        elif kind == "encounter":
+            target = encounter_target(notice, state)
+            if target is None or state.get("eventUp"):
+                reason = "The target is no longer available in the current scene."
+            elif target.get("talkedToday"):
+                notice.update(status="completed", completed=True)
+        if reason:
+            notice.update(status="expired", expiry_reason=reason)
+        if notice.get("status") in {"expired", "completed"} and life.get("responding_to") == notice["id"]:
+            life.pop("responding_to", None)
 
 
 def mail_due(life: dict, state: dict) -> bool:
+    """Unread mail, or a mailbox not yet looked at today. Information for the farmer, never a gate."""
     return (state.get("location") in {"Farm", "FarmHouse"} and isinstance(state.get("mailCount"), int)
-            and not gates_paused(life, state)
             and (state["mailCount"] > 0 or life.get("mail_checked_day") != calendar_day(state)))
 
 
-def quest_review_due(life: dict, state: dict) -> bool:
-    return bool(state.get("quests") and not gates_paused(life, state)
-                and state.get("questRevision") != life.get("quest_reviewed_revision"))
-
-
 def pending(life: dict) -> list[dict]:
-    priority = {"new_tool": 0, "hud": 1, "conversation": 2, "level_up": 3, "encounter": 4, "place": 5}
+    priority = {"encounter": 0, "new_tool": 1, "hud": 2, "conversation": 3, "level_up": 4, "place": 5}
     return sorted([n for n in life.get("notices", {}).values() if n.get("status") == "pending"],
                   key=lambda n: priority.get(n["kind"], 6))
 
 
-def response_due(life: dict) -> bool:
+def response_due(life: dict, state: dict) -> bool:
     # Let an accepted next step happen before another discovery replaces it.
     return bool(pending(life)) and not life.get("responding_to")
 
 
 def respond(life: dict, notice_id: str, choice: str, next_step: str, reason: str, revisit_when: str, state: dict) -> dict:
+    expire_notices(life, state)
     notice = life.get("notices", {}).get(notice_id)
     if not notice or notice.get("status") != "pending":
         raise ValueError("Choose an outstanding notice ID from life.pending.")
@@ -152,12 +177,14 @@ def respond(life: dict, notice_id: str, choice: str, next_step: str, reason: str
 def context(life: dict, state: dict) -> dict[str, Any]:
     quests = [life["quests"][key] for key in life.get("active_quest_ids", life.get("quests", {})) if key in life["quests"]]
     queued = pending(life)
-    return {"mailRequired": mail_due(life, state), "questReviewRequired": quest_review_due(life, state),
+    return {"unreadMail": not state.get("eventUp") and mail_due(life, state),
             "inventoryBlocked": life.get("inventory_blocked", False),
             "quests": [{k: q.get(k) for k in ("id", "title", "objectives", "daysLeft", "reward", "complete")} for q in quests],
             "pending": [{**{k: n.get(k) for k in ("id", "kind", "location", "day", "time")}, "text": n["text"][:220]} for n in queued[:4]],
             "otherPendingCount": max(0, len(queued) - 4),
-            "recentText": [{"id": n["id"], "kind": n["kind"], "text": n["text"][:180]} for n in list(life.get("texts", {}).values())[-3:]],
+            "recentText": [{"id": n["id"], "kind": n["kind"], "day": n.get("day"), "text": n["text"][:180]}
+                           for n in list(life.get("texts", {}).values())[-3:]
+                           if n.get("kind") not in {"hud", "dialogue"} or calendar_day(n) == calendar_day(state)],
             "questReview": life.get("quest_review"),
             "respondingTo": life.get("responding_to"),
             "availableMenuTabs": ["inventory", "skills", "social", "map", "crafting", "collections", "options"],
@@ -174,26 +201,6 @@ def guard(life: dict, name: str, args: dict, state: dict, urgent: bool = False) 
             return "Inventory cannot accept this item. Store or sell suitable items first; do not discard tools or quest items."
     if state.get("menu") != "none":
         return None
-    if mail_due(life, state):
-        destination = args.get("destination") or args.get("location")
-        if name in {"travel_to", "go_to_location"} and destination not in {"Farm", "FarmHouse"}:
-            return "Morning mail is compulsory. Read remaining letters before leaving the farm."
-        if name == "go_home_and_sleep":
-            return "Read the morning mail before ending the day."
-        if name in {"plant_seeds", "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris"}:
-            return "Check the morning mail before starting chores."
-        if name == "navigate_to" and any(warp.get("x") == args.get("tile_x") and warp.get("y") == args.get("tile_y")
-                                        and warp.get("targetName") != "FarmHouse" for warp in state.get("warps", [])):
-            return "Read the morning mail before using that farm exit."
-    moving = name == "hold" and bool(set(args.get("buttons", [])) & {"W", "A", "S", "D"}) and args.get("ticks", 0) > 4
-    if moving or name in {"travel_to", "go_to_location", "navigate_to", "clear_debris", "plant_seeds", "plant_nearest_seeds", "till_tiles", "water_crops"}:
-        # The mandatory mailbox trip can precede deliberation about optional activities.
-        if mail_due(life, state) and (name in {"check_mail", "navigate_to"} or args.get("location") == "Farm"):
-            return None
-        if quest_review_due(life, state):
-            return "Review the current quests with review_quests before continuing an unrelated plan."
-        if response_due(life):
-            return "Respond to the outstanding discovery or notification before continuing."
     full = state.get("inventoryFreeSlots") == 0
     if full and name == "clear_debris":
         return "Inventory is full. Make room before gathering more materials."

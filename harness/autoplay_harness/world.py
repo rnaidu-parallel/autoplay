@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .calendar import calendar_day
+from .control import replace_with_retry
 
 from .bridge import BridgeError, NamedPipeBridge
 
@@ -22,6 +23,9 @@ class WorldMap:
         self.entered_from: str | None = data.get("entered_from")
         self.unreachable_edges: list[dict[str, Any]] = data.get("unreachable_edges", [])
         self.blocked_paths: list[dict[str, Any]] = data.get("blocked_paths", [])
+        # Observed reachability of each exit, keyed "<location>|<entered from>": a location can be
+        # several pockets (the Farm's south entrance is cut off from the house by debris).
+        self.pockets: dict[str, dict[str, Any]] = data.get("pockets", {})
         self.current_day: int | None = data.get("day")
         self.nodes: dict[str, dict[str, Any]] = {}
         self.edges: list[dict[str, Any]] = []
@@ -69,8 +73,28 @@ class WorldMap:
         if location not in self.visited:
             self.visited[location] = calendar_day(state) or 1
             changed = True
+        exits = state.get("exits")
+        if isinstance(exits, list) and exits and not state.get("eventUp"):
+            key = f"{location}|{self.entered_from or '*'}"
+            observed: dict[str, Any] = {"day": day, "reachable": {}}
+            for exit in exits:
+                target = exit.get("target")
+                if target:
+                    observed["reachable"][target] = observed["reachable"].get(target, False) or bool(exit.get("reachable"))
+            if self.pockets.get(key) != observed:
+                self.pockets[key] = observed
+                changed = True
         if changed:
             self._save()
+
+    def _pocket_blocked(self, name: str, entered_from: str | None) -> set[tuple[str, str]]:
+        """Exits observed unreachable from this entry point recently. Debris gets cleared, so old observations lapse."""
+        pocket = self.pockets.get(f"{name}|{entered_from or '*'}")
+        if not pocket or not isinstance(self.current_day, int) or not isinstance(pocket.get("day"), int):
+            return set()
+        if self.current_day - pocket["day"] > 3:
+            return set()
+        return {(name, target) for target, reachable in pocket.get("reachable", {}).items() if not reachable}
 
     def record_unreachable(self, from_name: str, to_name: str, day: int, reason: str) -> None:
         existing = next(
@@ -153,7 +177,7 @@ class WorldMap:
         unreachable = list(dict.fromkeys(
             edge["to"] for edge in self.unreachable_edges if edge.get("to") in self.nodes
         ))[-12:]
-        blocked_pairs = self._blocked_pairs(self.entered_from)
+        blocked_pairs = self._blocked_pairs(self.entered_from, current)
         destinations = {edge["to"] for edge in self.edges if edge["from"] == current}
         blocked_now = sorted(
             destination for destination in destinations
@@ -211,7 +235,7 @@ class WorldMap:
         while queue:
             current = queue.popleft()
             name, entered_from = current
-            blocked = self._blocked_pairs(entered_from)
+            blocked = self._blocked_pairs(entered_from, name)
             for neighbor, edge in adjacent[name]:
                 arrival = (neighbor, name)
                 if arrival in seen or (name, neighbor) in blocked:
@@ -253,16 +277,19 @@ class WorldMap:
             if edge.get("from") and edge.get("to")
         }
 
-    def _blocked_pairs(self, entered_from: str | None = None) -> set[tuple[str, str]]:
-        return {
+    def _blocked_pairs(self, entered_from: str | None = None, name: str | None = None) -> set[tuple[str, str]]:
+        pairs = {
             (path["from"], path["to"])
             for path in self.blocked_paths
             if path.get("day") == self.current_day and path.get("from") and path.get("to")
             and path.get("entered_from") in {None, entered_from}
         }
+        if name is not None:
+            pairs |= self._pocket_blocked(name, entered_from)
+        return pairs
 
     def _available_edges(self) -> list[dict[str, Any]]:
-        unavailable = self._unreachable_pairs() | self._blocked_pairs(self.entered_from)
+        unavailable = self._unreachable_pairs() | self._blocked_pairs(self.entered_from, self.last_location)
         return [edge for edge in self.edges if (edge["from"], edge["to"]) not in unavailable]
 
     def _save(self) -> None:
@@ -274,11 +301,12 @@ class WorldMap:
                 "entered_from": self.entered_from,
                 "unreachable_edges": self.unreachable_edges,
                 "blocked_paths": self.blocked_paths,
+                "pockets": self.pockets,
                 "day": self.current_day,
             }, indent=2),
             encoding="utf-8",
         )
-        temporary.replace(self.path)
+        replace_with_retry(temporary, self.path)
 
 
 def travel_to(
@@ -344,7 +372,7 @@ def travel_to(
     def remember_failed_edge(from_name: str, to_name: str, response: dict[str, Any]) -> str:
         reason = response_reason(response, "location_did_not_change")
         day = calendar_day(current) or calendar_day(state) or 1
-        if reason == "no_walkable_path":
+        if reason in {"no_walkable_path", "no_walkable_path_to_exit"}:
             world_map.record_blocked_path(from_name, to_name, day)
         elif reason.startswith("no_exit_") or reason.startswith("door_action_"):
             world_map.record_unreachable(
@@ -368,7 +396,7 @@ def travel_to(
             return finish("blocked", "world_changed_or_damage_taken")
         if transit.get("status") != "completed" and current.get("location") != hop:
             reason = remember_failed_edge(from_name, hop, transit)
-            if (reason == "no_walkable_path" or reason.startswith(("no_exit_", "door_action_"))) and current.get("location") == from_name:
+            if (reason in {"no_walkable_path", "no_walkable_path_to_exit"} or reason.startswith(("no_exit_", "door_action_"))) and current.get("location") == from_name:
                 if controls_executed + 3 <= action_budget and world_map.route(from_name, destination, current.get("time")):
                     continue
             return finish("blocked", f"hop_failed:{reason}")

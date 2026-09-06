@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from autoplay_harness.notebook import Notebook
 
@@ -227,6 +228,39 @@ class NotebookTests(unittest.TestCase):
             self.assertTrue(restored.in_zone(7, 8, "crops"))
             self.assertFalse(restored.in_zone(20, 8, "crops"))
             self.assertEqual("Keep the path open.", restored.context(5)["farmPlan"]["notes"])
+
+    def test_save_survives_a_reader_holding_the_file_open(self):
+        """The overlay polls notebook.json four times a second; the rename must not kill the run."""
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+            notebook.add_lesson("first", "Recorded before the clash.", "auto", 14)
+
+            attempts = []
+            original = Path.replace
+
+            def busy_twice(self, target):
+                attempts.append(target)
+                if len(attempts) <= 2:
+                    raise PermissionError(5, "Access is denied")
+                return original(self, target)
+
+            with patch.object(Path, "replace", busy_twice):
+                notebook.add_lesson("second", "Recorded through the clash.", "auto", 14)
+
+            self.assertEqual(3, len(attempts))
+            keys = [lesson["key"] for lesson in Notebook(Path(directory)).data["lessons"]]
+            self.assertEqual(["first", "second"], keys)
+
+    def test_save_reports_a_reader_that_never_lets_go(self):
+        with tempfile.TemporaryDirectory() as directory:
+            notebook = Notebook(Path(directory))
+
+            def always_busy(self, target):
+                raise PermissionError(5, "Access is denied")
+
+            with patch.object(Path, "replace", always_busy):
+                with self.assertRaises(PermissionError):
+                    notebook.add_lesson("stuck", "Never lands.", "auto", 14)
 
 
 if __name__ == "__main__":

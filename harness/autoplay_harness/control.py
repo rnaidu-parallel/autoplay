@@ -8,11 +8,23 @@ from pathlib import Path
 from typing import Any
 
 
+def replace_with_retry(temporary: Path, path: Path) -> None:
+    """Windows refuses the rename while the overlay holds the target open; retry, then report."""
+    for attempt in range(10):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.05)
+
+
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    replace_with_retry(temporary, path)
 
 
 class OperatorControl:

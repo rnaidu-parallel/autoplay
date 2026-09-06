@@ -27,6 +27,11 @@ internal sealed class BridgeRequest
     public string Location { get; set; } = string.Empty;
     public int SegmentTicks { get; set; }
     public bool NoticeEncounters { get; set; }
+    public int FromSlot { get; set; }
+    public int ToSlot { get; set; }
+    public int Slot { get; set; }
+    public int Count { get; set; }
+    public int PageTicks { get; set; }
 }
 
 internal sealed class BridgeResponse
@@ -103,6 +108,10 @@ internal sealed class GameStateSnapshot
     public int CursorGrabX { get; init; }
     public int CursorGrabY { get; init; }
     public bool EventUp { get; init; }
+    public string? EventId { get; init; }
+    public string? EventPhase { get; init; }
+    public bool Festival { get; init; }
+    public bool EventCanMove { get; init; }
     public string Minigame { get; init; } = string.Empty;
     public string? CursorItem { get; init; }
     public string? DialogueText { get; init; }
@@ -116,6 +125,9 @@ internal sealed class GameStateSnapshot
     public IReadOnlyList<BridgeInventoryItem> Inventory { get; init; } = Array.Empty<BridgeInventoryItem>();
     public IReadOnlyDictionary<string, int> InventoryCounts { get; init; } = new Dictionary<string, int>();
     public IReadOnlyList<BridgeWarp> Warps { get; init; } = Array.Empty<BridgeWarp>();
+    public IReadOnlyList<BridgeExit> Exits { get; init; } = Array.Empty<BridgeExit>();
+    public bool? MenuReadyToClose { get; init; }
+    public int ShippingBinCount { get; init; }
     public IReadOnlyList<BridgeWorldObject> NearbyObjects { get; init; } = Array.Empty<BridgeWorldObject>();
     public IReadOnlyList<BridgeCrop> CropsNearby { get; init; } = Array.Empty<BridgeCrop>();
     public IReadOnlyList<BridgeTile> TillableNearby { get; init; } = Array.Empty<BridgeTile>();
@@ -317,6 +329,16 @@ internal sealed class BridgeWarp
     public string TargetName { get; init; } = string.Empty;
     public int TargetX { get; init; }
     public int TargetY { get; init; }
+}
+
+internal sealed class BridgeExit
+{
+    public string Target { get; init; } = string.Empty;
+    public int X { get; init; }
+    public int Y { get; init; }
+    public string Kind { get; init; } = string.Empty;
+    public bool Reachable { get; init; }
+    public int? Distance { get; init; }
 }
 
 internal sealed class BridgeWorldObject

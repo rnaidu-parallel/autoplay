@@ -85,6 +85,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(700, summary["bridge_ms"]["p50"])
         self.assertIn("wasted_decision_rate", render(summary))
 
+    def test_review_only_results_count_as_wasted_decisions(self) -> None:
+        events = [
+            {"at": "2026-09-02T00:00:00+00:00", "type": "session_started"},
+            {"at": "2026-09-02T00:00:01+00:00", "type": "tool_result",
+             "result": {"status": "review_requested"}},
+            {"at": "2026-09-02T00:00:02+00:00", "type": "tool_result",
+             "result": {"status": "visual_review_requested"}},
+            {"at": "2026-09-02T00:00:03+00:00", "type": "tool_result",
+             "result": {"status": "completed"}},
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            path.write_text("\n".join(json.dumps(event) for event in events), encoding="utf-8")
+            summary = summarize(path)
+
+        self.assertEqual(0.667, summary["wasted_decision_rate"])
+
     def test_cache_latency_breakdown_uses_attempts_and_game_hours(self) -> None:
         events = [
             {"at": "2026-09-02T00:00:00+00:00", "type": "observation", "state": {"worldReady": True, "day": 1, "time": 600}},

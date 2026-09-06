@@ -5,7 +5,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 from autoplay_harness import life as life_policy
 from autoplay_harness.calendar import calendar_day
@@ -75,7 +75,7 @@ class OperatorTests(unittest.TestCase):
         self.harness._execute_actor_tool.assert_not_called()
         self.assertEqual("Try the town route", self.harness.operator_guidance)
 
-    def test_steer_releases_a_compulsory_chore_that_owns_the_tool_list(self):
+    def test_steer_is_guidance_and_leaves_facts_alone(self):
         farm = {**STATE, "location": "Farm", "mailCount": 1, "time": 630}
         self.harness.bridge.observe.return_value = {"state": farm}
         self.harness.notebook.observe_life(farm)
@@ -85,8 +85,8 @@ class OperatorTests(unittest.TestCase):
         self.harness.control.submit(self.harness.run_id, "steer", "Stop retrying the mailbox.")
         self.assertTrue(self.harness._poll_operator(farm))
 
-        # Steering is useless while the mailbox is still the only tool the actor is offered.
-        self.assertFalse(life_policy.mail_due(life, farm))
+        # Mail is information, never a gate, so steering has nothing to release and the fact stands.
+        self.assertTrue(life_policy.mail_due(life, farm))
         self.assertEqual("Stop retrying the mailbox.", self.harness.operator_guidance)
 
     def test_audience_demand_records_without_preempting_or_pausing_gates(self):
@@ -104,6 +104,7 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual("go fishing at the beach", demand["goal"])
         self.assertEqual(12, demand["support"])
         self.assertEqual("pending", demand["status"])
+        self.assertTrue(self.harness.audience_review_requested)
         self.assertEqual("playing", self.harness.operator_mode)
 
     def test_operator_commands_still_preempt_alongside_an_audience_demand(self):
@@ -111,6 +112,25 @@ class OperatorTests(unittest.TestCase):
         self.harness.control.submit(self.harness.run_id, "hold")
         self.assertTrue(self.harness._poll_operator(STATE))
         self.assertEqual("held", self.harness.operator_mode)
+        self.assertIsNone(self.harness.notebook.audience_demand())
+
+    def test_operator_command_preempts_audience_planning(self):
+        self.harness.notebook.set_audience_demand("abc123", "go fishing", 4, 28)
+        plan = ToolDecision("plan_day", {"theme": "Beach", "agenda": [
+            {"goal": "Fish at the Beach", "slot": "morning", "category": "fishing",
+             "success_condition": "location is Beach", "source": "chat:abc123"}], "dropped": []}, {}, None)
+
+        def decide(*args):
+            self.harness.control.submit(self.harness.run_id, "hold")
+            return plan, 10
+
+        self.harness._context = Mock(return_value="{}")
+        self.harness._decide = decide
+        applied = self.harness._request_agenda(STATE, Mock(), "audience")
+
+        self.assertFalse(applied)
+        self.assertEqual("held", self.harness.operator_mode)
+        self.assertEqual([], self.harness.notebook.remaining(28))
 
     def test_audience_rejects_a_stop_and_a_negative_vote_count(self):
         for kind in ("stop_session", "shutdown", ""):
@@ -138,6 +158,53 @@ class OperatorTests(unittest.TestCase):
              "success_condition": "location is Beach", "source": "chat:abc123"}]}
         self.assertEqual([], self.harness._agenda_errors(withchat, day, "morning"))
 
+        wrong = {"theme": "A different request", "agenda": [
+            {"goal": "Chop wood", "slot": "morning", "category": "clearing",
+             "success_condition": "inventory.Wood >= 10", "source": "chat:wrong"}]}
+        self.assertTrue(self.harness._agenda_errors(wrong, day, "morning"))
+
+    def test_production_plan_day_marks_the_matching_demand_bound(self):
+        day = {**STATE, "location": "Farm", "day": 25, "time": 630}
+        self.harness.notebook.start_day(calendar_day(day))
+        self.harness.notebook.set_audience_demand("abc123", "go fishing", 12, calendar_day(day))
+        plan = {"theme": "A day by the water", "agenda": [
+            {"goal": "Fish at the Beach", "slot": "morning", "category": "fishing",
+             "success_condition": "location is Beach", "source": "chat:abc123"}], "dropped": []}
+
+        self.harness._apply_director_decision(ToolDecision("plan_day", plan, {}, None), day)
+
+        self.assertEqual("bound", self.harness.notebook.audience_demand()["status"])
+
+    def test_only_one_audience_slot_is_accepted_per_day(self):
+        self.harness.notebook.set_audience_demand("first", "go fishing", 3, 29)
+        self.harness.notebook.mark_audience("missed", "The plan went another way.")
+        with self.assertRaisesRegex(ValueError, "already used today"):
+            self.harness.notebook.set_audience_demand("second", "visit town", 4, 29)
+        self.harness.notebook.set_audience_demand("tomorrow", "visit town", 4, 30)
+
+    def test_duplicate_audience_command_is_rejected_without_replacing_the_first(self):
+        self.harness.notebook.set_audience_demand("first", "go fishing", 3, 28)
+        self.harness.control.submit(self.harness.run_id, "audience", "visit town", 4)
+        self.harness.telemetry.record = Mock()
+
+        self.assertFalse(self.harness._poll_operator(STATE))
+
+        self.assertEqual("first", self.harness.notebook.audience_demand()["id"])
+        self.assertEqual("rejected", self.harness.control.status()["last_command"]["status"])
+        self.harness.telemetry.record.assert_any_call(
+            "audience_demand_rejected", {"id": ANY, "reason": "an audience demand is already active"})
+
+    def test_unfinished_audience_request_expires_at_day_rollover(self):
+        self.harness.notebook.set_audience_demand("first", "go fishing", 3, 29)
+        self.harness.notebook.mark_audience("bound", "Fish at the Beach")
+
+        self.harness.notebook.start_day(30)
+
+        self.assertIsNone(self.harness.notebook.audience_demand())
+        retired = self.harness.notebook.data["audience"]["recent"][0]
+        self.assertEqual("failed", retired["status"])
+        self.assertIn("day ended", retired["note"])
+
     def test_missed_and_failed_demands_are_reported_not_hidden(self):
         day = {**STATE, "location": "Farm", "day": 25, "time": 630}
         number = calendar_day(day)
@@ -149,15 +216,17 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual("missed", self.harness.notebook.data["audience"]["recent"][0]["status"])
         self.assertIsNone(self.harness.notebook.audience_demand())
 
-        self.harness.notebook.set_audience_demand("def456", "visit the mines", 9, number)
-        self.harness.notebook.set_agenda(number, [
+        next_number = number + 1
+        self.harness.notebook.start_day(next_number)
+        self.harness.notebook.set_audience_demand("def456", "visit the mines", 9, next_number)
+        self.harness.notebook.set_agenda(next_number, [
             {"goal": "Walk to the mine entrance", "slot": "morning", "category": "mining",
              "success_condition": "location is Mountain", "source": "chat:def456"}], "Underground")
         self.harness._settle_audience_demand({"agenda": [{"goal": "Walk to the mine entrance", "slot": "morning",
                                                           "category": "mining", "source": "chat:def456"}]})
         self.assertEqual("bound", self.harness.notebook.audience_demand()["status"])
 
-        item = self.harness.notebook.data["days"][str(number)]["agenda"][0]
+        item = self.harness.notebook.data["days"][str(next_number)]["agenda"][0]
         self.harness.notebook.mark(item["id"], "deferred", "The path was blocked.")
         self.assertIsNone(self.harness.notebook.audience_demand())
         retired = self.harness.notebook.data["audience"]["recent"][0]

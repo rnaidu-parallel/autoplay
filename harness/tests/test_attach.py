@@ -55,7 +55,7 @@ class AttachTests(unittest.TestCase):
         self.bridge.request.side_effect = lambda kind, **kwargs: {
             'status': 'completed', 'state': {**self.state, 'menu': 'none'}}
         def plan(*args):
-            self.bridge.request.assert_any_call('press', buttons=['Escape'])
+            self.bridge.request.assert_any_call('close_menu')
             self.harness.stop_reason = 'test_complete'
         self.harness._plan_day_if_needed = plan
         self.harness._refill_agenda_if_needed = Mock()

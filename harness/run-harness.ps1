@@ -5,20 +5,27 @@ param(
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $dotenvPath = Join-Path $repositoryRoot '.env'
-if (-not $env:OPENROUTER_API_KEY -and (Test-Path -LiteralPath $dotenvPath)) {
-    $keyEntry = Get-Content -LiteralPath $dotenvPath |
-        Where-Object { $_ -match '^\s*OPENROUTER_API_KEY\s*=' } |
-        Select-Object -Last 1
-    if ($keyEntry) {
-        $apiKey = ($keyEntry -split '=', 2)[1].Trim()
-        if ($apiKey.Length -ge 2 -and (
-            ($apiKey.StartsWith("'") -and $apiKey.EndsWith("'")) -or
-            ($apiKey.StartsWith('"') -and $apiKey.EndsWith('"'))
-        )) {
-            $apiKey = $apiKey.Substring(1, $apiKey.Length - 2)
-        }
-        if ($apiKey) {
-            $env:OPENROUTER_API_KEY = $apiKey
+if (Test-Path -LiteralPath $dotenvPath) {
+    foreach ($dotenvName in @(
+        'OPENROUTER_API_KEY', 'TWITCH_CHANNEL', 'TWITCH_CLIENT_ID', 'TWITCH_ACCESS_TOKEN',
+        'TWITCH_BROADCASTER_ID', 'TWITCH_USER_ID'
+    )) {
+        if (-not [Environment]::GetEnvironmentVariable($dotenvName, 'Process')) {
+            $entry = Get-Content -LiteralPath $dotenvPath |
+                Where-Object { $_ -match "^\s*$dotenvName\s*=" } |
+                Select-Object -Last 1
+            if ($entry) {
+                $value = ($entry -split '=', 2)[1].Trim()
+                if ($value.Length -ge 2 -and (
+                    ($value.StartsWith("'") -and $value.EndsWith("'")) -or
+                    ($value.StartsWith('"') -and $value.EndsWith('"'))
+                )) {
+                    $value = $value.Substring(1, $value.Length - 2)
+                }
+                if ($value) {
+                    [Environment]::SetEnvironmentVariable($dotenvName, $value, 'Process')
+                }
+            }
         }
     }
 }

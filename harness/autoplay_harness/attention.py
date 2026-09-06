@@ -25,7 +25,8 @@ class AttentiveBridge:
         if self.pending() and not self.state.get("nightActive"):
             raise AttentionYield("operator_pending", self.state, self.controls)
         if kind in {"navigate", "go_to_location"}:
-            arguments.update(segmentTicks=300, noticeEncounters=not self.urgent)
+            # Walk whole segments; villagers seen on the way are greeted by the reflex at the next boundary.
+            arguments.update(segmentTicks=900, noticeEncounters=False)
         response = self.bridge.request(kind, **arguments)
         self.controls += 1
         self.state = response.get("state") or self.state
@@ -33,13 +34,8 @@ class AttentiveBridge:
             raise AttentionYield(response.get("reason", "movement_segment_finished"), self.state, self.controls)
         if self.pending() and not self.state.get("nightActive"):
             raise AttentionYield("operator_pending", self.state, self.controls)
-        if not self.urgent:
-            if self.state.get("location") != self.location:
-                raise AttentionYield("arrived_in_new_area", self.state, self.controls)
-            if self.state.get("questRevision") != self.quest_revision:
-                raise AttentionYield("journal_changed", self.state, self.controls)
-            if time.monotonic() - self.started >= 8:
-                raise AttentionYield("time_to_look_around", self.state, self.controls)
+        if not self.urgent and self.state.get("location") != self.location:
+            raise AttentionYield("arrived_in_new_area", self.state, self.controls)
         return response
 
     def __getattr__(self, name):

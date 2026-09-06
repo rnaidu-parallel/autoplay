@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .control import replace_with_retry
+
 
 class ObjectiveError(RuntimeError):
     pass
@@ -165,7 +167,7 @@ class ObjectiveLedger:
     def _save(self) -> None:
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(self.path)
+        replace_with_retry(temporary, self.path)
 
     def _new_objective(self, goal: str, success_condition: str | None) -> dict[str, Any]:
         return {

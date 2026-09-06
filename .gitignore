@@ -3,6 +3,8 @@
 harness/runs/
 harness/state/
 broadcast/local/
+chat/state.json
+chat/blocklist.txt
 __pycache__/
 *.pyc
 artifacts/harness-capture.jpg

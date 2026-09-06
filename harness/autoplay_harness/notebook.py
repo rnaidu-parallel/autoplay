@@ -5,6 +5,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .control import replace_with_retry
+
 
 SLOTS = ("morning", "midday", "afternoon", "evening")
 STATUSES = ("pending", "active", "done", "carried", "dropped", "deferred")
@@ -38,7 +40,10 @@ class Notebook:
         self.data.setdefault("weeks", [])
         self.data.setdefault("interactions", [])
         self.data.setdefault("life", {"journal_revision_read": None, "quests": {}, "letters": []})
-        self.data.setdefault("audience", {"demand": None, "recent": []})
+        audience = self.data.setdefault("audience", {"demand": None, "recent": []})
+        audience.setdefault("demand", None)
+        audience.setdefault("recent", [])
+        audience.setdefault("last_slot_day", None)
         self.current_day: int | None = None
         if self.data["days"]:
             self.current_day = int(next(reversed(self.data["days"])))
@@ -48,6 +53,7 @@ class Notebook:
         return self.data["farm_plan"]
 
     def start_day(self, day: int) -> dict[str, Any]:
+        self._expire_audience(day)
         key = str(day)
         if key in self.data["days"]:
             self.current_day = day
@@ -59,6 +65,9 @@ class Notebook:
             previous = self.data["days"][previous_key]
             for item in previous["agenda"]:
                 if item["status"] not in {"pending", "active", "carried", "deferred"}:
+                    continue
+                if item.get("category") == "event":
+                    item.update(status="dropped", note="The event day ended.")
                     continue
                 item["status"] = "carried"
                 carried.append({**item, "status": "carried", "carried_from": previous_key})
@@ -98,10 +107,8 @@ class Notebook:
         from .life import context
         life = self.data["life"]
         attention = []
-        if state.get("questRevision") and state["questRevision"] != life["journal_revision_read"]:
-            attention.append("Journal not checked since it changed. Open it before choosing another long trip.")
         if state.get("mailCount", 0) > 0:
-            attention.append(f"{state['mailCount']} unread letter(s). Check the mailbox when on the farm.")
+            attention.append(f"{state['mailCount']} unread letter(s) in the mailbox by the farmhouse.")
         return {**context(life, state), "attention": attention,
                 "recentLetters": [letter[:300] for letter in life["letters"][-2:]]}
 
@@ -142,6 +149,7 @@ class Notebook:
                 "reason": item.get("reason") or (candidate or {}).get("reason"),
                 "note": candidate.get("note") if candidate else None,
                 "carried_from": candidate.get("carried_from") if candidate else None,
+                "scope": candidate.get("scope") if candidate else None,
             })
             if candidate is None:
                 next_number += 1
@@ -198,17 +206,32 @@ class Notebook:
         self._save()
 
     def set_audience_demand(self, demand_id: str, goal: str, support: int, day: int) -> None:
-        """One live audience demand at a time; a newer one replaces whatever was still waiting."""
+        """Accept at most one audience agenda slot per in-game day."""
         goal = goal.strip()
         if not goal:
             raise ValueError("audience demand needs a goal")
-        current = self.data["audience"]["demand"]
-        if current is not None and current["status"] == "pending":
-            self._retire_audience(current, "replaced")
-        self.data["audience"]["demand"] = {
+        if not isinstance(day, int) or day <= 0:
+            raise ValueError("audience demand needs the current game day")
+        audience = self.data["audience"]
+        self._expire_audience(day)
+        if audience["demand"] is not None:
+            raise ValueError("an audience demand is already active")
+        if audience["last_slot_day"] == day:
+            raise ValueError("the audience agenda slot was already used today")
+        audience["demand"] = {
             "id": demand_id, "goal": goal, "support": support, "day": day, "status": "pending", "note": None,
         }
+        audience["last_slot_day"] = day
         self._save()
+
+    def _expire_audience(self, day: int) -> None:
+        demand = self.data["audience"]["demand"]
+        if demand is None or demand.get("day") == day:
+            return
+        if demand.get("status") == "bound":
+            self.mark_audience("failed", "The in-game day ended before the request was completed.")
+        else:
+            self.mark_audience("missed", "The in-game day ended before the request reached the plan.")
 
     def audience_demand(self) -> dict[str, Any] | None:
         demand = self.data["audience"]["demand"]
@@ -438,4 +461,4 @@ class Notebook:
             json.dumps(self.data, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        temporary.replace(self.path)
+        replace_with_retry(temporary, self.path)

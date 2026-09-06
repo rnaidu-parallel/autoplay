@@ -15,6 +15,7 @@ namespace Autoplay.GameBridge;
 
 public sealed partial class ModEntry : Mod
 {
+    private static IntPtr nativeGameWindow;
     private static readonly HashSet<SButton> AgentButtons = new()
     {
         SButton.W,
@@ -100,6 +101,18 @@ public sealed partial class ModEntry : Mod
     private int worldMapVersion;
     private BridgeFarmLayout? farmLayoutCache;
     private int farmLayoutCacheDay = -1;
+    private Dictionary<Point, int>? reachMapCache;
+    private string reachMapCacheKey = string.Empty;
+    private List<ExitCandidate>? exitCandidateCache;
+    private string exitCandidateCacheKey = string.Empty;
+    private bool closeMenuActive;
+    private int closeMenuTicks;
+    private string? closeMenuReason;
+    private bool watchDialogueActive;
+    private int watchDialogueTicks;
+    private int watchDialoguePageTicks;
+    private int watchDialoguePageElapsed;
+    private int watchDialogueHealth;
     private readonly Dictionary<string, DateTime> bridgeErrorLogTimes = new();
     private readonly object bridgeErrorLock = new();
     private int bridgeErrors;
@@ -107,6 +120,7 @@ public sealed partial class ModEntry : Mod
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
     private const int NavigationExpansionLimit = 8000;
+    private const int ReachExpansionLimit = 12000;
 
     public override void Entry(IModHelper helper)
     {
@@ -406,6 +420,13 @@ public sealed partial class ModEntry : Mod
         this.idleTicksRemaining = 0;
         this.focusPending = false;
         this.delayedStatus = null;
+        this.closeMenuActive = false;
+        this.closeMenuTicks = 0;
+        this.closeMenuReason = null;
+        this.watchDialogueActive = false;
+        this.watchDialogueTicks = 0;
+        this.watchDialoguePageTicks = 0;
+        this.watchDialoguePageElapsed = 0;
         this.ClearNavigation();
     }
 
@@ -448,7 +469,7 @@ public sealed partial class ModEntry : Mod
         this.navigationPath = path;
         this.navigationIndex = 0;
         this.navigationTicksRemaining = effectiveMaxTicks;
-        this.navigationSegmentTicks = Math.Clamp(this.activePipeRequest?.Request.SegmentTicks ?? 0, 0, 300);
+        this.navigationSegmentTicks = Math.Clamp(this.activePipeRequest?.Request.SegmentTicks ?? 0, 0, 900);
         this.navigationNotices = this.NearbyNoticeKeys();
         this.navigationStallTicks = 0;
         this.navigationLastPixel = Game1.player.StandingPixel;
@@ -475,20 +496,34 @@ public sealed partial class ModEntry : Mod
             return;
         }
 
-        (Point tile, bool requiresAction, Point? exitPush)? exit = FindExit(Game1.currentLocation, targetLocation);
-        if (exit is null)
+        var candidates = this.GetExitCandidates(Game1.currentLocation)
+            .Where(candidate => candidate.Target.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (candidates.Count == 0)
         {
             this.CompletePipeRequest("blocked", "no_exit_to_location");
             return;
         }
 
-        this.StartNavigation(
-            exit.Value.tile,
-            maxTicks,
-            targetLocation,
-            exit.Value.requiresAction,
-            exit.Value.exitPush
-        );
+        // The nearest exit is useless when it sits behind a fence, so rank by reachable distance.
+        ExitCandidate? exit = null;
+        int bestDistance = int.MaxValue;
+        foreach (ExitCandidate candidate in candidates)
+        {
+            if (this.TryGetReachDistance(candidate.Tile, out int distance) && distance < bestDistance)
+            {
+                bestDistance = distance;
+                exit = candidate;
+            }
+        }
+
+        if (exit is null)
+        {
+            this.CompletePipeRequest("blocked", "no_walkable_path_to_exit");
+            return;
+        }
+
+        this.StartNavigation(exit.Tile, maxTicks, targetLocation, exit.RequiresAction, exit.ExitPush);
     }
 
     private void DriveNavigation()
@@ -659,6 +694,343 @@ public sealed partial class ModEntry : Mod
         }
     }
 
+    private void StartCloseMenu()
+    {
+        if (this.IsOperationBusy())
+        {
+            this.LogOperationBusy();
+            return;
+        }
+
+        IClickableMenu? menu = Game1.activeClickableMenu;
+        if (menu is null)
+        {
+            this.CompletePipeRequest("completed", reason: "no_menu");
+            return;
+        }
+        if (menu is TitleMenu)
+        {
+            this.CompletePipeRequest("rejected", "title_menu");
+            return;
+        }
+        if (menu is DialogueBox question && question.isQuestion)
+        {
+            this.CompletePipeRequest("rejected", "question_pending");
+            return;
+        }
+
+        // The game refuses to close an inventory menu while an item is held on the cursor.
+        this.closeMenuReason = null;
+        if (Game1.player.CursorSlotItem is Item cursorItem)
+        {
+            Game1.player.CursorSlotItem = null;
+            this.closeMenuReason = this.ReturnHeldItem(cursorItem);
+        }
+        if (menu is ItemGrabMenu grabMenu && grabMenu.heldItem is Item grabbedItem)
+        {
+            grabMenu.heldItem = null;
+            this.closeMenuReason = this.ReturnHeldItem(grabbedItem);
+        }
+
+        this.closeMenuActive = true;
+        this.closeMenuTicks = 3;
+        this.Monitor.Log(
+            $"close_menu_started menu={GetMenuState()} held_item={this.closeMenuReason ?? "none"}",
+            LogLevel.Info
+        );
+    }
+
+    private string ReturnHeldItem(Item item)
+    {
+        if (Game1.player.addItemToInventoryBool(item))
+            return "held_item_returned";
+
+        Game1.createItemDebris(item, Game1.player.getStandingPosition(), Game1.player.FacingDirection);
+        return "held_item_dropped";
+    }
+
+    private void DriveCloseMenu()
+    {
+        IClickableMenu? menu = Game1.activeClickableMenu;
+        if (menu is null)
+        {
+            this.FinishCloseMenu("completed", this.closeMenuReason ?? "closed");
+            return;
+        }
+
+        if (this.closeMenuTicks-- <= 0)
+        {
+            this.FinishCloseMenu("blocked", $"menu_still_open:{GetMenuState()}");
+            return;
+        }
+
+        if (menu.readyToClose())
+        {
+            menu.exitThisMenu();
+            if (Game1.activeClickableMenu is not null)
+                Game1.exitActiveMenu();
+            return;
+        }
+
+        if (!Game1.game1.IsActive)
+            ActivateGameWindow();
+        this.helper.Input.Press(SButton.Escape);
+    }
+
+    private void FinishCloseMenu(string status, string reason)
+    {
+        this.closeMenuActive = false;
+        this.closeMenuTicks = 0;
+        this.closeMenuReason = null;
+        this.Monitor.Log($"close_menu_{status} reason={reason}", LogLevel.Info);
+        this.ScheduleCompletion(status, reason);
+    }
+
+    private void StartWatchDialogue(int maxTicks, int pageTicks)
+    {
+        if (this.IsOperationBusy())
+        {
+            this.LogOperationBusy();
+            return;
+        }
+
+        this.watchDialogueActive = true;
+        this.watchDialogueTicks = maxTicks;
+        this.watchDialoguePageTicks = pageTicks;
+        this.watchDialoguePageElapsed = 0;
+        this.watchDialogueHealth = Context.IsWorldReady ? Game1.player.health : int.MinValue;
+        this.Monitor.Log($"watch_dialogue_started max_ticks={maxTicks} page_ticks={pageTicks}", LogLevel.Info);
+    }
+
+    private void DriveWatchDialogue()
+    {
+        if (Context.IsWorldReady && Game1.player.health < this.watchDialogueHealth)
+        {
+            this.FinishWatchDialogue("interrupted", "damage_taken");
+            return;
+        }
+
+        if (this.watchDialogueTicks-- <= 0)
+        {
+            this.FinishWatchDialogue("timeout", "tick_budget_exhausted");
+            return;
+        }
+
+        if (!Game1.game1.IsActive)
+            ActivateGameWindow();
+
+        if (Game1.activeClickableMenu is DialogueBox box)
+        {
+            if (box.isQuestion)
+            {
+                this.FinishWatchDialogue("completed", "question_pending");
+                return;
+            }
+
+            if (box.transitioning || box.characterIndexInDialogue < (box.getCurrentString()?.Length ?? 0))
+            {
+                this.watchDialoguePageElapsed = 0;
+                return;
+            }
+
+            if (++this.watchDialoguePageElapsed >= this.watchDialoguePageTicks)
+            {
+                this.watchDialoguePageElapsed = 0;
+                this.helper.Input.Press(SButton.X);
+            }
+
+            return;
+        }
+
+        if (Game1.activeClickableMenu is not null)
+        {
+            this.FinishWatchDialogue("completed", "menu_opened");
+            return;
+        }
+
+        // An event between dialogue pages is still running its commands, so keep waiting.
+        if (Game1.eventUp)
+        {
+            this.watchDialoguePageElapsed = 0;
+            return;
+        }
+
+        if (!Game1.dialogueUp)
+            this.FinishWatchDialogue("completed", "dialogue_finished");
+    }
+
+    private void FinishWatchDialogue(string status, string reason)
+    {
+        this.watchDialogueActive = false;
+        this.watchDialogueTicks = 0;
+        this.watchDialoguePageElapsed = 0;
+        this.Monitor.Log($"watch_dialogue_{status} reason={reason}", LogLevel.Info);
+        this.ScheduleCompletion(status, reason);
+    }
+
+    private void MoveInventory(int fromSlot, int toSlot)
+    {
+        var items = Game1.player.Items;
+        int capacity = Math.Min(Game1.player.MaxItems, items.Count);
+        if (fromSlot < 0 || toSlot < 0 || fromSlot >= capacity || toSlot >= capacity || fromSlot == toSlot)
+        {
+            this.CompletePipeRequest("rejected", "invalid_slot");
+            return;
+        }
+
+        Item? source = items[fromSlot];
+        Item? destination = items[toSlot];
+        string reason;
+        if (source is not null && destination is not null && destination.canStackWith(source))
+        {
+            int remainder = destination.addToStack(source);
+            source.Stack = remainder;
+            items[fromSlot] = remainder > 0 ? source : null;
+            reason = "stacked";
+        }
+        else
+        {
+            items[fromSlot] = destination;
+            items[toSlot] = source;
+            reason = destination is null ? "moved" : "swapped";
+        }
+
+        this.Monitor.Log($"inventory_move from={fromSlot} to={toSlot} result={reason}", LogLevel.Info);
+        this.ScheduleCompletion("completed", reason);
+    }
+
+    private void TrashInventory(int slot)
+    {
+        if (!TryGetInventoryItem(slot, out Item? item, out string? rejection))
+        {
+            this.CompletePipeRequest("rejected", rejection);
+            return;
+        }
+        if (!item!.canBeTrashed())
+        {
+            this.CompletePipeRequest("rejected", "cannot_trash");
+            return;
+        }
+
+        string label = $"{item.DisplayName}x{item.Stack}";
+        Utility.trashItem(item);
+        Game1.player.Items[slot] = null;
+        Game1.playSound("trashcan");
+        this.Monitor.Log($"inventory_trash slot={slot} item={label}", LogLevel.Info);
+        this.ScheduleCompletion("completed", $"trashed:{label}");
+    }
+
+    private void DropInventory(int slot, int count)
+    {
+        if (!Context.IsWorldReady)
+        {
+            this.CompletePipeRequest("rejected", "no_world");
+            return;
+        }
+        if (Game1.eventUp)
+        {
+            this.CompletePipeRequest("rejected", "event_active");
+            return;
+        }
+        if (!TryGetInventoryItem(slot, out Item? item, out string? rejection))
+        {
+            this.CompletePipeRequest("rejected", rejection);
+            return;
+        }
+
+        Item dropped = TakeFromSlot(slot, item!, count, out int amount);
+        string label = $"{dropped.DisplayName}x{amount}";
+        Game1.createItemDebris(dropped, Game1.player.getStandingPosition(), Game1.player.FacingDirection);
+        this.Monitor.Log($"inventory_drop slot={slot} item={label}", LogLevel.Info);
+        this.ScheduleCompletion("completed", $"dropped:{label}");
+    }
+
+    private void ShipItem(int slot, int count)
+    {
+        if (!Context.IsWorldReady)
+        {
+            this.CompletePipeRequest("rejected", "no_world");
+            return;
+        }
+        if (!IsAtShippingBin())
+        {
+            this.CompletePipeRequest("rejected", "not_at_shipping_bin");
+            return;
+        }
+        if (!TryGetInventoryItem(slot, out Item? item, out string? rejection))
+        {
+            this.CompletePipeRequest("rejected", rejection);
+            return;
+        }
+        if (!item!.canBeShipped())
+        {
+            this.CompletePipeRequest("rejected", "cannot_ship");
+            return;
+        }
+
+        Item shipped = TakeFromSlot(slot, item, count, out int amount);
+        string label = $"{shipped.DisplayName}x{amount}";
+        Farm farm = Game1.getFarm();
+        farm.getShippingBin(Game1.player).Add(shipped);
+        farm.lastItemShipped = shipped;
+        Game1.playSound("Ship");
+        this.Monitor.Log($"ship_item slot={slot} item={label}", LogLevel.Info);
+        this.ScheduleCompletion("completed", $"shipped:{label}");
+    }
+
+    private static bool TryGetInventoryItem(int slot, out Item? item, out string? rejection)
+    {
+        item = null;
+        var items = Game1.player.Items;
+        if (slot < 0 || slot >= Game1.player.MaxItems || slot >= items.Count)
+        {
+            rejection = "invalid_slot";
+            return false;
+        }
+
+        item = items[slot];
+        rejection = item is null ? "empty_slot" : null;
+        return item is not null;
+    }
+
+    private static Item TakeFromSlot(int slot, Item item, int count, out int amount)
+    {
+        amount = count <= 0 || count >= item.Stack ? item.Stack : count;
+        if (amount >= item.Stack)
+        {
+            Game1.player.Items[slot] = null;
+            return item;
+        }
+
+        Item split = item.getOne();
+        split.Stack = amount;
+        item.Stack -= amount;
+        return split;
+    }
+
+    private static bool IsAtShippingBin()
+    {
+        if (Game1.activeClickableMenu is ItemGrabMenu grabMenu && grabMenu.shippingBin)
+            return true;
+
+        Point here = Game1.player.TilePoint;
+        foreach (var building in Game1.currentLocation.buildings)
+        {
+            if (!building.buildingType.Value.Equals("Shipping Bin", StringComparison.OrdinalIgnoreCase))
+                continue;
+            int x1 = building.tileX.Value;
+            int y1 = building.tileY.Value;
+            int x2 = x1 + building.tilesWide.Value - 1;
+            int y2 = y1 + building.tilesHigh.Value - 1;
+            int gapX = here.X < x1 ? x1 - here.X : here.X > x2 ? here.X - x2 : 0;
+            int gapY = here.Y < y1 ? y1 - here.Y : here.Y > y2 ? here.Y - y2 : 0;
+            if (gapX <= 2 && gapY <= 2)
+                return true;
+        }
+
+        return false;
+    }
+
     private void FinishNavigation(string status, string reason)
     {
         this.Monitor.Log($"navigation_{status} reason={reason} ticks_remaining={this.navigationTicksRemaining}", LogLevel.Info);
@@ -676,9 +1048,15 @@ public sealed partial class ModEntry : Mod
 
     private static bool IsTileWalkable(GameLocation location, Point tile)
     {
-        Rectangle box = Game1.player.GetBoundingBox();
-        Point playerTile = Game1.player.TilePoint;
-        box.Offset((tile.X - playerTile.X) * Game1.tileSize, (tile.Y - playerTile.Y) * Game1.tileSize);
+        // Offsetting the player's own box made map-edge warps look blocked, because the box kept
+        // the sub-tile position it had wherever the player was standing.
+        Rectangle playerBox = Game1.player.GetBoundingBox();
+        var box = new Rectangle(
+            (tile.X * Game1.tileSize) + (Game1.tileSize / 2) - (playerBox.Width / 2),
+            (tile.Y * Game1.tileSize) + (Game1.tileSize / 2) - (playerBox.Height / 2),
+            playerBox.Width,
+            playerBox.Height
+        );
         return !location.isCollidingPosition(box, Game1.viewport, true, 0, false, Game1.player);
     }
 
@@ -728,47 +1106,111 @@ public sealed partial class ModEntry : Mod
         return null;
     }
 
-    private static (Point tile, bool requiresAction, Point? exitPush)? FindExit(
-        GameLocation location,
-        string targetLocation
-    )
+    private Dictionary<Point, int> GetReachMap(GameLocation location)
     {
-        Point playerTile = Game1.player.TilePoint;
+        Point start = Game1.player.TilePoint;
+        string key = $"{location.NameOrUniqueName}\u001f{start.X},{start.Y}\u001f{location.objects.Count()}"
+            + $"\u001f{location.characters.Count}\u001f{location.terrainFeatures.Count()}";
+        if (this.reachMapCache is not null && this.reachMapCacheKey == key)
+            return this.reachMapCache;
+
+        this.reachMapCache = FloodFillReachable(location, start);
+        this.reachMapCacheKey = key;
+        return this.reachMapCache;
+    }
+
+    private static Dictionary<Point, int> FloodFillReachable(GameLocation location, Point start)
+    {
         int width = location.Map.Layers[0].LayerWidth;
         int height = location.Map.Layers[0].LayerHeight;
-        var warp = location.warps
-            .Where(candidate => candidate.TargetName.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
-            .Select(candidate =>
+        Point[] deltas = { new(0, -1), new(-1, 0), new(0, 1), new(1, 0) };
+        var distances = new Dictionary<Point, int> { [start] = 0 };
+        var queue = new Queue<Point>();
+        queue.Enqueue(start);
+        int expanded = 0;
+        while (queue.Count > 0 && expanded < ReachExpansionLimit)
+        {
+            Point current = queue.Dequeue();
+            expanded++;
+            int next = distances[current] + 1;
+            foreach (Point delta in deltas)
             {
-                var tile = new Point(
-                    Math.Clamp(candidate.X, 0, width - 1),
-                    Math.Clamp(candidate.Y, 0, height - 1)
-                );
-                bool outside = tile.X != candidate.X || tile.Y != candidate.Y;
-                Point? exitPush = outside
-                    ? new Point(Math.Sign(candidate.X - tile.X), Math.Sign(candidate.Y - tile.Y))
-                    : null;
-                return new { tile, exitPush };
-            })
-            .Where(candidate => IsTileWalkable(location, candidate.tile))
-            .OrderBy(candidate => Math.Abs(candidate.tile.X - playerTile.X) + Math.Abs(candidate.tile.Y - playerTile.Y))
-            .FirstOrDefault();
-        if (warp is not null)
-            return (warp.tile, false, warp.exitPush);
+                var neighbor = new Point(current.X + delta.X, current.Y + delta.Y);
+                if (distances.ContainsKey(neighbor)
+                    || neighbor.X < 0 || neighbor.Y < 0 || neighbor.X >= width || neighbor.Y >= height
+                    || !IsTileWalkable(location, neighbor))
+                {
+                    continue;
+                }
+
+                distances[neighbor] = next;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return distances;
+    }
+
+    private bool TryGetReachDistance(Point tile, out int distance)
+    {
+        Dictionary<Point, int> reach = this.GetReachMap(Game1.currentLocation);
+        if (reach.TryGetValue(tile, out distance))
+            return true;
+
+        // Exit tiles often sit in a door frame or past the map edge, so standing beside one counts.
+        int best = int.MaxValue;
+        foreach (Point delta in new[] { new Point(0, -1), new Point(-1, 0), new Point(0, 1), new Point(1, 0) })
+        {
+            if (reach.TryGetValue(new Point(tile.X + delta.X, tile.Y + delta.Y), out int neighbor) && neighbor + 1 < best)
+                best = neighbor + 1;
+        }
+
+        distance = best;
+        return best != int.MaxValue;
+    }
+
+    private List<ExitCandidate> GetExitCandidates(GameLocation location)
+    {
+        string key = $"{location.NameOrUniqueName}\u001f{location.warps.Count}\u001f{location.buildings.Count}";
+        if (this.exitCandidateCache is not null && this.exitCandidateCacheKey == key)
+            return this.exitCandidateCache;
+
+        int width = location.Map.Layers[0].LayerWidth;
+        int height = location.Map.Layers[0].LayerHeight;
+        var candidates = new List<ExitCandidate>();
+
+        foreach (Warp warp in location.warps)
+        {
+            var tile = new Point(Math.Clamp(warp.X, 0, width - 1), Math.Clamp(warp.Y, 0, height - 1));
+            bool outside = tile.X != warp.X || tile.Y != warp.Y;
+            candidates.Add(new ExitCandidate
+            {
+                Target = warp.TargetName,
+                Tile = tile,
+                RequiresAction = false,
+                ExitPush = outside ? new Point(Math.Sign(warp.X - tile.X), Math.Sign(warp.Y - tile.Y)) : null,
+                Kind = "warp"
+            });
+        }
 
         foreach (var building in location.buildings)
         {
             // The main farmhouse keeps its interior as a top-level location, so indoors.Value is
             // null there and only the building's indoors name identifies the door's destination.
             string? indoors = building.indoors.Value?.NameOrUniqueName ?? building.GetIndoorsName();
-            if (indoors is null || !indoors.Equals(targetLocation, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(indoors))
                 continue;
             Point door = building.humanDoor.Value;
-            return (new Point(building.tileX.Value + door.X, building.tileY.Value + door.Y + 1), true, null);
+            candidates.Add(new ExitCandidate
+            {
+                Target = indoors,
+                Tile = new Point(building.tileX.Value + door.X, building.tileY.Value + door.Y + 1),
+                RequiresAction = true,
+                ExitPush = null,
+                Kind = "door"
+            });
         }
 
-        (Point tile, bool requiresAction, Point? exitPush)? best = null;
-        int bestDistance = int.MaxValue;
         for (int y = 0; y < height; y++)
         {
             for (int x = 0; x < width; x++)
@@ -779,24 +1221,61 @@ public sealed partial class ModEntry : Mod
                     if (string.IsNullOrWhiteSpace(action))
                         continue;
                     string[] parts = action.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    bool isWarp = parts.Length >= 4
-                        && (parts[0] is "Warp" or "LockedDoorWarp" or "WarpWomensLocker" or "WarpMensLocker")
-                        && parts[3].Equals(targetLocation, StringComparison.OrdinalIgnoreCase);
-                    if (!isWarp)
-                        continue;
-                    bool requiresAction = kind == "Action";
-                    var tile = new Point(x, requiresAction ? y + 1 : y);
-                    int distance = Math.Abs(tile.X - playerTile.X) + Math.Abs(tile.Y - playerTile.Y);
-                    if (distance < bestDistance)
+                    if (parts.Length < 4
+                        || parts[0] is not ("Warp" or "LockedDoorWarp" or "WarpWomensLocker" or "WarpMensLocker"))
                     {
-                        bestDistance = distance;
-                        best = (tile, requiresAction, null);
+                        continue;
                     }
+                    bool requiresAction = kind == "Action";
+                    candidates.Add(new ExitCandidate
+                    {
+                        Target = parts[3],
+                        Tile = new Point(x, requiresAction ? y + 1 : y),
+                        RequiresAction = requiresAction,
+                        ExitPush = null,
+                        Kind = "action"
+                    });
                 }
             }
         }
 
-        return best;
+        this.exitCandidateCache = candidates;
+        this.exitCandidateCacheKey = key;
+        return candidates;
+    }
+
+    private IReadOnlyList<BridgeExit> CaptureExits(GameLocation location)
+    {
+        var best = new Dictionary<string, BridgeExit>(StringComparer.OrdinalIgnoreCase);
+        foreach (ExitCandidate candidate in this.GetExitCandidates(location))
+        {
+            bool reachable = this.TryGetReachDistance(candidate.Tile, out int distance);
+            var exit = new BridgeExit
+            {
+                Target = candidate.Target,
+                X = candidate.Tile.X,
+                Y = candidate.Tile.Y,
+                Kind = candidate.Kind,
+                Reachable = reachable,
+                Distance = reachable ? distance : null
+            };
+            if (!best.TryGetValue(exit.Target, out BridgeExit? existing)
+                || (exit.Reachable && (!existing.Reachable || exit.Distance < existing.Distance)))
+            {
+                best[exit.Target] = exit;
+            }
+        }
+
+        return best.Values.ToArray();
+    }
+
+    private sealed class ExitCandidate
+    {
+        public string Target { get; init; } = string.Empty;
+        public Point Tile { get; init; }
+        public bool RequiresAction { get; init; }
+        public Point? ExitPush { get; init; }
+        public string Kind { get; init; } = string.Empty;
     }
 
     private BridgeWorldMap GetWorldMap()
@@ -1078,6 +1557,18 @@ public sealed partial class ModEntry : Mod
             return;
         }
 
+        if (this.closeMenuActive)
+        {
+            this.DriveCloseMenu();
+            return;
+        }
+
+        if (this.watchDialogueActive)
+        {
+            this.DriveWatchDialogue();
+            return;
+        }
+
         if (this.heldButtons.Length == 0 || this.ticksRemaining <= 0)
         {
             if (this.stateDelayTicks > 0 && --this.stateDelayTicks == 0)
@@ -1324,6 +1815,30 @@ public sealed partial class ModEntry : Mod
                 this.StartClick(request.X, request.Y, clickButton);
                 return;
 
+            case "talk_to_npc" when Context.IsWorldReady && IsPlayerFreeStrict() && !Game1.eventUp
+                && Game1.activeClickableMenu is null:
+                if (Game1.player.ActiveObject is not null)
+                {
+                    this.CompletePipeRequest("rejected", "select_tool_or_empty_slot_before_talking");
+                    return;
+                }
+                NPC? target = Game1.currentLocation.characters.FirstOrDefault(npc => npc.Name == request.Value && npc.IsVillager);
+                if (target is null || Math.Abs(target.TilePoint.X - Game1.player.TilePoint.X)
+                    + Math.Abs(target.TilePoint.Y - Game1.player.TilePoint.Y) > 1)
+                {
+                    this.CompletePipeRequest("rejected", "target_unavailable_or_moved");
+                    return;
+                }
+                if (Game1.player.hasTalkedToFriendToday(target.Name))
+                {
+                    this.CompletePipeRequest("completed", "already_talked");
+                    return;
+                }
+                int npcX = (int)((target.Position.X + Game1.tileSize / 2 - Game1.viewport.X) * Game1.options.zoomLevel);
+                int npcY = (int)((target.Position.Y + Game1.tileSize / 2 - Game1.viewport.Y) * Game1.options.zoomLevel);
+                this.StartClick(npcX, npcY, SButton.MouseRight);
+                return;
+
             case "drag" when request.Ticks is >= 1 and <= 120
                 && this.IsValidScreenPoint(request.StartX, request.StartY)
                 && this.IsValidScreenPoint(request.EndX, request.EndY)
@@ -1366,6 +1881,31 @@ public sealed partial class ModEntry : Mod
 
             case "navigate" when request.Ticks is >= 1 and <= 600:
                 this.StartNavigation(new Point(request.X, request.Y), request.Ticks, targetLocation: null, requiresAction: false);
+                return;
+
+            case "close_menu":
+                this.StartCloseMenu();
+                return;
+
+            case "watch_dialogue" when request.Ticks is >= 1 and <= 3600
+                && request.PageTicks is >= 1 and <= 600:
+                this.StartWatchDialogue(request.Ticks, request.PageTicks);
+                return;
+
+            case "inventory_move" when Context.IsWorldReady:
+                this.MoveInventory(request.FromSlot, request.ToSlot);
+                return;
+
+            case "inventory_trash" when Context.IsWorldReady:
+                this.TrashInventory(request.Slot);
+                return;
+
+            case "inventory_drop":
+                this.DropInventory(request.Slot, request.Count);
+                return;
+
+            case "ship_item":
+                this.ShipItem(request.Slot, request.Count);
                 return;
 
             case "go_to_location" when request.Ticks is >= 1 and <= 600 && !string.IsNullOrWhiteSpace(request.Location):
@@ -1544,6 +2084,7 @@ public sealed partial class ModEntry : Mod
                 ViewportWidth = Game1.graphics.GraphicsDevice.Viewport.Width,
                 ViewportHeight = Game1.graphics.GraphicsDevice.Viewport.Height,
                 Menu = menu,
+                MenuReadyToClose = Game1.activeClickableMenu?.readyToClose(),
                 CursorScreenX = (int)cursor.ScreenPixels.X,
                 CursorScreenY = (int)cursor.ScreenPixels.Y,
                 CursorWorldX = (int)cursor.AbsolutePixels.X,
@@ -1707,6 +2248,8 @@ public sealed partial class ModEntry : Mod
             .ToArray();
 
         IReadOnlyList<BridgeNpc> npcsNearby = location.characters
+            .Concat(location.currentEvent?.actors ?? new List<NPC>())
+            .DistinctBy(npc => npc.Name)
             .Where(npc => IsNearby(npc.TilePoint.X, npc.TilePoint.Y))
             .Select(npc => new BridgeNpc
             {
@@ -1787,6 +2330,7 @@ public sealed partial class ModEntry : Mod
             .ToArray();
 
         WateringCan? wateringCan = Game1.player.Items.OfType<WateringCan>().FirstOrDefault();
+        Point mailbox = Game1.player.getMailboxPosition();
         BridgeTile? bedTile = null;
         if (location is FarmHouse farmHouse)
         {
@@ -1850,7 +2394,13 @@ public sealed partial class ModEntry : Mod
             InventoryFreeSlots = Math.Max(0, Game1.player.MaxItems - Game1.player.Items.Count(item => item is not null)),
             LetterText = Game1.activeClickableMenu is LetterViewerMenu letter ? letter.mailMessage.ElementAtOrDefault(letter.page) : null,
             MenuEntries = this.CaptureLifeMenu(),
-            MailboxTile = location.IsFarm ? new BridgeTile { X = Game1.player.getMailboxPosition().X, Y = Game1.player.getMailboxPosition().Y } : null,
+            MailboxTile = location is Farm ? new BridgeTile
+            {
+                X = mailbox.X,
+                Y = mailbox.Y,
+                ScreenX = (int)(((mailbox.X * Game1.tileSize + Game1.tileSize / 2) - Game1.viewport.X) * zoom),
+                ScreenY = (int)(((mailbox.Y * Game1.tileSize + Game1.tileSize / 2) - Game1.viewport.Y) * zoom)
+            } : null,
             HudMessages = Game1.hudMessages.Select(message => message.message).Where(message => !string.IsNullOrWhiteSpace(message)).Take(3).ToArray(),
             CursorScreenX = (int)cursor.ScreenPixels.X,
             CursorScreenY = (int)cursor.ScreenPixels.Y,
@@ -1861,6 +2411,12 @@ public sealed partial class ModEntry : Mod
             CursorGrabX = (int)cursor.GrabTile.X,
             CursorGrabY = (int)cursor.GrabTile.Y,
             EventUp = Game1.eventUp,
+            EventId = location.currentEvent is null ? null
+                : $"{Game1.year}:{Game1.currentSeason}:{Game1.dayOfMonth}:{location.NameOrUniqueName}:{location.currentEvent.id}",
+            EventPhase = location.currentEvent?.CurrentCommand.ToString(),
+            Festival = location.currentEvent?.isFestival == true,
+            EventCanMove = location.currentEvent?.isFestival == true && Game1.player.CanMove
+                && !Game1.freezeControls && Game1.activeClickableMenu is null,
             Minigame = Game1.currentMinigame?.GetType().Name ?? "none",
             CursorItem = Game1.player.CursorSlotItem?.DisplayName,
             DialogueText = Game1.activeClickableMenu is DialogueBox activeDialogue ? activeDialogue.getCurrentString() : null,
@@ -1873,14 +2429,17 @@ public sealed partial class ModEntry : Mod
             WateringCanMax = wateringCan?.waterCanMax,
             Inventory = inventory,
             InventoryCounts = inventoryCounts,
-            Warps = warps,
+            Warps = Game1.eventUp ? Array.Empty<BridgeWarp>() : warps,
+            Exits = Game1.eventUp ? Array.Empty<BridgeExit>() : this.CaptureExits(location),
+            MenuReadyToClose = Game1.activeClickableMenu?.readyToClose(),
+            ShippingBinCount = CaptureShippingBinCount(),
             NearbyObjects = nearbyObjects,
             CropsNearby = cropsNearby,
             TillableNearby = tillableNearby,
             BedTile = bedTile,
             NpcsNearby = npcsNearby,
             ShopItems = shopItems,
-            NearbyActions = nearbyActions,
+            NearbyActions = Game1.eventUp ? Array.Empty<BridgeMapAction>() : nearbyActions,
             NavigationOriginX = navigationOriginX,
             NavigationOriginY = navigationOriginY,
             NavigationRows = navigationRows,
@@ -1906,12 +2465,18 @@ public sealed partial class ModEntry : Mod
                 FarmEventActive = Game1.farmEvent is not null,
                 LocationEventActive = Game1.currentLocation.currentEvent is not null,
                 IsActive = Game1.game1.IsActive,
-                ForegroundIsGame = GetForegroundWindow() == Game1.game1.Window.Handle,
+                ForegroundIsGame = GetForegroundWindow() == GetNativeGameWindow(),
                 ActiveMenu = Game1.activeClickableMenu?.GetType().Name,
                 NewDaySyncActive = CaptureNewDaySyncActive(),
                 PressedKeys = Game1.GetKeyboardState().GetPressedKeys().Select(key => key.ToString()).ToArray()
             }
         };
+    }
+
+    private static int CaptureShippingBinCount()
+    {
+        Farm farm = Game1.getFarm();
+        return farm is null ? 0 : farm.getShippingBin(Game1.player).Count;
     }
 
     private BridgeFarmLayout CaptureFarmLayout()
@@ -2133,6 +2698,8 @@ public sealed partial class ModEntry : Mod
             || this.scrollTicksRemaining > 0
             || this.idleTicksRemaining > 0
             || this.navigationPath is not null
+            || this.closeMenuActive
+            || this.watchDialogueActive
             || this.focusPending;
     }
 
@@ -2169,9 +2736,32 @@ public sealed partial class ModEntry : Mod
         this.delayedStatus = status;
     }
 
+    private static IntPtr GetNativeGameWindow()
+    {
+        // DesktopGL exposes an SDL_Window pointer, not the HWND required by user32.
+        if (IsWindow(nativeGameWindow))
+            return nativeGameWindow;
+
+        EnumWindows((handle, _) =>
+        {
+            GetWindowThreadProcessId(handle, out uint processId);
+            if (processId != Environment.ProcessId)
+                return true;
+            var title = new StringBuilder(256);
+            GetWindowText(handle, title, title.Capacity);
+            if (!title.ToString().StartsWith("Stardew Valley", StringComparison.Ordinal))
+                return true;
+            nativeGameWindow = handle;
+            return false;
+        }, IntPtr.Zero);
+        if (!IsWindow(nativeGameWindow))
+            throw new InvalidOperationException("The native Stardew Valley window is unavailable.");
+        return nativeGameWindow;
+    }
+
     private static void ActivateGameWindow()
     {
-        IntPtr handle = Game1.game1.Window.Handle;
+        IntPtr handle = GetNativeGameWindow();
         IntPtr foregroundHandle = GetForegroundWindow();
         uint foregroundThread = GetWindowThreadProcessId(foregroundHandle, out _);
         uint gameWindowThread = GetWindowThreadProcessId(handle, out _);
@@ -2226,7 +2816,8 @@ public sealed partial class ModEntry : Mod
     private static void SetPhysicalCursorPosition(int clientX, int clientY)
     {
         var point = new NativePoint { X = clientX, Y = clientY };
-        ClientToScreen(Game1.game1.Window.Handle, ref point);
+        if (!ClientToScreen(GetNativeGameWindow(), ref point))
+            throw new InvalidOperationException("Could not translate game cursor coordinates to the desktop.");
         SetCursorPos(point.X, point.Y);
     }
 
@@ -2249,6 +2840,17 @@ public sealed partial class ModEntry : Mod
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    private delegate bool EnumWindowCallback(IntPtr handle, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr handle);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr handle, StringBuilder text, int count);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);

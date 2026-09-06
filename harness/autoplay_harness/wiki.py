@@ -14,7 +14,7 @@ class StardewWiki:
     def __init__(self) -> None:
         self.cache: dict[str, list[dict[str, Any]]] = {}
 
-    def search(self, query: str, limit: int = 3) -> list[dict[str, Any]]:
+    def search(self, query: str, limit: int = 1) -> list[dict[str, Any]]:
         cache_key = query.strip().lower()
         if cache_key in self.cache:
             return self.cache[cache_key]
@@ -22,7 +22,7 @@ class StardewWiki:
         if not pages:
             stop_words = {"a", "an", "and", "for", "how", "in", "of", "the", "to", "where"}
             terms = [term for term in re.findall(r"[A-Za-z0-9']+", query) if term.lower() not in stop_words]
-            for term in sorted(terms, key=len, reverse=True):
+            for term in sorted(terms, key=len, reverse=True)[:1]:
                 pages = self._search_pages(term, limit)
                 if pages:
                     break
@@ -45,8 +45,8 @@ class StardewWiki:
             f"{self.API_URL}?{parameters}",
             headers={"User-Agent": "Autoplay/0.1 local-game-agent"},
         )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.load(response)
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read(1_000_000))
         return payload.get("query", {}).get("search", [])
 
     def _read_page(self, title: str) -> dict[str, Any]:
@@ -64,11 +64,11 @@ class StardewWiki:
             f"{self.API_URL}?{parameters}",
             headers={"User-Agent": "Autoplay/0.1 local-game-agent"},
         )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.load(response)
+        with urllib.request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read(1_000_000))
         extractor = _TextExtractor()
         extractor.feed(payload.get("parse", {}).get("text", ""))
-        extract = re.sub(r"\s+", " ", " ".join(extractor.parts)).strip()[:1600]
+        extract = re.sub(r"\s+", " ", " ".join(extractor.parts)).strip()[:4000]
         return {
             "title": title,
             "url": "https://stardewvalleywiki.com/" + urllib.parse.quote(title.replace(" ", "_")),

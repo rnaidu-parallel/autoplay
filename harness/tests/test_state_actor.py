@@ -48,7 +48,7 @@ class StateActorTests(unittest.TestCase):
                 parameters = tool["function"]["parameters"]
                 self.assertIn("say", parameters["required"])
                 self.assertEqual("string", parameters["properties"]["say"]["type"])
-                self.assertEqual(140, parameters["properties"]["say"]["maxLength"])
+                self.assertEqual(200, parameters["properties"]["say"]["maxLength"])
 
     @patch("autoplay_harness.runner.ScreenCapture")
     def test_inspection_spends_one_decision_then_uses_fresh_visual_without_game_input(self, _capture):

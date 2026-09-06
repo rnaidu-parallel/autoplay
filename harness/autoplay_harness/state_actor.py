@@ -69,25 +69,28 @@ STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
     "change_objective", "record_opportunity", "search_history",
-    "check_journal", "check_mail",
+    "check_mail", "close_menu", "inventory_move", "inventory_trash", "ship_item",
     "pursue_interest", "consider_interest",
-    "review_quests", "respond_to_notice", "read_life_text", "open_menu_tab",
+    "read_life_text", "open_menu_tab",
 }] + [function_tool(
     "inspect_scene",
     "Request a fresh screenshot and the full control set for the next decision.",
     {"say": {
         "type": "string",
-        "maxLength": 140,
-        "description": "One short public first-person sentence as the farmer: what you are doing or noticing and why now; no private deliberation, tool names, coordinates, or brackets.",
+        "maxLength": 200,
+        "description": "What Neon is thinking right now, in her own voice, for the people watching: one or two short sentences, present tense. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
     }},
     ["say"],
 )]
 
 
 def can_use_state_actor(state: dict[str, Any]) -> bool:
+    """Compact, image-free decisions only for farm chores; anywhere else the character needs eyes,
+    and asking for them with inspect_scene cost every other decision in live play."""
     return (state.get("worldReady") is True and state.get("playerFree") is True
             and state.get("canMove") is True and state.get("menu") == "none"
             and state.get("eventUp") is False and state.get("minigame") == "none"
+            and state.get("location") in {"Farm", "FarmHouse"}
             and not state.get("npcsNearby") and not state.get("dialogueResponses"))
 
 
@@ -100,7 +103,7 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
               "wateringCanWater", "wateringCanMax", "bedTile",
               "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed",
               "mailCount", "questStates", "questRevision", "mailboxTile", "hudMessages", "npcsNearby",
-              "inventoryCapacity", "inventoryFreeSlots",
+              "inventoryCapacity", "inventoryFreeSlots", "cursorItem", "menuReadyToClose", "shippingBinCount", "exits",
               "harnessStalledDecisions", "harnessBlockedDirectionsHere")
     result = {key: state[key] for key in fields if key in state}
     for key, columns in (

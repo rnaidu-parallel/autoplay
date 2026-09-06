@@ -47,7 +47,8 @@ def summarize(events_path: Path) -> dict[str, Any]:
 
     results = [event for event in events if event["type"] == "tool_result"]
     statuses = Counter((event.get("result") or {}).get("status") for event in results)
-    wasted = sum(count for status, count in statuses.items() if status in {"rejected", "blocked", "timeout"})
+    wasted = sum(count for status, count in statuses.items()
+                 if status in {"rejected", "blocked", "timeout", "review_requested", "visual_review_requested"})
 
     usage_events = [event for event in events if event["type"] in {"actor_decision", "director_decision", "model_error"}]
     attempts = [attempt for event in usage_events for attempt in event.get("attempts", [])]

@@ -39,6 +39,26 @@ class RunnerTests(unittest.TestCase):
     @patch("autoplay_harness.runner.time.sleep")
     @patch("autoplay_harness.runner.ScreenCapture")
     @patch("autoplay_harness.runner.GameSupervisor")
+    def test_final_stall_hands_off_without_killing_or_waiting_for_the_game(self, supervisor, _capture, _sleep):
+        supervisor.return_value.connect_bridge.return_value.request.return_value = {"status": "completed"}
+        with tempfile.TemporaryDirectory() as directory:
+            harness = AutoplayHarness(
+                Path(directory), "Gather wood", "inventory.Wood >= 50",
+                OpenRouterClient.QWEN_MODEL, "secret", continuous=True, isolated_state=True,
+            )
+            harness._observe = Mock(return_value=({}, self.frame))
+            harness._ensure_world_loaded = Mock()
+            harness._plan_day_if_needed = Mock()
+            harness._actor_step = lambda: setattr(harness, "stop_reason", "stalled")
+            self.assertEqual("stalled", harness.run())
+            self.assertEqual("needs_attention", harness.operator_mode)
+            self.assertTrue(harness.keep_game_open)
+            supervisor.return_value.stop_started_game.assert_not_called()
+            supervisor.return_value.wait_for_started_game.assert_not_called()
+
+    @patch("autoplay_harness.runner.time.sleep")
+    @patch("autoplay_harness.runner.ScreenCapture")
+    @patch("autoplay_harness.runner.GameSupervisor")
     def test_finally_continues_when_cleanup_steps_raise(self, supervisor, capture, _sleep):
         bridge = supervisor.return_value.connect_bridge.return_value
         bridge.request.return_value = {"status": "completed"}
@@ -464,22 +484,11 @@ class RunnerTests(unittest.TestCase):
                 {"frame_id": "frame-1", "x": 0.5, "y": 0.25, "button": "right"},
                 ("click", {"x": 960, "y": 270, "button": "right"}),
             ),
-            (
-                "drag",
-                {
-                    "frame_id": "frame-1",
-                    "start_x": 0,
-                    "start_y": 0,
-                    "end_x": 1,
-                    "end_y": 1,
-                    "button": "left",
-                    "ticks": 9,
-                },
-                (
-                    "drag",
-                    {"startX": 0, "startY": 0, "endX": 1919, "endY": 1079, "button": "left", "ticks": 9},
-                ),
-            ),
+            ("close_menu", {}, ("close_menu", {})),
+            ("inventory_move", {"from_slot": 7, "to_slot": 2}, ("inventory_move", {"fromSlot": 7, "toSlot": 2})),
+            ("inventory_trash", {"slot": 9}, ("inventory_trash", {"slot": 9})),
+            ("inventory_drop", {"slot": 9, "count": 0}, ("inventory_drop", {"slot": 9, "count": 0})),
+            ("ship_item", {"slot": 11, "count": 5}, ("ship_item", {"slot": 11, "count": 5})),
             ("scroll", {"direction": "up", "steps": 2}, ("scroll", {"direction": "up", "steps": 2})),
             (
                 "wait",
@@ -577,13 +586,14 @@ class RunnerTests(unittest.TestCase):
             "menu": "none",
         }
         harness.last_progress_fingerprint = harness._stall_fingerprint(state)
+        harness.continuous = False  # bounded smoke runs still stop; live play changes scene instead
 
         for _ in range(8):
             harness._update_stall_watchdog("navigate_to", state)
 
         self.assertEqual(8, harness.stalled_decisions)
         self.assertTrue(harness.stall_review_requested)
-        self.assertIn("The last 8 decisions changed nothing", harness.director_feedback)
+        self.assertIn("The last 8 decisions made no lasting progress", harness.director_feedback)
         harness.telemetry.record.assert_any_call(
             "stall_detected", {"count": 8, "tools": ["navigate_to"] * 3}
         )
@@ -1153,20 +1163,91 @@ class RunnerTests(unittest.TestCase):
 
 
 class LongRunIntegrationTests(unittest.TestCase):
-    def test_morning_mail_is_required_and_urgent_sleep_remains_available(self):
+    def test_mail_quests_and_notices_inform_but_never_restrict_the_tool_list(self):
         harness = self.harness
+        harness.bridge = _Bridge()
+        state = {**self.state, "location": "Farm", "mailCount": 1, "questRevision": "new",
+                 "quests": [{"id": "9", "title": "Introductions"}],
+                 "npcsNearby": [{"id": "Lewis", "name": "Lewis", "kind": "Villager", "x": 40, "y": 40, "talkedToday": False}]}
+        harness.notebook.observe_life(state)
+        harness._observe = Mock(return_value=(state, self.frame))
+        harness._decide = Mock(side_effect=RuntimeError("capture tools"))
+        with self.assertRaisesRegex(RuntimeError, "capture tools"):
+            harness._actor_step()
+        tools = {t["function"]["name"] for t in harness._decide.call_args.args[3]}
+        self.assertTrue({"travel_to", "water_crops", "check_mail", "clear_debris"} <= tools)
+        self.assertFalse({"review_quests", "check_journal", "respond_to_notice", "drag"} & tools)
+        context = harness.notebook.life_context(state)
+        self.assertTrue(context["unreadMail"])
+        self.assertIn("unread letter", context["attention"][0])
+        self.assertEqual("Introductions", context["quests"][0]["title"])
+
+    def test_long_stall_changes_the_scene_instead_of_ending_live_play(self):
+        harness = self.harness
+        harness.attach = True
+        harness.bridge = _Bridge()
+        harness._observe = Mock(return_value=(self.state, self.frame))
+        harness._decide = Mock(return_value=(ToolDecision("inspect_scene", {}, {}, None), 1))
+        for _ in range(24):
+            if harness.ledger.snapshot()["active"] is None:
+                harness.ledger.pursue_interest("A differently worded plan", "Still thinking")
+            harness._actor_step()
+        self.assertIsNone(harness.stop_reason)
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+        self.assertEqual("blocked", harness.ledger.data["history"][-1]["status"])
+        self.assertIn("clearly different activity", harness.director_feedback)
+        self.assertTrue(harness.stall_review_requested)
+
+    def test_repeating_routes_and_menu_cycles_abandon_the_intention_at_the_limit(self):
+        harness = self.harness
+        harness.attach = True
+        harness.bridge = _Bridge()
+        for index in range(32):
+            state = {**self.state, "tileX": index % 2, "menu": "none" if index % 2 else "GameMenu",
+                     "time": 800 + index * 10, "stamina": 100 - index}
+            harness._update_stall_watchdog("navigate_to", state)
+            if harness.ledger.snapshot()["active"] is None:
+                break
+        self.assertIsNone(harness.stop_reason)
+        self.assertEqual(0, harness.stalled_decisions)
+        self.assertEqual("blocked", harness.ledger.data["history"][-1]["status"])
+
+    def test_late_stall_sends_the_farmer_home(self):
+        harness = self.harness
+        night = {**self.state, "time": 2100, "location": "Town"}
+        harness._change_scene(night, "Nothing new for a while.")
+        self.assertTrue(harness._bedtime_due(night))
+        self.assertEqual("Gather wood", harness.ledger.snapshot()["active"]["goal"])
+        self.assertFalse(harness._bedtime_due({**night, "day": 10}))
+
+    def test_stamina_loss_and_animation_flags_do_not_hide_failed_work(self):
+        harness = self.harness
+        state = dict(self.state)
+        for index in range(3):
+            after = {**state, "stamina": state["stamina"] - 2, "canMove": index % 2 == 0}
+            harness._track_action_retries(ToolDecision("clear_debris", {"targets": [{"x": 1, "y": 2}]}, {}, None),
+                                         {"status": "blocked", "reason": "object_remains"}, state, after)
+            state = after
+        self.assertIsNone(harness.ledger.snapshot()["active"])
+
+    def test_late_night_offers_only_bed_and_one_am_needs_no_decision(self):
+        harness = self.harness
+        harness.bridge = _Bridge()
         harness._decide = Mock(side_effect=RuntimeError("request captured"))
-        for location, required in (("FarmHouse", "go_to_location"), ("Farm", "check_mail")):
-            for hour in (600, 2300):
-                state = {**self.state, "location": location, "time": hour, "mailCount": 1}
-                harness.notebook.observe_life(state)
-                harness._observe = Mock(return_value=(state, self.frame))
-                with self.assertRaisesRegex(RuntimeError, "request captured"):
-                    harness._actor_step()
-                offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
-                self.assertIn(required, offered)
-                self.assertNotIn('water_crops', offered)
-                self.assertEqual(hour == 2300, 'go_home_and_sleep' in offered)
+        for hour, offered_only_bed in ((600, False), (2330, True)):
+            state = {**self.state, "location": "Town", "time": hour}
+            harness._observe = Mock(return_value=(state, self.frame))
+            with self.assertRaisesRegex(RuntimeError, "request captured"):
+                harness._actor_step()
+            offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
+            self.assertEqual(offered_only_bed, "travel_to" not in offered)
+            self.assertIn("go_home_and_sleep", offered)
+        harness._decide = Mock(side_effect=RuntimeError("no decision expected"))
+        harness._execute_actor_tool = Mock(return_value={"status": "completed", "state": {**self.state, "location": "FarmHouse"}})
+        harness._observe = Mock(return_value=({**self.state, "location": "Town", "time": 2510}, self.frame))
+        harness._actor_step()
+        self.assertEqual("go_home_and_sleep", harness._execute_actor_tool.call_args.args[0].name)
+        harness._decide.assert_not_called()
 
     def test_quest_contents_change_dynamic_context_without_changing_system_prompt(self):
         harness = self.harness
@@ -1184,19 +1265,43 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.assertEqual(['Meet 5 of 28 villagers'], json.loads(first.args[1])['life']['quests'][0]['objectives'])
         self.assertEqual(['Meet 6 of 28 villagers'], json.loads(second.args[1])['life']['quests'][0]['objectives'])
 
-    def test_changed_quests_open_journal_before_selecting_intention(self):
+    def test_dialogue_and_cutscenes_are_watched_locally_before_one_decision(self):
         harness = self.harness
-        state = {**self.state, 'questRevision': 'new', 'quests': [{'id': '9', 'title': 'Introductions', 'objectives': ['Meet villagers']}]}
-        harness.notebook.observe_life(state)
-        harness._observe = Mock(return_value=(state, self.frame))
-        harness._decide = Mock(side_effect=RuntimeError('request captured'))
-        for required in ('check_journal', 'review_quests'):
-            with self.assertRaisesRegex(RuntimeError, 'request captured'):
-                harness._actor_step()
-            offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
-            self.assertIn(required, offered)
-            self.assertNotIn('travel_to', offered)
-            harness.notebook.observe_life({**state, 'menu': 'QuestLog'})
+        harness.bridge = _Bridge()
+        talking = {**self.state, "menu": "DialogueBox:question=False:selected=-1:responses=0",
+                   "dialogueText": "Lewis: Welcome to Pelican Town!", "playerFree": False, "canMove": False}
+        after = {**self.state}
+        harness._observe = Mock(side_effect=[(talking, self.frame), (after, self.frame)])
+        harness._decide = Mock(side_effect=RuntimeError("one decision"))
+        with self.assertRaisesRegex(RuntimeError, "one decision"):
+            harness._actor_step()
+        self.assertEqual(("watch_dialogue", {"ticks": 2400, "pageTicks": 90}), harness.bridge.calls[-1])
+        self.assertEqual(2, harness._observe.call_count)
+        # A question needs the farmer, so it is not watched through.
+        question = {**talking, "dialogueResponses": [{"index": 0, "text": "Yes"}]}
+        self.assertFalse(harness._scene_needs_watching(question))
+        cutscene = {**self.state, "eventUp": True, "eventCanMove": False}
+        self.assertTrue(harness._scene_needs_watching(cutscene))
+        self.assertFalse(harness._scene_needs_watching({**cutscene, "eventCanMove": True}))
+
+    def test_a_villager_within_reach_is_greeted_without_a_decision(self):
+        harness = self.harness
+        bridge = Mock()
+        near = {**self.state, "tileX": 3, "tileY": 1, "navigationRows": ["......."] * 7, "navigationOriginX": 0,
+                "navigationOriginY": 0, "inventory": [],
+                "npcsNearby": [{"id": "Caroline", "name": "Caroline", "kind": "Villager", "x": 5, "y": 1, "talkedToday": False}]}
+        adjacent = {**near, "tileX": 4}
+        dialogue = {**adjacent, "menu": "DialogueBox"}
+        bridge.observe.side_effect = [{"status": "completed", "state": s} for s in (near, adjacent, dialogue, dialogue)]
+        bridge.request.side_effect = [{"status": "completed", "state": adjacent}, {"status": "completed", "state": dialogue},
+                                      {"status": "completed", "reason": "dialogue_finished", "state": self.state}]
+        harness.bridge = bridge
+        self.assertTrue(harness._greet_in_passing(near))
+        self.assertEqual(["navigate", "talk_to_npc", "watch_dialogue"], [c.args[0] for c in bridge.request.call_args_list])
+        # Not again for the same person until a while has passed, and never for someone already greeted today.
+        self.assertFalse(harness._greet_in_passing(near))
+        self.assertFalse(harness._greet_in_passing({**near, "npcsNearby": [{**near["npcsNearby"][0], "id": "Pierre", "talkedToday": True}]}))
+        self.assertFalse(harness._greet_in_passing({**near, "time": 2200}))
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -1262,13 +1367,17 @@ class LongRunIntegrationTests(unittest.TestCase):
         harness = self.harness
         arguments = {"goal": "A new idea", "success_condition": "location is Town", "milestone": "Try it", "reason": "Curiosity"}
         for patch_arguments in ({}, {"success_condition": "friendship >= 10"},
-                                {"success_condition": "inventory.Wood >= 50"},
-                                {"success_condition": "location is Mountain", "agenda_id": "missing"}):
+                                {"success_condition": "inventory.Wood >= 50"}):
             with self.subTest(patch_arguments=patch_arguments):
                 result = harness._change_actor_objective({**arguments, **patch_arguments}, self.state)
                 self.assertEqual("rejected", result["status"])
                 self.assertEqual("Gather wood", harness.ledger.snapshot()["active"]["goal"])
                 self.assertEqual([], harness.ledger.data["history"])
+        # A misremembered agenda id is not worth a wasted decision: it becomes a new pursuit.
+        result = harness._change_actor_objective({**arguments, "success_condition": "location is Mountain", "agenda_id": "missing"}, self.state)
+        self.assertEqual("completed", result["status"])
+        self.assertIsNone(harness.ledger.snapshot()["active"].get("agenda_id"))
+        self.assertEqual("interrupted", harness.ledger.data["history"][-1]["status"])
 
     def test_self_chosen_goal_retry_deferral_cannot_be_bypassed_without_an_agenda_item(self):
         harness = self.harness
@@ -1528,7 +1637,9 @@ class LongRunIntegrationTests(unittest.TestCase):
         for _ in range(3):
             harness._track_action_retries(ToolDecision("travel_to", {"destination": "FarmHouse"}, {}, None),
                                          {"status": "blocked", "reason": "no_walkable_path"}, night, night)
-        self.assertEqual("home_route_blocked", harness.stop_reason)
+        # Live play never ends on a blocked route home: the attempt counters reset so a reroute is not a "repeat".
+        self.assertIsNone(harness.stop_reason)
+        self.assertEqual({}, harness.failed_targets)
         self.assertIsNotNone(harness.ledger.snapshot()["active"])
         self.assertEqual("active", harness.notebook.remaining(9)[0]["status"])
 
@@ -1554,7 +1665,7 @@ class LongRunIntegrationTests(unittest.TestCase):
             harness._track_action_retries(ToolDecision("idle", {}, {}, None), {"status": "completed"}, self.state, self.state)
             harness._track_action_retries(ToolDecision("clear_debris", {"targets": [{"x": 1, "y": 2}]}, {}, None),
                                           {"status": "blocked", "reason": "action_budget_reached"},
-                                          self.state, {**self.state, "stamina": 90})
+                                          self.state, {**self.state, "stamina": 90, "inventoryCounts": {"Wood": 2}})
         self.assertIsNotNone(harness.ledger.snapshot()["active"])
         self.assertEqual(0, harness.retry_no_progress)
         self.assertEqual({}, harness.failed_targets)

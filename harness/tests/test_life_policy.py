@@ -49,54 +49,20 @@ class LifePolicyTests(unittest.TestCase):
         loaded.observe_life({**STATE, "notices": [notice]})
         self.assertFalse(any(n["text"] == text for n in life.pending(loaded.data["life"])))
 
-    def test_every_morning_mail_and_new_letter_prevent_departure(self):
+    def test_mail_is_a_fact_in_context_and_never_a_gate(self):
         self.assertFalse(life.mail_due(self.life, STATE))
         morning = {**STATE, "day": 25, "location": "FarmHouse", "mailCount": 1, "time": 600}
         self.assertTrue(life.mail_due(self.life, morning))
-        self.assertIn("mail", life.guard(self.life, "travel_to", {"destination": "Town"}, morning))
+        self.assertIsNone(life.guard(self.life, "travel_to", {"destination": "Town"}, morning))
         farm = {**morning, "location": "Farm"}
-        self.assertIsNone(life.guard(self.life, "check_mail", {}, farm))
-        self.assertIn("mail", life.guard(self.life, "water_crops", {}, farm))
+        self.assertIsNone(life.guard(self.life, "water_crops", {}, farm))
+        self.assertIsNone(life.guard(self.life, "go_home_and_sleep", {}, farm))
         self.notebook.observe_life({**farm, "mailCount": 0})
         self.assertFalse(life.mail_due(self.life, {**farm, "mailCount": 0}))
         self.assertTrue(life.mail_due(self.life, farm))
-        self.assertIsNone(life.guard(self.life, "travel_to", {"destination": "FarmHouse"}, farm, urgent=True))
-
-    def test_blocked_compulsory_chore_releases_every_gate_until_the_next_day(self):
-        farm = {**STATE, "day": 25, "location": "Farm", "mailCount": 1, "time": 630}
-        self.assertTrue(life.mail_due(self.life, farm))
-        self.assertTrue(life.quest_review_due(self.life, farm))
-        self.assertIn("mail", life.guard(self.life, "go_home_and_sleep", {}, farm))
-
-        life.pause_gates(self.life, farm)
-
-        self.assertFalse(life.mail_due(self.life, farm))
-        self.assertFalse(life.quest_review_due(self.life, farm))
-        self.assertIsNone(life.guard(self.life, "go_home_and_sleep", {}, farm))
-        # Tomorrow the letter may open, so the compulsory chore returns on its own.
-        self.assertTrue(life.mail_due(self.life, {**farm, "day": 26}))
-
-    def test_mailbox_the_game_refuses_stops_owning_the_tool_list(self):
-        harness = self.harness
-        harness.continuous = True
-        harness.failed_targets = {}
-        harness.retry_no_progress = 0
-        harness.retry_objective_id = None
-        harness.stalled_decisions = 0
-        harness.stall_review_requested = False
-        harness.director_feedback = None
-        harness.last_action_fingerprint = None
-        farm = {**STATE, "day": 25, "location": "Farm", "mailCount": 1, "time": 630}
-        blocked = {"status": "blocked", "reason": "letter_did_not_open", "state": farm}
-        decision = ToolDecision("check_mail", {}, {}, None)
-
-        self.assertTrue(life.mail_due(self.life, farm))
-        for _ in range(3):
-            harness._track_action_retries(decision, blocked, farm, farm)
-
-        self.assertFalse(life.mail_due(self.life, farm))
-        harness.telemetry.record.assert_any_call(
-            "gates_paused", {"tool": "check_mail", "evidence": ANY})
+        self.assertTrue(life.context(self.life, farm)["unreadMail"])
+        # The inventory guard still protects against pointless repeated pickups.
+        self.assertIn("Inventory is full", life.guard(self.life, "clear_debris", {}, {**STATE, "mailCount": 1}))
 
     def test_full_inventory_parsnip_attempt_blocks_but_storage_remains_available(self):
         state = {**STATE, "hudMessages": ["Inventory Full"],
@@ -130,41 +96,6 @@ class LifePolicyTests(unittest.TestCase):
         self.notebook.observe_life({**STATE, "inventoryFreeSlots": 1})
         self.assertEqual(rod["id"], life.pending(self.life)[0]["id"])
 
-    def test_quest_review_replaces_vague_goal_and_accounts_for_other_missions(self):
-        args = {"quest_id":"100", "next_step":"Search south of Marnie's ranch", "reason":"A feasible request from Robin",
-                "deferred":[{"quest_id":"101","reason":"No cauliflower yet","revisit_when":"inventory.Cauliflower > 0"}]}
-        state = {**STATE, "inventoryCounts": {"Bamboo Pole": 1}}
-        bad = self.harness._execute_life_tool("review_quests", {**args, "deferred":[]}, state)
-        self.assertEqual("rejected", bad["status"])
-        self.assertIn("has not been opened", bad["reason"])
-        self.assertIsNone(self.life.get("quest_reviewed_revision"))
-        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": state["quests"]})
-        result = self.harness._execute_life_tool("review_quests", args, state)
-        self.assertEqual("recorded", result["status"])
-        active = self.harness.ledger.snapshot()["active"]
-        self.assertIn("Robin's Lost Axe", active["goal"])
-        self.assertEqual("questStates.100 is complete", active["success_condition"])
-        self.assertFalse(life.quest_review_due(self.life, state))
-        self.notebook.observe_life({**state, "inventoryCounts": {"Cauliflower":1}})
-        self.assertTrue(life.quest_review_due(self.life, state))
-
-    def test_quest_review_can_preserve_an_unrelated_personal_pursuit(self):
-        state = {**STATE, "inventoryCounts": {"Bamboo Pole": 1}}
-        self.notebook.observe_life({**state, "menu": "QuestLog", "journal": state["quests"]})
-        result = self.harness._execute_life_tool("review_quests", {
-            "quest_id": "", "next_step": "Try fishing from the beach pier",
-            "reason": "I just received a rod and want to learn how it works",
-            "deferred": [
-                {"quest_id": "100", "reason": "Resume when I reach the search area", "revisit_when": "location is Forest"},
-                {"quest_id": "101", "reason": "I do not have the requested crop", "revisit_when": "inventory.Cauliflower > 0"},
-            ],
-        }, state)
-        self.assertEqual("recorded", result["status"])
-        active = self.harness.ledger.snapshot()["active"]
-        self.assertEqual("Try fishing from the beach pier", active["goal"])
-        self.assertNotIn("Robin", active["goal"])
-        self.assertIsNone(active["success_condition"])
-
     def test_all_quests_and_full_descriptions_can_be_retrieved(self):
         state = {**STATE, "quests": [dict(STATE["quests"][0], id=str(i)) for i in range(8)]}
         self.notebook.observe_life(state)
@@ -195,10 +126,10 @@ class LifePolicyTests(unittest.TestCase):
         rod = life.pending(self.life)[0]
         life.add_notice(self.life, {"id": "door", "kind": "place", "text": "A shop", "day": 24})
         life.respond(self.life, rod['id'], 'act', 'Try fishing', 'Willy gave me a rod', '', STATE)
-        self.assertFalse(life.response_due(self.life))
+        self.assertFalse(life.response_due(self.life, STATE))
         self.assertIsNone(life.guard(self.life, 'travel_to', {'destination': 'Beach'}, STATE))
         life.add_notice(self.life, {"id": "festival", "kind": "hud", "text": "Flower Dance begins", "day": 24})
-        self.assertTrue(life.response_due(self.life))
+        self.assertTrue(life.response_due(self.life, STATE))
 
     def test_all_presented_conversation_pages_are_retained(self):
         notices = [dict(id=f"episode:{i}",kind="dialogue",text=text,location="Beach",day=24) for i,text in enumerate([

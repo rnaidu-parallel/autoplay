@@ -111,6 +111,42 @@ preference; a shop being closed at one hour does not make it permanently unavail
 
 The harness stores a per-save notebook at `harness/state/notebook.json`, or in the isolated run state directory. On each new day, the director creates a five-to-eight item agenda with morning, midday, afternoon, and evening work. Every item has one category: farming, clearing, exploring, social, shopping, fishing, mining, foraging, crafting, event, or home. Morning themes cannot repeat any of the last three days. The plan adds at least two categories outside yesterday's top two, has no more than three items in one category, and has at most one refill item in yesterday's dominant category. Pending work from the prior day must be carried into the new plan or dropped with a recorded reason. While reachable unvisited locations remain, the morning agenda includes a verifiable exploration item. If the agenda finishes before bedtime, the director appends two to four new items without changing completed or dropped entries. Before sleep, the director records a reflection and learned facts, and the harness carries unfinished work forward. The notebook also stores farm-use zones derived from the bridge's cached `farmLayout`; planting and tilling on the Farm are rejected outside a crops zone.
 
+## Reflexes
+
+Some things a person does without deliberating. The harness does them locally, with no model call, at
+the start of each actor step:
+
+- **Watching a scene.** A non-question dialogue box or a cutscene that does not allow movement is played
+  through by the bridge's `watch_dialogue` command at reading pace (each page is advanced ~1.5 s after it
+  has fully typed). A question, a different menu, or the end of the scene returns control. The transcript
+  reaches the model afterwards in `life.recentText`, so the character reacts once to the whole scene
+  instead of once per page.
+- **Greeting in passing.** A villager within six tiles who has not been spoken to today is approached and
+  greeted (the existing bounded approach controller), then the conversation is watched through. Each
+  person is tried at most once per 90 seconds and never after 22:00 or below half health.
+- **Bedtime.** From 23:30 the actor is offered only `go_home_and_sleep`, `close_menu` and `stop_session`
+  (it still writes the narration). From 1:00 AM the harness walks home and sleeps without a decision.
+  `go_home_and_sleep` works from any location by travelling home first.
+- **Changing the scene.** See the stall rules under cost and loop limits.
+
+Journal and mail are information, not gates: `life.quests` carries the real journal, `life.unreadMail`
+and `notebook.attention` mention unread letters, and no tool list is ever narrowed to force them. A
+decision is rejected as stale only when the change would make that specific action wrong: pointer
+actions care about geometry and menus, menu clicks about the entry list, key presses about the kind of
+scene (dialogue versus world) and pending questions, and skills about place, day and cutscenes. A
+dialogue page that advanced while the model was thinking is not staleness.
+
+## Navigation and pockets
+
+The bridge tests tile walkability with a canonical player box centred on the tile, chooses the nearest
+*reachable* exit to a destination (a flood fill from the player, cached per position), reports
+`no_walkable_path_to_exit` when exits exist but none is reachable, and lists every exit of the current
+location in `exits` with `reachable` and `distance`. The harness records those observations per
+(location, entered-from) pair as *pockets* in `world.json`; routes treat an exit observed unreachable from
+the current entry point as unavailable for three days, so a farm entrance cut off by debris is left by
+the way it was entered and the house is reached from another entrance instead of looping. Travel runs in
+long segments (900 ticks) and no longer yields on every villager sighting.
+
 ## Control boundary
 
 `plant_seeds(seed_slot, tiles)` handles one to six distinct empty tilled tiles from `cropsNearby`. It walks to each tile, selects a seed inventory slot from the first toolbar row, aims using freshly observed zoom-corrected screen centers, and right-clicks. It verifies a live crop on that exact tile and a one-seed inventory decrement before proceeding. It stops on a failed control, world change, damage, ineffective planting, or the action cap. Each internal input counts toward `--max-actions`. It does not till or water soil.
@@ -126,7 +162,8 @@ The actor can use:
 - allowlisted keyboard buttons for movement, action, tool use, menus, toolbar selection, and cancellation;
 - bounded holds from 1 to 600 game ticks;
 - bounded multi-step keyboard sequences and collision-aware local navigation;
-- left or right click, cursor movement, drag, and bounded wheel steps;
+- left or right click, cursor movement, and bounded wheel steps (no drag: menu items are moved by the inventory commands below);
+- `close_menu`, which returns a cursor-held item to the bag before closing, and `inventory_move`, `inventory_trash`, and `ship_item`, which act on the bag directly through the game's own item code (the bridge also has `inventory_drop`, not offered to the actor because a dropped item is picked straight back up);
 - bounded waits against observable game-state predicates;
 - bounded no-input idle periods and exact indexed question-dialogue choices;
 - objective progress, opportunity, wiki search, and session-stop tools.
@@ -153,9 +190,9 @@ Bounded mode has two independent caps.
 
 The defaults are 10 actions and 15 actor decisions. Director reviews add model calls at `--director-interval`, which defaults to 12 game actions, or when a new goal is needed. These are request-count controls, not a guaranteed dollar limit, because cost depends on the selected OpenRouter model and provider.
 
-`--budget-usd` sets an optional cumulative session-cost limit using recorded actor and director decision usage. When cost reaches or exceeds the limit, bounded and continuous runs stop with `budget_reached`. The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low. A stall watchdog requests a director review after 8 unchanged actor decisions, retries focus and borderless mode at 16, and stops with `stalled` at 24.
+`--budget-usd` sets an optional cumulative session-cost limit using recorded actor and director decision usage. When cost reaches or exceeds the limit, bounded and continuous runs stop with `budget_reached`. The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low. A stall watchdog requests a director review after 8 unchanged actor decisions and retries focus and borderless mode at 16. At 24, a bounded run stops with `stalled`; continuous (live) play never stops on a harness-judged stall. Instead the harness changes the scene: after 20:00 it forces bedtime, otherwise it abandons the current intention and tells the director to choose a clearly different activity. An activity drought (45 s or 8 decisions without new game evidence) asks for a replan; a long one (150 s or 30 decisions) triggers the same scene change.
 
-Continuous play also defers an objective after three failed attempts at the same target or six decisions without progress. Clock ticks and changed narration do not reset this count; advancing story dialogue does. The director receives the failure evidence and must choose another task. Deferred destinations stay excluded for the day, except for a necessary bedtime return home. A blocked bedtime return stops with `home_route_blocked`. Three rejected proposals for the same objective condition stop with `director_repeated_invalid_objective`; agenda reminders preserve the rejection feedback.
+Continuous play also defers an objective after three failed attempts at the same target or six decisions without progress. Clock ticks and changed narration do not reset this count; advancing story dialogue does. The director receives the failure evidence and must choose another task. Deferred destinations stay excluded for the day, except for a necessary bedtime return home. A blocked bedtime return records `home_return_blocked` and resets the retry counters so a rerouted attempt is not rejected as a repeat; it does not stop the run. Three rejected proposals for the same objective condition stop with `director_repeated_invalid_objective`; agenda reminders preserve the rejection feedback.
 
 `--continuous` ignores both caps, applies bounded retry/backoff to transient failures, and keeps the loop running. `--record-video` starts 30 FPS, 1920-by-1080 H.264 capture only after a world is loaded. It captures through the Desktop Duplication API (FFmpeg `ddagrab`), which stays live in full-screen game modes where `gdigrab` froze, and encodes with `h264_nvenc`; if NVENC does not initialize, the recorder retries once with `libx264 -preset ultrafast`. Run `python -m autoplay_harness record-test --seconds 5` to record a short desktop clip and confirm the frame count and that the frames are not stale. `--video-segment-minutes` controls segment length. `--video-retention-segments` defaults to a six-file rolling buffer; `0` explicitly retains the complete raw VOD. Static pauses can be removed from a copy with FFmpeg `mpdecimate`. `--save-frames` remains an opt-in diagnostic mode and should not be used for routine continuous play.
 
@@ -189,7 +226,7 @@ Create `harness/state/STOP` to stop the supervisor cleanly. Remove the file befo
 5. Start with no more than five actions and eight decisions.
 6. Inspect `events.jsonl`, `session-summary.json`, sparse diagnostic frames when explicitly enabled, and the retained video segments after the run.
 
-The launcher uses `AUTOPLAY_PYTHON` when set. Otherwise, it checks the bundled Codex Python runtime, the `py` launcher, and `python`. A separate Python installation needs Python 3.11 or newer and the dependencies declared in `harness/pyproject.toml` (`dxcam`, `imageio-ffmpeg`, and Pillow).
+The launcher uses `AUTOPLAY_PYTHON` when set. Otherwise, it checks the bundled Codex Python runtime, the `py` launcher, and `python`. A separate Python installation needs Python 3.11 or newer and the dependencies declared in `harness/pyproject.toml` (`dxcam`, `imageio-ffmpeg`, Pillow, and `websockets`).
 
 ## Remaining choices before the first paid run
 

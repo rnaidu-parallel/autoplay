@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+from .calendar import calendar_day
 from .control import OperatorControl
 
 INDEX_PATH = Path(__file__).with_name("overlay") / "index.html"
@@ -110,6 +111,24 @@ def _director_summary(tool: str, arguments: dict[str, Any] | None) -> str:
     return f"Director: {detail or action_summary(tool, arguments)}"
 
 
+PUBLIC_REASONS = {
+    "no_walkable_path": "no clear path that way",
+    "no_walkable_path_to_exit": "that way out is cut off from here",
+    "no_exit_to_location": "no way through there",
+    "scene_changed_while_thinking": "the moment passed",
+    "target_left": "they walked off",
+    "encounter_deadline": "they walked off",
+    "not_on_farm": "too far from home for that",
+    "bedtime_not_allowed_before_2000_unless_exhausted": "too early for bed",
+    "question_pending": "a question to answer first",
+    "menu_still_open:GameMenu:0:InventoryPage": "the bag would not close",
+    "inventory_full": "the bag is full",
+    "outside_crop_zone": "not a spot I want to farm",
+    "tick_budget_exhausted": "took too long",
+    "supply_one_to_six_distinct_tiles": "no soil to plant in",
+}
+
+
 def action_outcome(result: Any) -> str | None:
     if not isinstance(result, dict):
         return None
@@ -117,8 +136,15 @@ def action_outcome(result: Any) -> str | None:
     if status == "completed":
         return "completed"
     if status in {"blocked", "rejected", "error", "timeout"}:
-        reason = result.get("reason") or result.get("error")
-        return f"{status}: {_humanize(reason)}" if reason else str(status)
+        reason = str(result.get("reason") or result.get("error") or "")
+        for key in sorted(PUBLIC_REASONS, key=len, reverse=True):
+            if reason.startswith(key):
+                return f"{status}: {PUBLIC_REASONS[key]}"
+        if reason.startswith("hop_failed:"):
+            return action_outcome({"status": status, "reason": reason.removeprefix("hop_failed:")})
+        if reason.startswith("door_closed_until_"):
+            return f"{status}: door closed {_humanize(reason.removeprefix('door_closed_'))}"
+        return f"{status}: {_humanize(reason)[:90]}" if reason else str(status)
     return _humanize(status) if status else None
 
 
@@ -129,12 +155,15 @@ class OverlayState:
         self.notebook: dict[str, Any] = {}
         self.objectives: dict[str, Any] = {}
         self.world_data: dict[str, Any] = {}
+        self.chat_state: dict[str, Any] = {}
         self.world_summary: dict[str, Any] = {}
         self.actions: list[dict[str, Any]] = []
         self.actor_actions: list[dict[str, Any]] = []
         self.sayings: list[str] = []
         self.pending_requests: dict[str, datetime] = {}
         self.pending_action: tuple[Any, str] | None = None
+        self.scene: dict[str, Any] | None = None
+        self.reflex: dict[str, Any] | None = None
         self.actor_decisions = 0
         self.director_reviews = 0
         self.model_calls = 0
@@ -225,6 +254,22 @@ class OverlayState:
         elif event_type == "model_error":
             self.pending_requests.pop(str(event.get("role") or "actor"), None)
             self._add_usage(event)
+        elif event_type == "scene_watching":
+            self.scene = {"at": event.get("at"), "opening": str(event.get("opening") or "")[:180]}
+        elif event_type == "scene_watched":
+            self.scene = None
+        elif event_type == "greeting":
+            npc = event.get("npc") or "someone"
+            done = event.get("status") == "completed"
+            self.reflex = {"at": event.get("at"), "gameTime": _game_time(self.game.get("time")),
+                           "text": f"Says hello to {npc}" if done else f"Tried to catch {npc}"}
+        elif event_type == "bedtime_reflex":
+            self.reflex = {"at": event.get("at"), "gameTime": _game_time(self.game.get("time")),
+                           "text": "Calling it a night and heading home"}
+        elif event_type == "activity_escalated":
+            self.reflex = {"at": event.get("at"), "gameTime": _game_time(self.game.get("time")),
+                           "text": "Heading home for the night" if event.get("action") == "bedtime"
+                           else "Letting that go and trying something else"}
         elif event_type == "stall_detected":
             self.stall_at_decision = self.actor_decisions
             self.stalled_decisions = int(event.get("count") or 0)
@@ -251,6 +296,7 @@ class OverlayState:
         objectives: dict[str, Any] | None = None,
         notebook: dict[str, Any] | None = None,
         world: dict[str, Any] | None = None,
+        chat: dict[str, Any] | None = None,
     ) -> None:
         if objectives is not None:
             self.objectives = objectives
@@ -258,6 +304,8 @@ class OverlayState:
             self.notebook = notebook
         if world is not None:
             self.world_data = world
+        if chat is not None:
+            self.chat_state = chat
 
     def snapshot(self, restarting: bool = False, now: datetime | None = None) -> dict[str, Any]:
         now = now or _now()
@@ -288,12 +336,6 @@ class OverlayState:
             focus = "Read the morning mail"
         elif self.game.get("inventoryFreeSlots") == 0 and life.get("inventory_blocked"):
             focus = "Make room in my backpack"
-        elif life_policy.quest_review_due(life, self.game):
-            titles = [q["title"] for q in self.game.get("quests", [])]
-            focus = "Review quests: " + "; ".join(titles[:2])
-        elif life_policy.response_due(life):
-            notice = life_policy.pending(life)[0]
-            focus = notice["text"].replace("\n", " ")[:130]
         objective = None
         if isinstance(active, dict):
             objective = {
@@ -332,9 +374,18 @@ class OverlayState:
         actions = [{key: item[key] for key in ("at", "gameTime", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actions]
         actor_actions = [{key: item[key] for key in ("at", "gameTime", "role", "tool", "toolName", "say", "summary", "gist", "outcome")} for item in self.actor_actions]
         sayings = self.sayings
+        conversation = None
+        for text in reversed(list((life.get("texts") or {}).values())):
+            if isinstance(text, dict) and text.get("kind") == "conversation" and text.get("text"):
+                conversation = {"id": text.get("id"), "day": text.get("day"), "time": _game_time(text.get("time")),
+                                "text": str(text["text"]).replace("\n", " ")[:360]}
+                break
         return {
             "status": status,
             "updatedAt": now.isoformat(),
+            "scene": self.scene,
+            "reflex": self.reflex,
+            "conversation": conversation,
             "game": {
                 "playerName": self.game.get("playerName"),
                 "day": self.game.get("day"),
@@ -379,11 +430,17 @@ class OverlayState:
 
     def _audience(self) -> dict[str, Any] | None:
         audience = self.notebook.get("audience") or {}
-        demand = audience.get("demand") or next(iter(audience.get("recent") or []), None)
+        demand = audience.get("demand")
+        selection = self.chat_state.get("selection") or {}
+        if (not demand and selection.get("status") == "shadow"
+                and selection.get("day") == calendar_day(self.game)):
+            demand = {**selection, "id": None, "status": "shadow", "note": "Shadow only — not sent to Neon"}
+        if not demand:
+            demand = next(iter(audience.get("recent") or []), None)
         if not demand:
             return None
-        return {"goal": demand["goal"], "support": demand.get("support", 0),
-                "status": demand["status"], "note": demand.get("note")}
+        return {"id": demand.get("id"), "day": demand.get("day"), "goal": demand["goal"],
+                "support": demand.get("support", 0), "status": demand["status"], "note": demand.get("note")}
 
     def _agenda(self) -> tuple[dict[str, Any], str | None]:
         days = self.notebook.get("days") or {}
@@ -413,6 +470,7 @@ def build_state(
     objectives: dict[str, Any] | None = None,
     notebook: dict[str, Any] | None = None,
     world: dict[str, Any] | None = None,
+    chat: dict[str, Any] | None = None,
     restarting: bool = False,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -422,7 +480,7 @@ def build_state(
             overlay.apply(event)
         except (TypeError, ValueError):
             continue
-    overlay.update_files(objectives, notebook, world)
+    overlay.update_files(objectives, notebook, world, chat)
     return overlay.snapshot(restarting, now)
 
 
@@ -639,6 +697,9 @@ def main(args: Namespace) -> int:
                 changed = _read_changed(active_state_directory / f"{name}.json", signatures)
                 if changed is not None:
                     sources[name] = changed
+            changed_chat = _read_changed(root / "chat" / "state.json", signatures)
+            if changed_chat is not None:
+                sources["chat"] = changed_chat
             state.update_files(**sources)
             restarting = (run_directory / "overlay" / "restarting").exists()
             atomic_write_json(current["path"], state.snapshot(restarting))
