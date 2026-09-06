@@ -132,8 +132,14 @@ drought abandoned a stale objective and the director replanned without the run s
 `inventory_drop` is no longer offered to the actor; the bridge clamped travel segments to 300 ticks
 (now 900, needs a redeploy); state-only decisions away from the farm made the model spend every other
 decision on `inspect_scene`, so those scenes now get a screenshot automatically; the greeting radius is
-six tiles because villagers move faster than a three-tile check catches them. Not yet exercised live:
-a cutscene, the Farm south-entrance route home, `ship_item`, and a completed greeting.
+six tiles because villagers move faster than a three-tile check catches them. The run then froze for
+good inside a screen grab (DXGI reported the output unsupported once the display had been idle), so
+the harness now holds the display awake, bounds every grab to five seconds, and plays blind from
+structured state when capture is unavailable; the second run (`6ff5f57a`) started blind and slept
+Neon through the night normally. `watch_dialogue` handled Pierre's closed-sign notice in 1.7 s with one
+in-character reaction. Not yet exercised live: a cutscene, the Farm south-entrance route home
+(the pocket map now records the south side as cut off from the house), `ship_item`, and a completed
+greeting.
 
 ## Fix plan (fundamental, not patch)
 
