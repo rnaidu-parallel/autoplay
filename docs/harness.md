@@ -136,6 +136,18 @@ actions care about geometry and menus, menu clicks about the entry list, key pre
 scene (dialogue versus world) and pending questions, and skills about place, day and cutscenes. A
 dialogue page that advanced while the model was thinking is not staleness.
 
+## Curiosity
+
+A character can only be curious about what she can perceive, so the bridge reports `curiosities`
+within twelve tiles: pets and farm animals (pet), the television (watch), gift packages and chests
+(open), signs, boards and calendars (read), forage (pick up) and artifact spots (dig), each with a
+tile and a zoom-corrected screen centre. The actor's `look_at(x, y)` skill walks beside the thing,
+faces it and right-clicks it once; the result reports which observable fields changed, and any
+dialogue it opens is read by the scene reflex. The harness remembers what was looked at today
+(`life.curiosities`) and marks those entries `tried` in context. The morning plan must carry one step
+toward an open quest (`source: quest:<id>`) and one `exploring` item while unvisited places remain;
+`_agenda_errors` enforces both.
+
 ## Capture failures
 
 The harness holds the display awake for the whole run (`SetThreadExecutionState`), because Windows

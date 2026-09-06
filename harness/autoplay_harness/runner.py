@@ -17,7 +17,7 @@ from .checkpoint import Checkpoints
 from .control import OperatorControl
 from .history import History
 from .capture import CaptureError, Frame, ScreenCapture
-from .farming import check_mail, clear_debris, go_home_and_sleep, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
+from .farming import check_mail, clear_debris, go_home_and_sleep, look_at, nearest_empty_tiles, plant_seeds, till_tiles, water_crops
 from .attention import AttentionYield, AttentiveBridge
 from . import life as life_policy
 from .encounters import approach_and_talk
@@ -1054,6 +1054,19 @@ class AutoplayHarness:
                     break
 
         day = calendar_day(state)
+        if mode == "morning":
+            # A life has threads: something toward an open quest and somewhere new, every day they exist.
+            carried = {item["id"]: item for item in (self.notebook.remaining(day) if isinstance(day, int) else [])}
+            sources = [str(item.get("source") or carried.get(item.get("carried_id") or "", {}).get("source") or "")
+                       for item in agenda]
+            categories = [item.get("category") for item in agenda]
+            active_quests = [quest for quest in state.get("quests", []) if not quest.get("complete")]
+            if active_quests and not any(source.startswith("quest:") for source in sources):
+                ids = ", ".join(f"quest:{quest['id']} ({quest.get('title', '')})" for quest in active_quests[:4])
+                errors.append(f"include one concrete step toward an open quest, with its source set to the quest id: {ids}")
+            unvisited = self.world.summary(state.get("location"), state.get("time")).get("unvisited", []) if hasattr(self, "world") else []
+            if unvisited and "exploring" not in categories:
+                errors.append(f"include one exploring item for a place not yet visited, such as {', '.join(unvisited[:3])}")
         errors.extend(self.notebook.variety_errors(day, agenda, arguments.get("theme", ""), mode))
         return errors
 
@@ -1468,7 +1481,7 @@ class AutoplayHarness:
         self, decision: ToolDecision, frame: Frame, before_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         local = {"navigate_to", "go_to_location", "travel_to", "go_home_and_sleep", "plant_seeds",
-                 "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "control_sequence", "check_mail"}
+                 "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "control_sequence", "check_mail", "look_at"}
         if decision.name not in local:
             event_work = (before_state or {}).get("eventUp")
             previous_id = (self.ledger.snapshot().get("active") or {}).get("id") if event_work else None
@@ -1534,6 +1547,19 @@ class AutoplayHarness:
         if name == "check_mail":
             response = check_mail(self.bridge, before_state or {})
             self.game_actions += response.get("controls_executed", 0)
+            return response
+        if name == "look_at":
+            response = look_at(self.bridge, before_state or {}, arguments["x"], arguments["y"])
+            self.game_actions += response.get("controls_executed", 0)
+            target = response.get("target")
+            if target and hasattr(self, "notebook"):
+                tried = self.notebook.data["life"].setdefault("curiosities", {})
+                tried[f"{(before_state or {}).get('location')}:{target['id']}"] = {
+                    "day": calendar_day(before_state or {}), "outcome": response.get("reason") or "looked",
+                    "changes": response.get("changes", [])}
+                self.notebook._save()
+                self.telemetry.record("curiosity", {"target": target, "status": response.get("status"),
+                                                    "reason": response.get("reason"), "changes": response.get("changes")})
             return response
         if name == "click_menu_entry":
             entries = (before_state or {}).get("menuEntries", [])
@@ -2189,6 +2215,12 @@ class AutoplayHarness:
             "harnessBedtimeAllowed": getattr(self, "operator_mode", None) == "finishing" or self._bedtime_allowed(state),
             "harnessStalledDecisions": getattr(self, "stalled_decisions", 0),
         }
+        if isinstance(state.get("curiosities"), list) and hasattr(self, "notebook"):
+            tried = self.notebook.data["life"].get("curiosities", {})
+            today = calendar_day(state)
+            harness_state["curiosities"] = [
+                {**item, "tried": tried.get(f"{state.get('location')}:{item.get('id')}", {}).get("day") == today}
+                for item in state["curiosities"]]
         # Slow-changing fields first so a caching provider can reuse the longest possible prefix.
         packet = {
             "role": role,

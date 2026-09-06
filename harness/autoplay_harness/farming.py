@@ -122,6 +122,34 @@ def check_mail(bridge: NamedPipeBridge, state: dict[str, Any]) -> dict[str, Any]
             "state": runner.state, "controls_executed": runner.executed}
 
 
+def look_at(bridge: NamedPipeBridge, state: dict[str, Any], x: int, y: int) -> dict[str, Any]:
+    """Walk beside a curiosity, face it and interact once: pet the dog, open the package, read the sign, watch the TV."""
+    target = next((item for item in state.get("curiosities", []) if (item.get("x"), item.get("y")) == (x, y)), None)
+    if state.get("menu") != "none" or not state.get("playerFree") or state.get("eventUp"):
+        return {"status": "rejected", "reason": "Look around only while free, outside menus and cutscenes."}
+    if target is None:
+        return {"status": "rejected", "reason": "Choose x and y from curiosities; that spot holds nothing worth a look."}
+    runner = _Controls(bridge, state, 6)
+    watched = ("inventoryCounts", "menu", "dialogueText", "hudMessages", "money", "health", "stamina")
+    before = {key: state.get(key) for key in watched}
+    stand, error = runner.stand_beside({"x": x, "y": y})
+    if not error:
+        error = runner.face((x - stand[0], y - stand[1]))
+    if not error:
+        current = next((item for item in runner.state.get("curiosities", []) if (item.get("x"), item.get("y")) == (x, y)), None)
+        if current is None:
+            error = "it_is_gone"
+        else:
+            # Right-click on the thing itself: the game's own "use / talk / open" input.
+            error = runner.send("click", x=current["screenX"], y=current["screenY"], button="right")
+    after = {key: runner.state.get(key) for key in watched}
+    changes = [key for key in watched if before[key] != after[key]]
+    status = "completed" if not error and changes else "blocked" if error else "completed"
+    return {"status": status, "reason": error or ("nothing_visible_happened" if not changes else None),
+            "target": {k: target.get(k) for k in ("id", "kind", "name", "interaction")}, "changes": changes,
+            "state": runner.state, "controls_executed": runner.executed}
+
+
 def _tool_slot(state: dict[str, Any], tool_name: str) -> int | None:
     entry = next((item for item in state.get("inventory", [])
                   if (item.get("name") == tool_name or item.get("name", "").endswith(tool_name))

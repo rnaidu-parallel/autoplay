@@ -59,6 +59,8 @@ ACTOR_TOOLS = [
                   {"goal": {"type": "string", "minLength": 1, "maxLength": 180}, "reason": {"type": "string", "minLength": 1, "maxLength": 180}}, ["goal", "reason"]),
     function_tool("consider_interest", "Finish considering your current open-ended interest after an observed interaction. Records considered, never claims a quest/task completed. Explain what you learned or why you are moving on.",
                   {"evidence": {"type": "string", "maxLength": 200}}, ["evidence"]),
+    function_tool("look_at", "Go and look at one thing from curiosities: walk beside it, face it, and interact once (pet the dog, open the package, read the sign or board, watch the TV, pick up forage). Give its x and y. Anything it says is read for you and reported next turn. Each thing is worth one look a day.",
+                  {"x": {"type": "integer"}, "y": {"type": "integer"}}, ["x", "y"]),
     function_tool("check_mail", "On the Farm, walk beside the observed nearby mailbox and open one unread letter using normal controls. Read the letter and use menuEntries to accept or collect its contents before closing it. Can yield during walking.", {}, []),
     function_tool("click_menu_entry", "Click an exact currently visible menuEntries control: journal, letter, game tabs, crafting, inventory or chest. Use its zero-based index. canAccept=false means make room before taking that item. Verify the resulting page, quest or inventory change. Never discard a tool or quest item to make space.",
                   {"index": {"type": "integer", "minimum": 0}}, ["index"]),

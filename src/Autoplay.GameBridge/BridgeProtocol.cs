@@ -135,6 +135,7 @@ internal sealed class GameStateSnapshot
     public IReadOnlyList<BridgeNpc> NpcsNearby { get; init; } = Array.Empty<BridgeNpc>();
     public IReadOnlyList<BridgeShopItem> ShopItems { get; init; } = Array.Empty<BridgeShopItem>();
     public IReadOnlyList<BridgeMapAction> NearbyActions { get; init; } = Array.Empty<BridgeMapAction>();
+    public IReadOnlyList<BridgeCuriosity> Curiosities { get; init; } = Array.Empty<BridgeCuriosity>();
     public int? NavigationOriginX { get; init; }
     public int? NavigationOriginY { get; init; }
     public IReadOnlyList<string> NavigationRows { get; init; } = Array.Empty<string>();
@@ -349,6 +350,18 @@ internal sealed class BridgeWorldObject
     public string RecommendedTool { get; init; } = string.Empty;
     public int ScreenX { get; init; }
     public int ScreenY { get; init; }
+}
+
+internal sealed class BridgeCuriosity
+{
+    public string Id { get; init; } = string.Empty;
+    public string Kind { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public int X { get; init; }
+    public int Y { get; init; }
+    public int ScreenX { get; init; }
+    public int ScreenY { get; init; }
+    public string Interaction { get; init; } = string.Empty;
 }
 
 internal sealed class BridgeMapAction

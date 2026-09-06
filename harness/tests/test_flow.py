@@ -118,5 +118,63 @@ class OverlayCopyTests(unittest.TestCase):
         self.assertEqual("Lewis: Welcome to town! Lewis: Mind the rats.", snapshot["conversation"]["text"])
 
 
+class CuriosityTests(unittest.TestCase):
+    def test_look_at_walks_beside_faces_and_interacts_once(self):
+        from autoplay_harness.farming import look_at
+        dog = {"id": "pet:Rufus", "kind": "pet", "name": "Rufus", "x": 6, "y": 4, "screenX": 300, "screenY": 200, "interaction": "pet"}
+        rows = ["......."] * 8
+        start = {**FREE, "location": "Farm", "tileX": 3, "tileY": 4, "facing": 1, "menu": "none", "worldReady": True,
+                 "navigationRows": rows, "navigationOriginX": 0, "navigationOriginY": 0, "curiosities": [dog],
+                 "hudMessages": [], "inventoryCounts": {}}
+        beside = {**start, "tileX": 5}
+        petted = {**beside, "hudMessages": ["Rufus loves you"]}
+        bridge = Mock()
+        bridge.request.side_effect = [{"status": "completed", "state": beside}, {"status": "completed", "state": petted}]
+        result = look_at(bridge, start, 6, 4)
+        self.assertEqual(["navigate", "click"], [c.args[0] for c in bridge.request.call_args_list])
+        self.assertEqual({"x": 300, "y": 200, "button": "right"}, bridge.request.call_args.kwargs)
+        self.assertEqual("completed", result["status"])
+        self.assertEqual(["hudMessages"], result["changes"])
+        self.assertEqual("pet", result["target"]["interaction"])
+        self.assertEqual("rejected", look_at(bridge, start, 1, 1)["status"])
+
+    def test_context_marks_curiosities_already_looked_at_today(self):
+        from autoplay_harness.notebook import Notebook
+        harness = object.__new__(AutoplayHarness)
+        with tempfile.TemporaryDirectory() as directory:
+            harness.notebook = Notebook(Path(directory))
+            harness.notebook.data["life"]["curiosities"] = {"Farm:pet:Rufus": {"day": 16, "outcome": "looked"}}
+            state = {**FREE, "location": "Farm", "curiosities": [{"id": "pet:Rufus"}, {"id": "package:3:4"}]}
+            harness.blocked_movements = set(); harness.last_result = None; harness.ledger = Mock()
+            harness.ledger.snapshot.return_value = {"active": None}
+            harness.world = Mock(); harness.world.summary.return_value = {}
+            harness.telemetry = Mock(); harness.telemetry.context.return_value = {}
+            harness.latest_wiki_results = []; harness.continuous = True; harness.game_actions = 0
+            harness.decisions = 0; harness.director_interval = 12; harness.actor_mode = "state-first"
+            harness.director_feedback = None; harness.notebook.start_day(16)
+            harness._budget_context = lambda packet, role: packet
+            from autoplay_harness.capture import Frame
+            packet = harness._context("actor", state, Frame("f", 1280, 720, "", None), state_only=False)
+            self.assertEqual([True, False], [c["tried"] for c in packet["game_state"]["curiosities"]])
+
+    def test_morning_plan_needs_a_quest_step_and_somewhere_new(self):
+        from autoplay_harness.notebook import Notebook
+        harness = object.__new__(AutoplayHarness)
+        with tempfile.TemporaryDirectory() as directory:
+            harness.notebook = Notebook(Path(directory)); harness.notebook.start_day(16)
+            harness.world = Mock(); harness.world.summary.return_value = {"unvisited": ["Beach", "Mountain"]}
+            state = {**FREE, "time": 620, "quests": [{"id": "9", "title": "Introductions", "complete": False}]}
+            plain = {"theme": "Chores", "agenda": [{"goal": "Water crops", "slot": "morning", "category": "farming"}]}
+            errors = harness._agenda_errors(plain, state, "morning")
+            self.assertTrue(any("quest:9" in error for error in errors))
+            self.assertTrue(any("Beach" in error for error in errors))
+            rich = {"theme": "Chores", "agenda": plain["agenda"] + [
+                {"goal": "Greet two villagers", "slot": "midday", "category": "social", "source": "quest:9"},
+                {"goal": "See the Beach", "slot": "afternoon", "category": "exploring"}]}
+            errors = harness._agenda_errors(rich, state, "morning")
+            self.assertFalse(any("quest:" in error or "exploring" in error for error in errors))
+            self.assertEqual([], [e for e in harness._agenda_errors(plain, state, "refill") if "quest:" in e or "exploring" in e])
+
+
 if __name__ == "__main__":
     unittest.main()

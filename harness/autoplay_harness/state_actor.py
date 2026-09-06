@@ -69,7 +69,7 @@ STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in
     "plant_nearest_seeds", "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep",
     "navigate_to", "go_to_location", "travel_to", "world_map", "wiki_search", "stop_session", "remember_interaction",
     "change_objective", "record_opportunity", "search_history",
-    "check_mail", "close_menu", "inventory_move", "inventory_trash", "ship_item",
+    "check_mail", "look_at", "close_menu", "inventory_move", "inventory_trash", "ship_item",
     "pursue_interest", "consider_interest",
     "read_life_text", "open_menu_tab",
 }] + [function_tool(
@@ -111,6 +111,7 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
         ("cropsNearby", ["x", "y", "crop", "watered", "readyToHarvest", "dead"]),
         ("tillableNearby", ["x", "y"]),
         ("nearbyObjects", ["x", "y", "name", "recommendedTool"]),
+        ("curiosities", ["id", "kind", "name", "x", "y", "interaction", "tried"]),
     ):
         result[key] = {"columns": columns, "rows": [[row.get(k) for k in columns] for row in state.get(key, [])]}
     return result

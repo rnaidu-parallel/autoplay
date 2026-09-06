@@ -2265,6 +2265,77 @@ public sealed partial class ModEntry : Mod
             .Take(20)
             .ToArray();
 
+        var curiosities = new List<BridgeCuriosity>();
+        void AddCuriosity(string id, string kind, string name, int x, int y, string interaction)
+        {
+            curiosities.Add(new BridgeCuriosity
+            {
+                Id = id,
+                Kind = kind,
+                Name = name,
+                X = x,
+                Y = y,
+                ScreenX = (int)((((x * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.X) * zoom),
+                ScreenY = (int)((((y * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.Y) * zoom),
+                Interaction = interaction
+            });
+        }
+
+        foreach (NPC character in location.characters)
+        {
+            if (character is StardewValley.Characters.Pet pet && IsNearby(pet.TilePoint.X, pet.TilePoint.Y))
+            {
+                string petName = string.IsNullOrWhiteSpace(pet.displayName) ? pet.Name : pet.displayName;
+                AddCuriosity($"pet:{pet.Name}", "pet", petName, pet.TilePoint.X, pet.TilePoint.Y, "pet");
+            }
+        }
+
+        foreach (FarmAnimal animal in location.animals.Values)
+        {
+            Point animalTile = animal.TilePoint;
+            if (!IsNearby(animalTile.X, animalTile.Y))
+                continue;
+            string animalName = string.IsNullOrWhiteSpace(animal.displayName) ? animal.Name : animal.displayName;
+            AddCuriosity($"animal:{animal.Name}", "animal", animalName, animalTile.X, animalTile.Y, "pet");
+        }
+
+        foreach (StardewValley.Objects.Furniture furniture in location.furniture)
+        {
+            int furnitureX = (int)furniture.TileLocation.X;
+            int furnitureY = (int)furniture.TileLocation.Y;
+            if (furniture is StardewValley.Objects.TV && IsNearby(furnitureX, furnitureY))
+                AddCuriosity($"tv:{furnitureX}:{furnitureY}", "tv", "Television", furnitureX, furnitureY, "watch");
+        }
+
+        foreach (var entry in location.Objects.Pairs)
+        {
+            int objectX = (int)entry.Key.X;
+            int objectY = (int)entry.Key.Y;
+            if (!IsNearby(objectX, objectY))
+                continue;
+
+            StardewValley.Object obj = entry.Value;
+            if (obj is StardewValley.Objects.Chest chest)
+            {
+                bool giftbox = chest.giftbox.Value;
+                string kind = giftbox ? "package" : "chest";
+                AddCuriosity($"{kind}:{objectX}:{objectY}", kind, giftbox ? "Package" : chest.DisplayName, objectX, objectY, "open");
+            }
+            else if (obj is StardewValley.Objects.Sign)
+            {
+                AddCuriosity($"sign:{objectX}:{objectY}", "sign", obj.DisplayName, objectX, objectY, "read");
+            }
+            // The artifact spot check precedes the forage check because it identifies one exact item.
+            else if (obj.QualifiedItemId == "(O)590")
+            {
+                AddCuriosity($"dig-spot:{objectX}:{objectY}", "dig-spot", "Artifact spot", objectX, objectY, "dig");
+            }
+            else if (obj.IsSpawnedObject)
+            {
+                AddCuriosity($"forage:{objectX}:{objectY}", "forage", obj.DisplayName, objectX, objectY, "pick up");
+            }
+        }
+
         IReadOnlyList<BridgeShopItem> shopItems = CaptureShopItems();
 
         var inventoryCounts = new Dictionary<string, int>();
@@ -2313,7 +2384,15 @@ public sealed partial class ModEntry : Mod
                 {
                     string? action = Game1.currentLocation.doesTileHaveProperty(x, y, "Action", layer);
                     if (!string.IsNullOrWhiteSpace(action))
+                    {
                         nearbyActions.Add(new BridgeMapAction { X = x, Y = y, Kind = "Action", Value = action });
+                        string token = action.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+                        if (token is "Message" or "MessageOnce" or "Notes" or "Billboard"
+                            or "Calendar" or "Dialogue" or "WizardBook" or "Bulletin")
+                        {
+                            AddCuriosity($"sign:{x}:{y}", "sign", token, x, y, "read");
+                        }
+                    }
                     string? touchAction = Game1.currentLocation.doesTileHaveProperty(x, y, "TouchAction", layer);
                     if (!string.IsNullOrWhiteSpace(touchAction))
                         nearbyActions.Add(new BridgeMapAction { X = x, Y = y, Kind = "TouchAction", Value = touchAction });
@@ -2327,6 +2406,12 @@ public sealed partial class ModEntry : Mod
             .ThenBy(entry => entry.Y)
             .ThenBy(entry => entry.X)
             .Take(40)
+            .ToArray();
+
+        IReadOnlyList<BridgeCuriosity> curiositiesNearby = curiosities
+            .DistinctBy(entry => entry.Id)
+            .OrderBy(entry => Math.Abs(entry.X - tile.X) + Math.Abs(entry.Y - tile.Y))
+            .Take(20)
             .ToArray();
 
         WateringCan? wateringCan = Game1.player.Items.OfType<WateringCan>().FirstOrDefault();
@@ -2440,6 +2525,7 @@ public sealed partial class ModEntry : Mod
             NpcsNearby = npcsNearby,
             ShopItems = shopItems,
             NearbyActions = Game1.eventUp ? Array.Empty<BridgeMapAction>() : nearbyActions,
+            Curiosities = Game1.eventUp ? Array.Empty<BridgeCuriosity>() : curiositiesNearby,
             NavigationOriginX = navigationOriginX,
             NavigationOriginY = navigationOriginY,
             NavigationRows = navigationRows,
