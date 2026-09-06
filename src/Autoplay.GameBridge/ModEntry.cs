@@ -119,8 +119,8 @@ public sealed partial class ModEntry : Mod
 
     private const int NavigationArrivalTolerance = 6;
     private const int NavigationStallLimit = 20;
-    private const int NavigationExpansionLimit = 8000;
-    private const int ReachExpansionLimit = 12000;
+    private const int NavigationExpansionLimit = 40000;
+    private const int ReachExpansionLimit = 40000;
 
     public override void Entry(IModHelper helper)
     {
