@@ -36,6 +36,15 @@ class _Client:
 
 
 class RunnerTests(unittest.TestCase):
+    def test_repeat_fingerprint_ignores_new_frame_and_clock_but_keeps_inventory(self):
+        first = ToolDecision("click", {"frame_id": "old", "x": .88, "y": .42, "button": "left"}, {}, None)
+        second = ToolDecision("click", {**first.arguments, "frame_id": "new"}, {}, None)
+        state = {"location": "SeedShop", "menu": "ShopMenu", "time": 1000}
+        fingerprint = AutoplayHarness._action_fingerprint(first, state)
+        self.assertEqual(fingerprint, AutoplayHarness._action_fingerprint(second, {**state, "time": 1010}))
+        self.assertNotEqual(fingerprint, AutoplayHarness._action_fingerprint(second,
+                            {**state, "inventory": [{"slot": 7, "qualifiedId": "(O)473", "stack": 1}]}))
+
     @patch("autoplay_harness.runner.time.sleep")
     @patch("autoplay_harness.runner.ScreenCapture")
     @patch("autoplay_harness.runner.GameSupervisor")
@@ -344,6 +353,7 @@ class RunnerTests(unittest.TestCase):
             harness.stalled_decisions = 0
             harness.continuous = False
             harness.max_actions = 9
+            harness.world.edge_hours.return_value = None
             harness.max_decisions = 9
             harness.game_actions = 0
             harness.decisions = 1
@@ -471,7 +481,6 @@ class RunnerTests(unittest.TestCase):
         harness.game_actions = 0
         cases = [
             ("navigate_to", {"tile_x": 12, "tile_y": 7}, ("navigate", {"x": 12, "y": 7, "ticks": 600})),
-            ("go_to_location", {"location": "BusStop"}, ("go_to_location", {"location": "BusStop", "ticks": 600})),
             ("press", {"buttons": ["W"]}, ("press", {"buttons": ["W"]})),
             ("hold", {"buttons": ["A"], "ticks": 12}, ("hold", {"buttons": ["A"], "ticks": 12})),
             (
@@ -1017,46 +1026,42 @@ class RunnerTests(unittest.TestCase):
             harness.bridge.request.return_value = {
                 "status": "blocked",
                 "error": "no_walkable_path",
-                "state": {"location": "Farm", "day": 7},
+                "state": {"location": "Farm", "day": 7, "menu": "none"},
             }
             harness.world = WorldMap(Path(directory))
+            harness.world.nodes = {name: {} for name in ("Farm", "Backwoods")}
+            harness.world.edges = [{"from": "Farm", "to": "Backwoods"}]
+            harness.continuous = True
             harness.game_actions = 0
             harness.blocked_movements = set()
 
             result = harness._execute_actor_tool(
                 ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None),
                 self.frame,
-                {"location": "Farm", "day": 7},
+                {"location": "Farm", "day": 7, "menu": "none"},
             )
 
-            self.assertEqual("no_walkable_path", result["error"])
+            self.assertEqual("hop_failed:no_walkable_path", result["reason"])
             self.assertEqual(
                 [{"from": "Farm", "to": "Backwoods", "day": 7}],
                 harness.world.blocked_paths,
             )
 
-    def test_go_to_location_success_clears_stale_blocked_path(self) -> None:
+    def test_go_to_location_respects_remembered_block_instead_of_bypassing_map(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             harness = object.__new__(AutoplayHarness)
             harness.bridge = Mock()
-            harness.bridge.request.return_value = {
-                "status": "completed",
-                "state": {"location": "Backwoods", "day": 7, "worldReady": True,
-                          "canMove": True, "menu": "none"},
-            }
             harness.world = WorldMap(Path(directory))
+            harness.world.nodes = {name: {} for name in ("Farm", "Backwoods")}
+            harness.world.edges = [{"from": "Farm", "to": "Backwoods"}]
             harness.world.record_blocked_path("Farm", "Backwoods", 7)
             harness.game_actions = 0
-            harness.blocked_movements = set()
-
+            harness.continuous = True
             result = harness._execute_actor_action(
-                ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None),
-                self.frame,
-                {"location": "Farm", "day": 7, "time": 1200},
-            )
-
-            self.assertEqual("completed", result["status"])
-            self.assertEqual([], harness.world.blocked_paths)
+                ToolDecision("go_to_location", {"location": "Backwoods"}, {}, None), self.frame,
+                {"location": "Farm", "day": 7, "time": 1200, "menu": "none"})
+            self.assertEqual("no_route", result["reason"])
+            harness.bridge.request.assert_not_called()
 
     @patch("autoplay_harness.runner.clear_debris")
     def test_clear_debris_dispatch_uses_per_target_continuous_budget(self, debris_skill) -> None:
@@ -1401,9 +1406,9 @@ class LongRunIntegrationTests(unittest.TestCase):
         self.state["time"] = 810
         harness._actor_step()
         lessons = harness.notebook.data["lessons"]
-        self.assertEqual(1, len(lessons))
+        self.assertEqual(2, len(lessons))
         self.assertEqual("rejected:door_closed_until_900", lessons[0]["key"])
-        self.assertEqual(2, lessons[0]["count"])
+        self.assertEqual(1, lessons[0]["count"])
         self.assertIn("SeedShop is closed until 9:00 AM", lessons[0]["text"])
         self.assertEqual([], harness.bridge.calls)
 

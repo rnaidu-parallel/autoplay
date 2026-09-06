@@ -1494,7 +1494,8 @@ class AutoplayHarness:
         before_actions = self.game_actions
         urgent = getattr(self, "operator_mode", None) == "finishing" or decision.name == "go_home_and_sleep"
         pending = lambda: hasattr(self, "control") and any((self.control.directory / "inbox").glob("*.json"))
-        self.bridge = AttentiveBridge(bridge, before_state or {}, pending, urgent)
+        self.bridge = AttentiveBridge(bridge, before_state or {}, pending, urgent,
+                                     follow_route=decision.name in {"travel_to", "go_to_location", "go_home_and_sleep"})
         try:
             return self._execute_actor_action(decision, frame, before_state)
         except AttentionYield as pause:
@@ -1619,11 +1620,18 @@ class AutoplayHarness:
                                          self.world)
             self.game_actions += response["controls_executed"]
             return response
-        if name == "travel_to":
+        if name in {"travel_to", "go_to_location"}:
+            state = before_state or {}
+            destination = arguments.get("destination") or arguments["location"]
+            hours = self.world.edge_hours(state.get("location") or "", destination)
+            if hours and isinstance(state.get("time"), int) and not self.world._is_open(state["time"], *hours):
+                return {"status": "rejected", "reason": f"door_closed_until_{hours[0]}",
+                        "openTime": hours[0], "closeTime": hours[1]}
             action_budget = (max(3, len(self.world.nodes) * 3) if self.continuous
                              else self.max_actions - self.game_actions)
             response = travel_to(
-                self.bridge, before_state or {}, self.world, arguments["destination"], action_budget
+                self.bridge, before_state or {}, self.world,
+                destination, action_budget
             )
             self.game_actions += response["controls_executed"]
             return response
@@ -1646,24 +1654,6 @@ class AutoplayHarness:
             return self._execute_control_sequence(arguments["steps"], before_state)
         if name == "navigate_to":
             response = self.bridge.request("navigate", x=arguments["tile_x"], y=arguments["tile_y"], ticks=600)
-        elif name == "go_to_location":
-            state = before_state or {}
-            hours = self.world.edge_hours(state.get("location") or "", arguments["location"])
-            current_time = state.get("time")
-            if hours is not None and isinstance(current_time, int):
-                open_time, close_time = hours
-                if not self.world._is_open(current_time, open_time, close_time):
-                    return {"status": "rejected", "reason": f"door_closed_until_{open_time}",
-                            "openTime": open_time, "closeTime": close_time}
-            response = self.bridge.request("go_to_location", location=arguments["location"], ticks=600)
-            reason = response.get("error") or response.get("reason")
-            if response.get("status") != "completed" and reason in {"no_walkable_path", "no_walkable_path_to_exit"}:
-                response_state = response.get("state") or {}
-                self.world.record_blocked_path(
-                    (before_state or {}).get("location") or "",
-                    arguments["location"],
-                    calendar_day(response_state) or calendar_day(before_state or {}) or 1,
-                )
         elif name == "press":
             response = self.bridge.request("press", buttons=arguments["buttons"])
         elif name == "hold":
@@ -1757,9 +1747,6 @@ class AutoplayHarness:
         self.game_actions += 1
         if name != "wait":
             response = self._settle_transition(response)
-        if (name == "go_to_location" and (response.get("state") or {}).get("location") == arguments["location"]
-                and (before_state or {}).get("location") != arguments["location"]):
-            self.world.clear_blocked_path((before_state or {}).get("location") or "", arguments["location"])
         if movement_key is not None and self._same_position(before_state, response.get("state")):
             self.blocked_movements.add(movement_key)
             response = {
@@ -2004,14 +1991,14 @@ class AutoplayHarness:
             "tool": state.get("tool"),
             "stamina": state.get("stamina"),
             "health": state.get("health"),
-            "time": state.get("time"),
+            "time": state.get("time") if decision.name in {"wait", "idle"} else None,
             "day": state.get("day"),
             "inventory": inventory,
         }
         if decision.name == "click_menu_entry":
             observable.update({key: state.get(key) for key in ("menuEntries", "journal", "letterText")})
         return json.dumps(
-            {"tool": decision.name, "arguments": {key: value for key, value in decision.arguments.items() if key != "say"},
+            {"tool": decision.name, "arguments": {key: value for key, value in decision.arguments.items() if key not in {"say", "frame_id"}},
              "state": observable},
             sort_keys=True,
             separators=(",", ":"),

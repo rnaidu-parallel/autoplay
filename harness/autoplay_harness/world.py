@@ -67,6 +67,10 @@ class WorldMap:
                 self._save()
             return
         if location != self.last_location:
+            # A real crossing supersedes an older failed attempt, including failures from an old bridge.
+            self.unreachable_edges = [edge for edge in self.unreachable_edges
+                                      if (edge.get("from"), edge.get("to")) != (self.last_location, location)]
+            self.clear_blocked_path(self.last_location, location)
             self.entered_from = self.last_location
             changed = True
         self.last_location = location
@@ -90,6 +94,12 @@ class WorldMap:
     def _pocket_blocked(self, name: str, entered_from: str | None) -> set[tuple[str, str]]:
         """Exits observed unreachable from this entry point recently. Debris gets cleared, so old observations lapse."""
         pocket = self.pockets.get(f"{name}|{entered_from or '*'}")
+        if pocket is None and entered_from:
+            # Walking into a cave and straight back cannot move us across farm debris.
+            # An exit reachable from a known pocket returns to that same pocket.
+            pocket = next((value for key, value in sorted(self.pockets.items(),
+                           key=lambda item: item[1].get("day") or 0, reverse=True)
+                           if key.startswith(name + "|") and value.get("reachable", {}).get(entered_from)), None)
         if not pocket or not isinstance(self.current_day, int) or not isinstance(pocket.get("day"), int):
             return set()
         if self.current_day - pocket["day"] > 3:
@@ -175,7 +185,7 @@ class WorldMap:
             key=lambda name: (not self.nodes[name].get("isOutdoors", False), distances[name], name),
         )[:6]
         unreachable = list(dict.fromkeys(
-            edge["to"] for edge in self.unreachable_edges if edge.get("to") in self.nodes
+            target for _source, target in sorted(self._unreachable_pairs()) if target in self.nodes
         ))[-12:]
         blocked_pairs = self._blocked_pairs(self.entered_from, current)
         destinations = {edge["to"] for edge in self.edges if edge["from"] == current}
@@ -275,6 +285,7 @@ class WorldMap:
             (edge["from"], edge["to"])
             for edge in self.unreachable_edges
             if edge.get("from") and edge.get("to")
+            and (self.current_day is None or self.current_day - edge.get("day", self.current_day) <= 3)
         }
 
     def _blocked_pairs(self, entered_from: str | None = None, name: str | None = None) -> set[tuple[str, str]]:
@@ -394,6 +405,8 @@ def travel_to(
         transit = send("go_to_location", location=hop, ticks=600)
         if unsafe():
             return finish("blocked", "world_changed_or_damage_taken")
+        if transit.get("status") == "yielded" and transit.get("reason") == "movement_segment_finished":
+            continue
         if transit.get("status") != "completed" and current.get("location") != hop:
             reason = remember_failed_edge(from_name, hop, transit)
             if (reason in {"no_walkable_path", "no_walkable_path_to_exit"} or reason.startswith(("no_exit_", "door_action_"))) and current.get("location") == from_name:

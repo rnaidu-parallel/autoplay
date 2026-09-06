@@ -245,6 +245,7 @@ class GoHomeAndSleepTests(unittest.TestCase):
                          [call[0] for call in bridge.calls])
         self.assertNotIn(["Y"], [arguments["buttons"] for kind, arguments in bridge.calls
                                  if kind == "press"])
+        self.assertIn(("press", {"buttons": ["X"]}), bridge.calls)
         self.assertEqual(["enter_farmhouse", "reach_bed", "answer_sleep_prompt", "new_day",
                           "night_finished"],
                          [step["step"] for step in result["steps"]])

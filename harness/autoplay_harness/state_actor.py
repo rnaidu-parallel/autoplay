@@ -14,7 +14,7 @@ something you choose to postpone. Keep planting and tilling controllers inside n
 Skills are optional helpers. Use inspect_scene whenever you want the full ordinary controls to
 improvise, explore, or interact; you are not restricted to the activities covered by skills.
 This request has structured state, not a screenshot. Never invent tiles, items, or progress.
-Use go_to_location for an adjacent destination listed in warps; the bridge handles doors,
+Use go_to_location for a destination listed in world.exits; the route planner handles doors,
 collision-aware walking, and transition settling. Use navigate_to for a known tile in the
 current location. Do not plan individual movement keys or collision paths yourself.
 World gives here, exits, nearest unvisited locations, and routeHome; use travel_to for a
@@ -25,8 +25,8 @@ slot in the first toolbar row. The local controller walks, selects, aims, and ve
 live crop plus one seed consumed at each target, stopping on failure, damage, or a world
 change. Existing crops must not be counted as new planting. Do not till or water with it.
 Use till_tiles for up to six tiles listed in tillableNearby, water_crops for up to six
-cropsNearby rows with watered false, and go_home_and_sleep to end the day from the Farm or
-FarmHouse; each selects and verifies its own tool and reports the tiles or steps it proved.
+cropsNearby rows with watered false, and go_home_and_sleep to end the day from any location;
+each selects and verifies its own tool and reports the tiles or steps it proved.
 Prefer clear_debris over manual swings for wood, stone, and fiber targets from nearbyObjects.
 The harness rejects bedtime before 20:00 unless stamina is under 30 or health is low.
 The harness verifies objective completion; a valid tool call alone proves no progress.

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from autoplay_harness.world import WorldMap, travel_to
+from autoplay_harness.attention import AttentiveBridge, AttentionYield
 
 
 NODES = [
@@ -98,6 +99,51 @@ class _StaleBlockedTravelBridge(_TravelBridge):
 
 
 class WorldMapTests(unittest.TestCase):
+    def test_route_continues_across_segments_and_maps_but_obeys_operator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            raw = _TravelBridge("A")
+            normal = raw.request
+            segments = 0
+            def request(kind, **arguments):
+                nonlocal segments
+                if kind == "go_to_location" and segments == 0:
+                    segments += 1
+                    return {"status": "yielded", "reason": "movement_segment_finished",
+                            "state": {"location": "A", "menu": "none", "health": 100}}
+                return normal(kind, **arguments)
+            raw.request = request
+            state = {"location": "A", "menu": "none", "health": 100}
+            bridge = AttentiveBridge(raw, state, lambda: False, follow_route=True)
+            result = travel_to(bridge, state, world, "C", 9)
+            self.assertTrue(result["arrived"])
+            self.assertEqual(["B", "C"], result["hops_completed"])
+            self.assertEqual(7, result["controls_executed"])
+            bridge.pending = lambda: True
+            with self.assertRaises(AttentionYield):
+                bridge.request("go_to_location", location="D", ticks=600)
+
+    def test_old_missing_exit_expires_and_success_clears_new_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.make_world(directory)
+            world.record_unreachable("A", "B", 3, "no_exit_to_location")
+            world.observe({"location": "A", "day": 21})
+            self.assertEqual(["B"], world.route("A", "B"))
+            world.record_unreachable("A", "B", 21, "no_exit_to_location")
+            self.assertEqual([], world.route("A", "B"))
+            world.observe({"location": "B", "day": 21})
+            self.assertEqual([], world.unreachable_edges)
+
+    def test_cave_roundtrip_does_not_invent_access_across_farm_pocket(self):
+        with tempfile.TemporaryDirectory() as directory:
+            world = self.farm_world(directory)
+            world.nodes["Cave"] = {}
+            world.edges += [{"from": "Farm", "to": "Cave"}, {"from": "Cave", "to": "Farm"}]
+            world.observe({"location": "Farm", "day": 5, "exits": [
+                {"target": "FarmHouse", "reachable": False}, {"target": "BusStop", "reachable": False},
+                {"target": "Forest", "reachable": True}, {"target": "Cave", "reachable": True}]})
+            self.assertEqual(["Forest", "Town", "BusStop", "Farm", "FarmHouse"], world.route("Farm", "FarmHouse"))
+
     def farm_world(self, directory: str) -> WorldMap:
         world = WorldMap(Path(directory))
         world.nodes = {name: {"name": name} for name in ("Farm", "Forest", "Town", "BusStop", "FarmHouse")}
@@ -121,7 +167,7 @@ class WorldMapTests(unittest.TestCase):
             world.observe({"location": "Farm", "day": 5})
             self.assertEqual(["FarmHouse"], world.route("Farm", "FarmHouse"))
             world.clear_blocked_path("Farm", "FarmHouse")
-            self.assertEqual(2, len(world.blocked_paths))
+            self.assertEqual(1, len(world.blocked_paths))
 
     def test_travel_recovers_after_blocked_and_missing_exits_without_repeating_them(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

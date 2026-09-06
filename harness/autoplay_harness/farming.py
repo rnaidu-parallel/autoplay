@@ -583,6 +583,8 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
             error = step("press", buttons=["Y"])
         elif menu.startswith("DialogueBox"):
             continue
+        elif menu == "ShippingMenu":
+            error = step("press", buttons=["X"])
         else:
             error = step("press", buttons=["Escape"])
         if error:
@@ -594,6 +596,10 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
 
     idle_rounds = 0
     while not slept() and idle_rounds < 12 and runner.executed < action_budget:
+        if runner.state.get("menu") == "ShippingMenu":
+            error = step("press", buttons=["X"])
+            if error:
+                return finish("blocked", error)
         error = step("idle", ticks=300)
         if error == "action_budget_reached":
             break

@@ -22,6 +22,26 @@ class _Response:
 
 
 class OpenRouterClientTests(unittest.TestCase):
+    @patch("urllib.request.urlopen")
+    def test_gemini38_high_uses_fixed_cache_boundary_and_one_provider(self, urlopen):
+        urlopen.return_value = _Response({"provider": "Google AI Studio",
+            "model": "google/gemini-3.8-flash",
+            "choices": [{"message": {"tool_calls": [{"function": {
+                "name": "close_menu", "arguments": '{"say":"Time to move on."}'}}]}}]})
+        client = OpenRouterClient("secret", OpenRouterClient.GEMINI_38_MODEL, "run", reasoning_effort="high")
+        for context in ("first location", "next location"):
+            client.choose_tool("fixed instructions", context, None, ACTOR_TOOLS,
+                               stable_context=context, max_tokens=2400)
+        payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+        self.assertEqual(payloads[0]["messages"][0], payloads[1]["messages"][0])
+        for payload in payloads:
+            self.assertEqual({"type": "ephemeral"}, payload["messages"][0]["content"][0]["cache_control"])
+            self.assertNotIn("cache_control", json.dumps(payload["messages"][1]))
+            self.assertEqual(["google-ai-studio"], payload["provider"]["only"])
+            self.assertFalse(payload["provider"]["allow_fallbacks"])
+            self.assertEqual({"effort": "high"}, payload["reasoning"])
+            self.assertEqual(8192, payload["max_tokens"])
+
     @patch("autoplay_harness.openrouter.time.sleep")
     @patch("urllib.request.urlopen")
     def test_invalid_argument_retry_explains_error_without_changing_cached_prefix(self, urlopen, _sleep):

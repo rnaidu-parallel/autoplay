@@ -48,7 +48,10 @@ GAME_BRIEF = """How the world and your hands work:
   up in the transcript; respond to it as yourself.
 - `exits` lists every way out of this place with whether it is reachable from where you stand. `world`
   gives exits, nearby unvisited places and the route home; `travel_to` walks a whole multi-hop route,
-  `go_to_location` one hop, `navigate_to` anywhere walkable here. Walking is collision-aware and stops if
+  `go_to_location` also uses that map (detouring when an adjacent exit is blocked), `navigate_to` stays here.
+  Follow `world.routeHome` and `world.exits`; do not retry `world.blockedNow` or `world.unreachable`.
+  A reachable door tile does not prove an unlocked door. Returning through a cave cannot bypass debris.
+  Walking is collision-aware and stops if
   the world changes. A map edge is not a wall; the exit past it is listed in `exits`.
 - Shops and some doors have hours; `door_closed_until_900` means come back at 9:00, not try again.
 - Your bag: `inventory` rows, `inventoryFreeSlots`, `cursorItem` (something held on the cursor blocks the

@@ -45,13 +45,20 @@ class OpenRouterClient:
     GEMINI_MODEL = "google/gemini-2.5-flash-lite"
     QWEN_MODEL = "qwen/qwen3.8-flash"
     GEMINI_FLASH_MODEL = "google/gemini-3.7-flash"
+    GEMINI_38_MODEL = "google/gemini-3.8-flash"
     LUNA_MODEL = "openai/gpt-5.6-luna"
     DEFAULT_MODEL = LUNA_MODEL
     OFFICIAL_PROVIDERS = {
+        GEMINI_38_MODEL: "Google AI Studio",
         GEMINI_FLASH_MODEL: "Google AI Studio",
         LUNA_MODEL: "OpenAI",
     }
     PROVIDER_PREFERENCES = {
+        GEMINI_38_MODEL: {
+            "only": ["google-ai-studio"],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+        },
         GEMINI_FLASH_MODEL: {
             "only": ["google-ai-studio"],
             "allow_fallbacks": False,
@@ -110,7 +117,7 @@ class OpenRouterClient:
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
         self.decision_budget_seconds = decision_budget_seconds
-        self.reasoning_effort = reasoning_effort if model in {self.GLM_MODEL, self.QWEN_MODEL, self.GEMINI_FLASH_MODEL, self.LUNA_MODEL} else None
+        self.reasoning_effort = reasoning_effort if model in {self.GLM_MODEL, self.QWEN_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else None
         self.cancelled = threading.Event()
 
     @classmethod
@@ -119,8 +126,8 @@ class OpenRouterClient:
             raise OpenRouterError("GLM 5.3 Flash supports reasoning effort low, high, or max.")
         if model == cls.QWEN_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
             raise OpenRouterError("Qwen 3.8 Flash requires a supported reasoning effort; use low for gameplay trials.")
-        if model == cls.GEMINI_FLASH_MODEL and reasoning_effort not in {"low", "medium", "high"}:
-            raise OpenRouterError("Gemini 3.7 Flash supports low, medium, or high reasoning effort.")
+        if model in {cls.GEMINI_FLASH_MODEL, cls.GEMINI_38_MODEL} and reasoning_effort not in {"low", "medium", "high"}:
+            raise OpenRouterError("Gemini Flash supports low, medium, or high reasoning effort.")
         if model == cls.LUNA_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
             raise OpenRouterError("Use a supported Luna reasoning effort; low is the gameplay trial default.")
 
@@ -149,7 +156,7 @@ class OpenRouterClient:
                 },
             ],
             "tools": tools,
-            "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.LUNA_MODEL} else "auto",
+            "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else "auto",
             "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
             "session_id": f"{self.run_id}:{cache_namespace}",
             "provider": self.PROVIDER_PREFERENCES[self.model],
@@ -159,6 +166,12 @@ class OpenRouterClient:
         if self.reasoning_effort is not None:
             self.validate_effort(self.model, reasoning_effort or self.reasoning_effort)
             payload["reasoning"] = {"effort": reasoning_effort or self.reasoning_effort}
+        if self.model == self.GEMINI_38_MODEL:
+            # Cache only fixed instructions/tools; state, objectives and screenshots change on every turn.
+            payload["messages"][0]["content"] = [{"type": "text", "text": system_prompt,
+                                                   "cache_control": {"type": "ephemeral"}}]
+            if (reasoning_effort or self.reasoning_effort) == "high":
+                payload["max_tokens"] = max(payload["max_tokens"], 8192)
         if self.model in {self.LUNA_MODEL, self.GLM_MODEL}:
             # The key only routes to a cache-warm server, so it must not change with the objective or world.
             # A breakpoint on the fixed instructions lets a changed slow block fall back to that prefix.

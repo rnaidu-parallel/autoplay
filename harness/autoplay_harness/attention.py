@@ -11,11 +11,13 @@ class AttentionYield(Exception):
 
 
 class AttentiveBridge:
-    def __init__(self, bridge, state: dict[str, Any], pending: Callable[[], bool], urgent: bool = False):
+    def __init__(self, bridge, state: dict[str, Any], pending: Callable[[], bool], urgent: bool = False,
+                 follow_route: bool = False):
         self.bridge = bridge
         self.state = state
         self.pending = pending
         self.urgent = urgent
+        self.follow_route = follow_route
         self.controls = 0
         self.started = time.monotonic()
         self.location = state.get("location")
@@ -30,11 +32,13 @@ class AttentiveBridge:
         response = self.bridge.request(kind, **arguments)
         self.controls += 1
         self.state = response.get("state") or self.state
-        if response.get("status") == "yielded":
+        route_segment = (self.follow_route and kind == "go_to_location"
+                         and response.get("reason") == "movement_segment_finished")
+        if response.get("status") == "yielded" and not route_segment:
             raise AttentionYield(response.get("reason", "movement_segment_finished"), self.state, self.controls)
         if self.pending() and not self.state.get("nightActive"):
             raise AttentionYield("operator_pending", self.state, self.controls)
-        if not self.urgent and self.state.get("location") != self.location:
+        if not self.urgent and not self.follow_route and self.state.get("location") != self.location:
             raise AttentionYield("arrived_in_new_area", self.state, self.controls)
         return response
 
