@@ -79,3 +79,16 @@ Local evidence: `broadcast/local/gemini38-cache-probe.json`,
   It queues Hold unsaved at shutdown. The same Luna monitor handles steering and overnight-page checks.
 - The trial has a $7.40 total gameplay cap, below the $7.41363474 account balance at launch.
   The key's remaining daily limit was higher ($8.328385238); no top-up or quota-reset extension is authorized.
+
+
+## Public trial outcome: stopped early
+
+Twitch/Kick ran from 02:28:33 IST to 02:48:17 IST September 7 (about 19 minutes 44 seconds). Parent stopped for repeated bedtime failure that the supported steer could not resolve. Credits were not exhausted. All OBS outputs and recording were verified inactive; watchdog queued hold `3983a707c0d74cedab0d10afcc92e237`. Game remains open, unsaved Spring23 23:50 at Farm(40,64), inventory menu. No restart or live code changes.
+
+Run `899b7b90-3273-4054-b3b5-e254e9800c15`: 85 actor/director responses, $1.8930872583333334 including private gameplay; separate cache probes excluded. Recording: `broadcast/local/recordings/2026-09-07 02-18-06.mkv`.
+
+The first live night passed out after a Town `no_route` loop despite steer `80c44d4007c44f0184e2a954f0a7282d`. Fresh-day mail, movement, watering and Beach exploration progressed. Luna sent early return-home steer `7663fbdefc284548a6ff85bee4152d52` at Beach17:20. Town18:40 followed; route reached Farm's south pocket at20:00 and could not reach FarmHouse. Only Forest was locally reachable.
+
+Detour steer `4d7f89251a804c99bb1e876cc44199e4` explicitly requested Forest→Town→BusStop→Farm. It was received, but the actor's bedtime tool profile exposed only `go_home_and_sleep`, `close_menu`, and `stop_session` (`runner.py` bedtime tool filter). At21:30 the actor reported navigation tools unavailable. Repeated home calls continued. At25:00 the local bedtime reflex also precedes model choice, so textual steering cannot bypass it. This is a harness/controller limitation; the trial does not establish that model weakness caused the failure.
+
+Next repair options, not implemented during this stream: let the bedtime controller execute a pocket-aware detour while preserving the bedtime objective, or retain the necessary normal navigation tools when the home controller reports a blocked route. First replay this exact south-pocket state and inspect why the route graph failed to select the known detour. A future readiness gate must demonstrate successful return from that pocket and normal sleep; a five-minute daytime check was insufficient.
