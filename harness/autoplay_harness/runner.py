@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ctypes
 import os
 import re
 import time
@@ -159,8 +160,21 @@ class AutoplayHarness:
         self.director_reasoning_effort = director_reasoning_effort or reasoning_effort
         OpenRouterClient.validate_effort(model, self.director_reasoning_effort)
 
+    @staticmethod
+    def _keep_display_awake(on: bool) -> None:
+        """Desktop duplication dies when Windows switches the display off; an unattended run must hold it on."""
+        if os.name != "nt":
+            return
+        continuous, system_required, display_required = 0x80000000, 0x00000001, 0x00000002
+        flags = continuous | system_required | display_required if on else continuous
+        try:
+            ctypes.windll.kernel32.SetThreadExecutionState(flags)
+        except Exception:
+            pass
+
     def run(self) -> str:
         started_at = time.monotonic()
+        self._keep_display_awake(True)
         self.control.update(mode="starting", closed=False, message="Connecting to the farmer.")
         self.telemetry.record(
             "session_started",
@@ -342,6 +356,7 @@ class AutoplayHarness:
                     self.supervisor.stop_started_game()
             except Exception:
                 pass
+            self._keep_display_awake(False)
             try:
                 self.client.cancelled.set()
             except Exception:
@@ -561,11 +576,21 @@ class AutoplayHarness:
                 capture_started = time.perf_counter()
                 frame = self.capture.capture()
                 capture_ms = (time.perf_counter() - capture_started) * 1000
-            except CaptureError:
-                if attempt == 20:
-                    raise
-                time.sleep(0.25)
-                continue
+                if getattr(self, "blind", False):
+                    self.blind = False
+                    self.telemetry.record("capture_restored", {}, include_recent=False)
+            except CaptureError as error:
+                if attempt < 6:
+                    time.sleep(0.25)
+                    continue
+                # A live run keeps playing from structured state alone rather than dying for want of a picture.
+                viewport = response.get("state") or {}
+                frame = Frame(str(uuid.uuid4()), viewport.get("viewportWidth") or 1280, viewport.get("viewportHeight") or 720,
+                              "", None)
+                capture_ms = 0.0
+                if not getattr(self, "blind", False):
+                    self.blind = True
+                    self.telemetry.record("capture_unavailable", {"error": str(error)[:300]}, include_recent=False)
             state = response.get("state") or {}
             if state.get("worldReady"):
                 self.world.load(self.bridge, state.get("worldMapVersion"))
@@ -660,7 +685,7 @@ class AutoplayHarness:
         if self._bedtime_reflex(state):
             return
         state_only = (getattr(self, "actor_mode", "visual") == "state-first"
-                      and not self.inspect_next_scene and can_use_state_actor(state))
+                      and not self.inspect_next_scene and can_use_state_actor(state)) or not getattr(frame, "data_url", True)
         self.inspect_next_scene = False
         if getattr(self, "last_progress_fingerprint", None) is None:
             self.last_progress_fingerprint = self._stall_fingerprint(state)

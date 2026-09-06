@@ -5,6 +5,7 @@ import ctypes
 import io
 import os
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -42,6 +43,13 @@ class Frame:
     visual_brightness: float = 0.0
     image_width: int = 0
     image_height: int = 0
+
+
+def _try_grab(camera, region):
+    try:
+        return camera.grab(region=region)
+    except Exception as error:  # reported to the caller on its own thread
+        return error
 
 
 class ScreenCapture:
@@ -85,6 +93,8 @@ class ScreenCapture:
         except (AttributeError, OSError):
             ctypes.windll.user32.SetProcessDPIAware()
 
+    grab_timeout_seconds = 5.0
+
     def capture(self) -> Frame:
         user32 = ctypes.windll.user32
         handle = user32.GetForegroundWindow()
@@ -107,11 +117,20 @@ class ScreenCapture:
             raise CaptureError("The foreground window has no visible client area.")
 
         camera = self._get_camera()
-        try:
-            pixels = camera.grab(region=(top_left.x, top_left.y, bottom_right.x, bottom_right.y))
-        except Exception as error:
+        # Desktop duplication can block indefinitely once the display sleeps or resets; a live run
+        # must never hang on it, so the grab runs on a worker with a deadline.
+        region = (top_left.x, top_left.y, bottom_right.x, bottom_right.y)
+        result: list = []
+        worker = threading.Thread(target=lambda: result.append(_try_grab(camera, region)), daemon=True)
+        worker.start()
+        worker.join(self.grab_timeout_seconds)
+        if worker.is_alive():
+            self._camera = None  # the stuck duplicator is abandoned with its thread
+            raise CaptureError(f"Screen capture did not return within {self.grab_timeout_seconds} seconds.")
+        pixels = result[0]
+        if isinstance(pixels, Exception):
             self._release_camera()
-            raise CaptureError(f"Screen capture failed: {error}") from error
+            raise CaptureError(f"Screen capture failed: {pixels}") from pixels
         if pixels is None:
             raise CaptureError("Screen capture did not return a fresh frame for the game window.")
         image = Image.fromarray(pixels)

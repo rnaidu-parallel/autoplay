@@ -136,6 +136,15 @@ actions care about geometry and menus, menu clicks about the entry list, key pre
 scene (dialogue versus world) and pending questions, and skills about place, day and cutscenes. A
 dialogue page that advanced while the model was thinking is not staleness.
 
+## Capture failures
+
+The harness holds the display awake for the whole run (`SetThreadExecutionState`), because Windows
+switching the display off kills desktop duplication; on 7 September a run froze inside a screen grab
+about ten minutes after the last human input. Each grab now has a five-second deadline. If capture
+keeps failing, the run goes blind rather than stopping: decisions use structured state and the
+state-first tool set (no pointer tools) until a frame comes back, with `capture_unavailable` and
+`capture_restored` in the event log.
+
 ## Navigation and pockets
 
 The bridge tests tile walkability with a canonical player box centred on the tile, chooses the nearest
