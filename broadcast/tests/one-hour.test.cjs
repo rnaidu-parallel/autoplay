@@ -10,7 +10,7 @@ async function trial({credits = false, gate = true} = {}) {
   let now = 0, live = false, recording = true, stoppedAt, connected = false;
   const writes = [];
   const proof = {runId, accepted: gate, model: 'google/gemini-3.8-flash', provider: 'Google AI Studio',
-                 reasoning: 'high', cachedTokens: {'actor-visual': 9476, 'actor-state': 6518, director: 3646}};
+                 reasoning: 'low', cachedTokens: {'actor-visual': 9476, 'actor-state': 6518, director: 3646}};
   const tail = Buffer.from(credits ? '{"type":"model_error","error":"HTTP 402 insufficient credits"}\n' : '');
   const fakeFs = {
     readFileSync: file => JSON.stringify(file.endsWith('status.json') ? {closed: false} : proof),

@@ -9,7 +9,7 @@ if (!runId || !/^[a-f0-9-]{36}$/.test(runId)) throw Error('Supply the verified r
 const run = path.join(root, 'harness/runs', runId);
 const proof = JSON.parse(fs.readFileSync(path.join(__dirname, 'local/gemini38-stream-gate.json'), 'utf8'));
 if (proof.runId !== runId || proof.accepted !== true || proof.model !== 'google/gemini-3.8-flash'
-    || proof.provider !== 'Google AI Studio' || proof.reasoning !== 'high'
+    || proof.provider !== 'Google AI Studio' || proof.reasoning !== 'low'
     || !['actor-visual', 'actor-state', 'director'].every(role => proof.cachedTokens[role] > 0))
   throw Error('The Gemini cache and gameplay gate has not passed for this run.');
 const readControl = () => JSON.parse(fs.readFileSync(path.join(run, 'control/status.json'), 'utf8'));
