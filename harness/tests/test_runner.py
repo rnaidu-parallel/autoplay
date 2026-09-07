@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from autoplay_harness.calendar import calendar_day
 from autoplay_harness.capture import Frame
 from autoplay_harness.notebook import Notebook
 from autoplay_harness.objectives import ObjectiveLedger
@@ -1235,24 +1236,38 @@ class LongRunIntegrationTests(unittest.TestCase):
             state = after
         self.assertIsNone(harness.ledger.snapshot()["active"])
 
-    def test_late_night_offers_only_bed_and_one_am_needs_no_decision(self):
+    def test_bedtime_keeps_detour_tools_in_both_actor_modes(self):
         harness = self.harness
         harness.bridge = _Bridge()
         harness._decide = Mock(side_effect=RuntimeError("request captured"))
-        for hour, offered_only_bed in ((600, False), (2330, True)):
-            state = {**self.state, "location": "Town", "time": hour}
-            harness._observe = Mock(return_value=(state, self.frame))
-            with self.assertRaisesRegex(RuntimeError, "request captured"):
-                harness._actor_step()
-            offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
-            self.assertEqual(offered_only_bed, "travel_to" not in offered)
-            self.assertIn("go_home_and_sleep", offered)
-        harness._decide = Mock(side_effect=RuntimeError("no decision expected"))
-        harness._execute_actor_tool = Mock(return_value={"status": "completed", "state": {**self.state, "location": "FarmHouse"}})
-        harness._observe = Mock(return_value=({**self.state, "location": "Town", "time": 2510}, self.frame))
+        for mode in ("visual", "state-first"):
+            for hour in (2130, 2330, 2510):
+                with self.subTest(mode=mode, hour=hour):
+                    harness.actor_mode = mode
+                    state = {**self.state, "location": "Farm", "time": hour, "tileX": 40, "tileY": 64}
+                    harness.forced_bedtime = calendar_day(state)
+                    harness._observe = Mock(return_value=(state, self.frame))
+                    with self.assertRaisesRegex(RuntimeError, "request captured"):
+                        harness._actor_step()
+                    offered = {tool['function']['name'] for tool in harness._decide.call_args.args[3]}
+                    self.assertTrue({"travel_to", "go_to_location", "navigate_to", "go_home_and_sleep"} <= offered)
+                    self.assertIn("take a detour", harness._decide.call_args.args[1])
+        self.assertEqual([], harness.bridge.calls)
+
+    def test_one_am_failed_home_returns_to_actor_without_automatic_retries(self):
+        harness = self.harness
+        state = {**self.state, "time": 2510, "location": "Farm", "tileX": 40, "tileY": 64}
+        harness._observe = Mock(return_value=(state, self.frame))
+        harness._execute_actor_tool = Mock(return_value={"status": "blocked", "reason": "no_route", "state": state})
+        harness._decide = Mock(return_value=(ToolDecision("go_home_and_sleep", {}, {}, None), 1))
         harness._actor_step()
-        self.assertEqual("go_home_and_sleep", harness._execute_actor_tool.call_args.args[0].name)
-        harness._decide.assert_not_called()
+        harness._execute_actor_tool.assert_called_once()
+        self.assertEqual("no_route", harness.last_result["reason"])
+        harness._decide = Mock(side_effect=RuntimeError("recovery decision"))
+        with self.assertRaisesRegex(RuntimeError, "recovery decision"):
+            harness._actor_step()
+        harness._execute_actor_tool.assert_called_once()
+        self.assertIn("no_route", harness._decide.call_args.args[1])
 
     def test_quest_contents_change_dynamic_context_without_changing_system_prompt(self):
         harness = self.harness

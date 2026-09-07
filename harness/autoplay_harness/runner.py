@@ -677,13 +677,11 @@ class AutoplayHarness:
             return
         if self._complete_verified_objective(state):
             return
-        # Reflexes that need no decision: watch a scene through, greet someone in reach, get home at night.
+        # Reflexes that need no decision: watch a scene through, greet someone in reach.
         if self._play_dialogue(state) or self._greet_in_passing(state):
             state, frame = self._observe()
             if self._complete_verified_objective(state):
                 return
-        if self._bedtime_reflex(state):
-            return
         state_only = (getattr(self, "actor_mode", "visual") == "state-first"
                       and not self.inspect_next_scene and can_use_state_actor(state)) or not getattr(frame, "data_url", True)
         self.inspect_next_scene = False
@@ -697,9 +695,6 @@ class AutoplayHarness:
         self.objective_decisions = getattr(self, "objective_decisions", 0) + 1
         self.decisions += 1
         tools = STATE_ACTOR_TOOLS if state_only else ACTOR_TOOLS
-        if self._bedtime_due(state):
-            # Late enough that the only sensible decision is how to say goodnight.
-            tools = [tool for tool in tools if tool["function"]["name"] in {"go_home_and_sleep", "close_menu", "stop_session"}]
         if state.get("eventUp"):
             unavailable = {"navigate_to", "go_to_location", "travel_to", "check_mail",
                            "open_menu_tab", "plant_seeds", "plant_nearest_seeds",
@@ -866,19 +861,6 @@ class AutoplayHarness:
         return bool(state.get("worldReady") and (forced or (state.get("time") or 0) >= 2330)
                     and state.get("location") != "FarmHouse" and not state.get("eventUp")
                     and getattr(self, "operator_mode", None) != "finishing")
-
-    def _bedtime_reflex(self, state: dict[str, Any]) -> bool:
-        """Past 1 AM nobody deliberates about bed. Walk home and sleep without a model call."""
-        if not self._bedtime_due(state) or (state.get("time") or 0) < 2500 or state.get("menu") != "none":
-            return False
-        self.telemetry.record("bedtime_reflex", {"time": state.get("time"), "location": state.get("location")})
-        decision = ToolDecision("go_home_and_sleep", {}, {}, None)
-        result = self._execute_actor_tool(decision, None, state)
-        self.last_result = {"tool": "go_home_and_sleep", "status": result.get("status"), "reason": result.get("reason")}
-        self.telemetry.record("tool_result", {"tool": "go_home_and_sleep", "source": "bedtime_reflex", "result": result})
-        if result.get("state"):
-            self._checkpoint_if_saved(result["state"])
-        return True
 
     def _track_action_retries(self, decision: ToolDecision, result: dict[str, Any],
                              before: dict[str, Any], after: dict[str, Any]) -> None:
@@ -2200,6 +2182,11 @@ class AutoplayHarness:
             "harnessLastResult": self.last_result,
             "harnessStaminaLow": (state.get("stamina") or 0) < 30 if state.get("worldReady") else False,
             "harnessBedtimeAllowed": getattr(self, "operator_mode", None) == "finishing" or self._bedtime_allowed(state),
+            "harnessBedtimeGuidance": (
+                "Return home now. If the home route fails, use the map and reachable exits to take a detour; "
+                "do not repeat the same blocked route. Navigation tools remain available."
+                if self._bedtime_due(state) else None
+            ),
             "harnessStalledDecisions": getattr(self, "stalled_decisions", 0),
         }
         if isinstance(state.get("curiosities"), list) and hasattr(self, "notebook"):

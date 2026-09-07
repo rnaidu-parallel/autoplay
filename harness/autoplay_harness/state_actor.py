@@ -101,7 +101,7 @@ def compact_state(state: dict[str, Any]) -> dict[str, Any]:
               "health", "stamina", "money", "toolbarIndex", "tool", "tilledTiles",
               "plantedCrops", "seedsSown", "wateredCrops", "harvestableCrops", "inventoryCounts",
               "wateringCanWater", "wateringCanMax", "bedTile",
-              "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed",
+              "warps", "harnessLastResult", "harnessStaminaLow", "harnessBedtimeAllowed", "harnessBedtimeGuidance",
               "mailCount", "questStates", "questRevision", "mailboxTile", "hudMessages", "npcsNearby",
               "inventoryCapacity", "inventoryFreeSlots", "cursorItem", "menuReadyToClose", "shippingBinCount", "exits",
               "harnessStalledDecisions", "harnessBlockedDirectionsHere")

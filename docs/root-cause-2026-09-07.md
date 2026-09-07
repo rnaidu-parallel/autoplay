@@ -92,3 +92,10 @@ The first live night passed out after a Town `no_route` loop despite steer `80c4
 Detour steer `4d7f89251a804c99bb1e876cc44199e4` explicitly requested Forest→Town→BusStop→Farm. It was received, but the actor's bedtime tool profile exposed only `go_home_and_sleep`, `close_menu`, and `stop_session` (`runner.py` bedtime tool filter). At21:30 the actor reported navigation tools unavailable. Repeated home calls continued. At25:00 the local bedtime reflex also precedes model choice, so textual steering cannot bypass it. This is a harness/controller limitation; the trial does not establish that model weakness caused the failure.
 
 Next repair options, not implemented during this stream: let the bedtime controller execute a pocket-aware detour while preserving the bedtime objective, or retain the necessary normal navigation tools when the home controller reports a blocked route. First replay this exact south-pocket state and inspect why the route graph failed to select the known detour. A future readiness gate must demonstrate successful return from that pocket and normal sleep; a five-minute daytime check was insufficient.
+
+
+## Bedtime recovery repair after the trial
+
+Removed the bedtime-only tool filter and automatic1AM sleep reflex. Bedtime remains dynamic guidance in visual and compact actor contexts; normal navigation remains available. Each sleep attempt is now a model action, so a blocked result returns to the actor rather than triggering an automatic retry on every loop iteration. Offline regression tests cover forced bedtime and23:30/25:10 in both actor modes, and a failed1AM home attempt returning its no_route evidence to the next decision. All329 Python tests pass; no paid gameplay rehearsal.
+
+This repairs the two controller regressions; the underlying map detour from Farm's south pocket remains to be verified. User prefers paid gameplay validation on stream. Gemini low has not been measured: compare future live calls against Luna low median4.12s/p95 5.65s; notify Rahul if Gemini low is not faster. No new public stream started by this repair.
