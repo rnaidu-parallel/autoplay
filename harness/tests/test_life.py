@@ -46,6 +46,12 @@ class LifeTests(unittest.TestCase):
         self.assertEqual(["Please bring my axe."], self.notebook.data["life"]["letters"])
         self.assertEqual(1, len(self.notebook.life_context(state)["attention"]))  # unread remaining mail
 
+    def test_journal_special_order_without_id_is_keyed_by_title(self):
+        state = {"worldReady": True, "menu": "QuestLog", "questRevision": "a",
+                 "journal": [{"id": None, "title": "Robin's Project", "description": "Bring 80 hardwood"}]}
+        self.notebook.observe_life(state)  # a None key used to break the JSON save
+        self.assertEqual("Bring 80 hardwood", self.notebook.data["life"]["quests"]["order:Robin's Project"]["description"])
+
     def test_navigation_yield_preserves_state_and_bounds_nested_controller(self):
         before = {"location": "Farm", "pixelX": 20}
         after = {"location": "Farm", "pixelX": 400}

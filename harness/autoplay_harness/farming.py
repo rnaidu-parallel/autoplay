@@ -267,6 +267,55 @@ def plant_seeds(bridge: NamedPipeBridge, state: dict[str, Any], seed_slot: int,
     return finish("completed")
 
 
+def refill_watering_can(bridge: NamedPipeBridge, state: dict[str, Any], action_budget: int) -> dict[str, Any]:
+    """Walk to the nearest edge of a farm water box, face the water and use the can; verified by the water count."""
+    runner = _Controls(bridge, state, action_budget)
+
+    def finish(status: str, reason: str | None = None) -> dict[str, Any]:
+        return {"status": status, "reason": reason, "state": runner.state, "controls_executed": runner.executed,
+                "water": runner.state.get("wateringCanWater"), "control_timings": runner.timings}
+
+    slot = _tool_slot(state, "Watering Can")
+    if slot is None:
+        return finish("rejected", "watering_can_must_be_in_the_first_toolbar_row")
+    boxes = (state.get("farmLayout") or {}).get("waterBoxes") or []
+    if state.get("location") != "Farm" or not boxes:
+        return finish("rejected", "refill_needs_a_farm_water_box")
+    here = (state.get("tileX") or 0, state.get("tileY") or 0)
+    edges: set[tuple[int, int]] = set()
+    for box in boxes:
+        for x in range(box["x1"], box["x2"] + 1):
+            edges.update({(x, box["y1"]), (x, box["y2"])})
+        for y in range(box["y1"], box["y2"] + 1):
+            edges.update({(box["x1"], y), (box["x2"], y)})
+    last_error = "no_reachable_water_edge"
+    for water in sorted(edges, key=lambda tile: abs(tile[0] - here[0]) + abs(tile[1] - here[1]))[:6]:
+        stand = None
+        for dx, dy in FACING_KEYS:
+            beside = (water[0] + dx, water[1] + dy)
+            if beside in edges or runner.executed + 4 > action_budget:
+                continue
+            error = runner.control("navigate", x=beside[0], y=beside[1], ticks=600)
+            if not error and (runner.state.get("tileX"), runner.state.get("tileY")) == beside:
+                stand = beside
+                break
+            last_error = error or "navigation_did_not_reach_water"
+        if stand is None:
+            continue
+        error = runner.select_tool(slot, "Watering Can") or runner.face((water[0] - stand[0], water[1] - stand[1]), force=True)
+        if error:
+            return finish("blocked", error)
+        before = runner.state.get("wateringCanWater") or 0
+        error = runner.control("press", buttons=["C"])
+        if error:
+            return finish("blocked", error)
+        runner.send("wait", field="using_tool", value="false", ticks=180)
+        if (runner.state.get("wateringCanWater") or 0) > before:
+            return finish("completed", "refilled")
+        last_error = "refill_not_verified"
+    return finish("blocked", last_error)
+
+
 def water_crops(bridge: NamedPipeBridge, state: dict[str, Any], tiles: list[dict[str, int]],
                 action_budget: int) -> dict[str, Any]:
     """Water observed dry crops with ordinary inputs, verifying each tile before continuing."""
@@ -294,7 +343,12 @@ def water_crops(bridge: NamedPipeBridge, state: dict[str, Any], tiles: list[dict
             return finish("partial", "action_budget_reached")
         water_before = runner.state.get("wateringCanWater") or 0
         if water_before <= 0:
-            return finish("blocked", "watering_can_empty")
+            refill = refill_watering_can(bridge, runner.state, action_budget - runner.executed)
+            runner.state, runner.executed = refill["state"], runner.executed + refill["controls_executed"]
+            water_before = runner.state.get("wateringCanWater") or 0
+            if refill["status"] != "completed" or water_before <= 0:
+                reason = "watering_can_empty" if refill["status"] == "rejected" else "watering_can_empty:" + str(refill.get("reason"))
+                return finish("blocked", reason)
         stand, error = runner.stand_beside(target)
         if stand is None:
             return finish("blocked", error)
@@ -517,6 +571,13 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
     if state.get("location") not in {"Farm", "FarmHouse"} and world_map is None:
         return finish("blocked", "not_on_farm")
 
+    if state.get("canMove") is False and "Pole" in str(state.get("tool") or "") and state.get("menu") == "none":
+        # A cast line pins the farmer; one more use of the rod reels it in. A 2 AM pass-out came from skipping this.
+        runner.send("press", buttons=["C"])
+        runner.send("wait", field="can_move", value="true", ticks=240)
+        state = runner.state
+        steps.append({"step": "reel_in", "canMove": state.get("canMove")})
+
     if state.get("location") != "FarmHouse" and world_map is not None:
         travel = travel_to(bridge, state, world_map, "FarmHouse", action_budget)
         runner.state = travel["state"]
@@ -541,6 +602,15 @@ def go_home_and_sleep(bridge: NamedPipeBridge, state: dict[str, Any], action_bud
     if not bed:
         return finish("blocked", "bed_tile_unavailable")
     error = step("navigate", x=bed["x"], y=bed["y"], ticks=600)
+    pet_nearby = any(item.get("kind") == "pet" for item in runner.state.get("curiosities") or []) or         any(npc.get("kind") == "Pet" for npc in runner.state.get("npcsNearby") or [])
+    if error and pet_nearby and not runner.state.get("dialogueResponses"):
+        # A pet in the doorway is not a wall: walking into it nudges it aside. One 2 AM pass-out came from this.
+        dx = bed["x"] - (runner.state.get("tileX") or 0)
+        dy = bed["y"] - (runner.state.get("tileY") or 0)
+        key = ("D" if dx > 0 else "A") if abs(dx) >= abs(dy) else ("S" if dy > 0 else "W")
+        step("hold", buttons=[key], ticks=45)
+        error = step("navigate", x=bed["x"], y=bed["y"], ticks=600)
+        steps.append({"step": "nudge_pet", "key": key, "error": error})
     if error and not runner.state.get("dialogueResponses"):
         return finish("blocked", error)
     steps.append({"step": "reach_bed", "bed": bed, "menu": runner.state.get("menu"),

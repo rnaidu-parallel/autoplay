@@ -93,10 +93,12 @@ class Notebook:
         if state.get("menu") == "QuestLog":
             life["journal_revision_read"] = state.get("questRevision")
             for quest in state.get("journal", []):
-                previous = life["quests"].get(quest["id"], {})
-                life["quests"][quest["id"]] = {**previous, **quest}
+                # Special orders arrive without an id; key them by title, as life.observe does.
+                key = str(quest.get("id") or f"order:{quest.get('title')}")
+                previous = life["quests"].get(key, {})
+                life["quests"][key] = {**previous, **quest}
                 if quest.get("description") == "Open this journal entry for details." and previous.get("description"):
-                    life["quests"][quest["id"]]["description"] = previous["description"]
+                    life["quests"][key]["description"] = previous["description"]
         letter = state.get("letterText")
         if letter and letter not in life["letters"]:
             life["letters"].append(letter)

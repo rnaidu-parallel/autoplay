@@ -38,6 +38,8 @@ def observe(life: dict, state: dict) -> None:
         life["inventory_blocked"] = True
     texts = life.setdefault("texts", {})
     for notice in state.get("notices", []):
+        if notice.get("id") is None:
+            continue  # a board posting or special order without an id would poison the dictionary keys
         if notice["id"] in texts:
             continue
         texts[notice["id"]] = notice
@@ -63,7 +65,8 @@ def observe(life: dict, state: dict) -> None:
         # acknowledge a transcript that was retained after the exchange closed.
         life.pop("responding_to", None)
     if "quests" in state:
-        current = {quest["id"]: quest for quest in state["quests"]}
+        # Special orders arrive without an id; key them by title so they still show in the journal.
+        current = {str(quest.get("id") or f"order:{quest.get('title')}"): quest for quest in state["quests"]}
         for key, quest in current.items():
             life["quests"][key] = quest
         life["active_quest_ids"] = list(current)
