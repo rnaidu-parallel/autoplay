@@ -78,7 +78,7 @@ STATE_ACTOR_TOOLS = [tool for tool in ACTOR_TOOLS if tool["function"]["name"] in
     {"say": {
         "type": "string",
         "maxLength": 200,
-        "description": "What Neon is thinking right now, in her own voice, for the people watching: one or two short sentences, present tense. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
+        "description": "What Neon is thinking right now, in his own voice, for the people watching: one or two short sentences, present tense. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
     }},
     ["say"],
 )]

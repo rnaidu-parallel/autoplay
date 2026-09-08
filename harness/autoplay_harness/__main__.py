@@ -14,13 +14,13 @@ import time
 import uuid
 from pathlib import Path
 
-import imageio_ffmpeg
 
 from . import chat, overlay
 from .bridge import NamedPipeBridge
 from .capture import CaptureError, Frame, ScreenCapture
 from .control import OperatorControl
 from .forever import run_forever
+from .agent import AgentHarness
 from .openrouter import OpenRouterClient
 from .prompts import ACTOR_SYSTEM_PROMPT
 from .recording import GameplayRecorder
@@ -55,7 +55,7 @@ def main() -> int:
     run_parser.add_argument(
         "--model",
         choices=list(OpenRouterClient.PROVIDER_PREFERENCES),
-        default=OpenRouterClient.DEFAULT_MODEL,
+        default=None,
     )
     run_parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "max"], default="low")
     run_parser.add_argument("--director-reasoning-effort", choices=["low", "medium", "high", "max"], default=None,
@@ -67,6 +67,10 @@ def main() -> int:
     run_parser.add_argument("--save-frames", action="store_true")
     run_parser.add_argument("--keep-game-open", action="store_true")
     run_parser.add_argument("--record-video", action="store_true")
+    run_parser.add_argument("--max-days", type=int, default=None,
+                            help="Agent mode: stop when this many game days have ended (after the last verified sleep)")
+    run_parser.add_argument("--agent", action="store_true",
+                            help="Single-agent day session (docs/specs/one-agent-day-session.md): no director, no objective grammar; the objective and diary are the agent's own")
     run_parser.add_argument("--video-segment-minutes", type=int, default=5, choices=range(1, 61))
     run_parser.add_argument(
         "--video-retention-segments",
@@ -169,6 +173,9 @@ def main() -> int:
         return 0
 
     if arguments.command == "run":
+        # 9: single-agent mode is specified against Muse Spark; the two-role loop keeps its own default.
+        if arguments.model is None:
+            arguments.model = OpenRouterClient.MUSE_MODEL if arguments.agent else OpenRouterClient.DEFAULT_MODEL
         if arguments.attach:
             if arguments.resume_checkpoint or arguments.isolated_state or arguments.objective or arguments.success_condition or arguments.forever:
                 parser.error("--attach uses current shared state for one run; omit checkpoint, objective, isolated-state and forever options")
@@ -176,7 +183,7 @@ def main() -> int:
                 parser.error("--attach requires existing shared objectives, notebook and world state")
         if arguments.resume_checkpoint and (arguments.isolated_state or arguments.objective or arguments.success_condition):
             parser.error("--resume-checkpoint uses shared checkpoint objectives; omit --isolated-state, --objective and --success-condition")
-        if not arguments.forever and not arguments.resume_checkpoint and not arguments.attach and (arguments.objective is None or arguments.success_condition is None):
+        if not arguments.forever and not arguments.resume_checkpoint and not arguments.attach and not arguments.agent and (arguments.objective is None or arguments.success_condition is None):
             parser.error("run requires --objective and --success-condition unless --forever, --resume-checkpoint or --attach is set")
         if arguments.forever and ((arguments.objective is None) != (arguments.success_condition is None)):
             parser.error("--objective and --success-condition must be provided together")
@@ -186,6 +193,29 @@ def main() -> int:
         def build_harness() -> AutoplayHarness:
             objective = arguments.objective
             success_condition = arguments.success_condition
+            if arguments.agent:
+                return AgentHarness(
+                    repository_root=root,
+                    model=arguments.model,
+                    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                    max_actions=arguments.max_actions,
+                    max_decisions=arguments.max_decisions,
+                    launch_game=not (arguments.no_launch_game or arguments.attach),
+                    save_frames=arguments.save_frames,
+                    keep_game_open=arguments.keep_game_open and not arguments.forever,
+                    continuous=arguments.continuous,
+                    record_video=arguments.record_video,
+                    video_segment_minutes=arguments.video_segment_minutes,
+                    video_retention_segments=arguments.video_retention_segments,
+                    reasoning_effort=arguments.reasoning_effort,
+                    isolated_state=arguments.isolated_state,
+                    budget_usd=arguments.budget_usd,
+                    max_minutes=arguments.max_minutes,
+                    forever=arguments.forever,
+                    resume_checkpoint=arguments.resume_checkpoint,
+                    attach=arguments.attach,
+                    max_days=arguments.max_days,
+                )
             if arguments.forever and objective is None and not arguments.resume_checkpoint:
                 ledger_path = root / "harness" / "state" / "objectives.json"
                 active_objective = None
@@ -479,6 +509,7 @@ def main() -> int:
 
 
 def _decoded_frame_count(video: Path) -> int:
+    import imageio_ffmpeg
     result = subprocess.run(
         [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-v", "error", "-stats", "-i", str(video), "-f", "null", "-"],
         capture_output=True,
@@ -489,6 +520,7 @@ def _decoded_frame_count(video: Path) -> int:
 
 
 def _frame_digest(video: Path, timestamp: float) -> str:
+    import imageio_ffmpeg
     result = subprocess.run(
         [
             imageio_ffmpeg.get_ffmpeg_exe(),

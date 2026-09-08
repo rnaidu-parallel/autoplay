@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import pathlib
+import re
 import time
 import threading
 import urllib.error
@@ -27,6 +29,7 @@ class ToolDecision:
     reasoning: str | None = None
     provider: str | None = None
     attempts: tuple[dict[str, Any], ...] = ()
+    call_id: str | None = None
 
 
 def _message_text(value: Any) -> str | None:
@@ -47,13 +50,20 @@ class OpenRouterClient:
     GEMINI_FLASH_MODEL = "google/gemini-3.7-flash"
     GEMINI_38_MODEL = "google/gemini-3.8-flash"
     LUNA_MODEL = "openai/gpt-5.6-luna"
+    MUSE_MODEL = "meta/muse-spark-1.3-contributor"
     DEFAULT_MODEL = LUNA_MODEL
     OFFICIAL_PROVIDERS = {
+        MUSE_MODEL: "Meta",
         GEMINI_38_MODEL: "Google AI Studio",
         GEMINI_FLASH_MODEL: "Google AI Studio",
         LUNA_MODEL: "OpenAI",
     }
     PROVIDER_PREFERENCES = {
+        MUSE_MODEL: {
+            "only": ["meta"],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+        },
         GEMINI_38_MODEL: {
             "only": ["google-ai-studio"],
             "allow_fallbacks": False,
@@ -117,7 +127,7 @@ class OpenRouterClient:
         self.timeout_seconds = timeout_seconds
         self.max_tokens = max_tokens
         self.decision_budget_seconds = decision_budget_seconds
-        self.reasoning_effort = reasoning_effort if model in {self.GLM_MODEL, self.QWEN_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else None
+        self.reasoning_effort = reasoning_effort if model in {self.GLM_MODEL, self.QWEN_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL, self.MUSE_MODEL} else None
         self.cancelled = threading.Event()
 
     @classmethod
@@ -130,6 +140,8 @@ class OpenRouterClient:
             raise OpenRouterError("Gemini Flash supports low, medium, or high reasoning effort.")
         if model == cls.LUNA_MODEL and reasoning_effort not in {"low", "medium", "high", "max"}:
             raise OpenRouterError("Use a supported Luna reasoning effort; low is the gameplay trial default.")
+        if model == cls.MUSE_MODEL and reasoning_effort not in {"low", "medium", "high"}:
+            raise OpenRouterError("Muse Spark supports low, medium, or high reasoning effort.")
 
     def choose_tool(
         self,
@@ -156,7 +168,7 @@ class OpenRouterClient:
                 },
             ],
             "tools": tools,
-            "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else "auto",
+            "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else "auto",  # Meta serves Muse with tool_choice auto only
             "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
             "session_id": f"{self.run_id}:{cache_namespace}",
             "provider": self.PROVIDER_PREFERENCES[self.model],
@@ -183,6 +195,71 @@ class OpenRouterClient:
                                                    "prompt_cache_breakpoint": {"mode": "explicit"}}]
             if stable_context:
                 payload["messages"][1]["content"][0]["prompt_cache_breakpoint"] = {"mode": "explicit"}
+        return self._request_tool_call(payload, tools, {"input_image": bool(image_data_url), "system_chars": len(system_prompt),
+                                                         "context_chars": len(dynamic_context)})
+
+    def complete_turn(
+        self,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        reasoning_effort: str | None = None,
+        max_tokens: int | None = None,
+        timeout_seconds: int | None = None,
+        cache_namespace: str = "agent",
+    ) -> ToolDecision:
+        """One turn of a running conversation: system + transcript + newest observation in, one tool call out.
+
+        The system text and every transcript turn before the newest user message are a stable prefix;
+        explicit cache markers go on the system text and on the last user turn before the newest one."""
+        system: Any = system_prompt
+        transcript = [dict(message) for message in messages]
+        marker = ({"cache_control": {"type": "ephemeral"}} if self.model in {self.MUSE_MODEL, self.GEMINI_38_MODEL}
+                  else {"prompt_cache_breakpoint": {"mode": "explicit"}} if self.model == self.LUNA_MODEL else None)
+        if marker:
+            system = [{"type": "text", "text": system_prompt, **marker}]
+            earlier_users = [index for index, message in enumerate(transcript[:-1]) if message.get("role") == "user"]
+            if earlier_users:
+                index = earlier_users[-1]
+                content = transcript[index].get("content")
+                if isinstance(content, list) and content and content[-1].get("type") == "text":
+                    transcript[index] = {**transcript[index], "content": [*content[:-1], {**content[-1], **marker}]}
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, *transcript],
+            "tools": tools,
+            "tool_choice": "required" if self.model in {self.GEMINI_MODEL, self.GEMINI_FLASH_MODEL, self.GEMINI_38_MODEL, self.LUNA_MODEL} else "auto",  # Meta serves Muse with tool_choice auto only
+            "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
+            "session_id": f"{self.run_id}:{cache_namespace}",
+            "provider": self.PROVIDER_PREFERENCES[self.model],
+        }
+        if self.model != self.LUNA_MODEL:
+            payload["temperature"] = 0.2
+        if self.reasoning_effort is not None:
+            self.validate_effort(self.model, reasoning_effort or self.reasoning_effort)
+            payload["reasoning"] = {"effort": reasoning_effort or self.reasoning_effort}
+        if self.model in {self.LUNA_MODEL, self.GLM_MODEL}:
+            prefix = json.dumps([self.model, system_prompt, tools], sort_keys=True, separators=(",", ":"))
+            payload["prompt_cache_key"] = "autoplay:" + hashlib.sha256(prefix.encode()).hexdigest()[:24]
+        if self.model == self.LUNA_MODEL:
+            payload["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
+        image = any(part.get("type") == "image_url" for message in transcript
+                    if isinstance(message.get("content"), list) for part in message["content"])
+        context_chars = sum(len(json.dumps(message.get("content") or "")) for message in transcript)
+        return self._request_tool_call(payload, tools, {"input_image": image, "system_chars": len(system_prompt),
+                                                         "context_chars": context_chars, "turns": len(transcript)},
+                                       timeout_seconds=timeout_seconds)
+
+    @staticmethod
+    def _append_correction(payload: dict[str, Any], text: str) -> None:
+        last = payload["messages"][-1]
+        if last.get("role") == "user" and isinstance(last.get("content"), list):
+            last["content"].append({"type": "text", "text": text})
+        else:
+            payload["messages"].append({"role": "user", "content": [{"type": "text", "text": text}]})
+
+    def _request_tool_call(self, payload: dict[str, Any], tools: list[dict[str, Any]], diagnostics_extra: dict[str, Any],
+                           timeout_seconds: int | None = None) -> ToolDecision:
         body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         request = urllib.request.Request(
             self.API_URL,
@@ -198,7 +275,7 @@ class OpenRouterClient:
         aggregate_usage: dict[str, Any] = {}
         attempts: list[dict[str, Any]] = []
         last_error = "Expected a tool call, received none."
-        deadline = time.monotonic() + self.decision_budget_seconds
+        deadline = time.monotonic() + (timeout_seconds or self.decision_budget_seconds)
         for response_attempt in range(3):
             if self.cancelled.is_set() or time.monotonic() >= deadline:
                 raise OpenRouterError(f"{last_error} Decision cancelled or time budget exhausted.", attempts, aggregate_usage)
@@ -214,9 +291,7 @@ class OpenRouterClient:
             diagnostic = attempts[-1]
             diagnostic.update({
                 "request_bytes": len(body),
-                "input_image": bool(image_data_url),
-                "system_chars": len(system_prompt),
-                "context_chars": len(dynamic_context),
+                **diagnostics_extra,
                 "tools_count": len(tools),
                 "response_id": result.get("id"),
                 "model": result.get("model"),
@@ -264,14 +339,15 @@ class OpenRouterClient:
                                 reasoning=_message_text(message.get("reasoning")),
                                 provider=result.get("provider"),
                                 attempts=tuple(attempts),
+                                call_id=tool_calls[0].get("id"),
                             )
             diagnostic.update({"outcome": "rejected", "error": last_error})
             if response_attempt < 2:
                 # A retry must explain the observed failure; an identical prompt repeats it.
-                payload["messages"][1]["content"].append({"type": "text", "text":
+                self._append_correction(payload,
                     "Your previous response was rejected: " + last_error +
                     " Return one valid tool call. Follow the schema exactly; keep text well below maxLength. "
-                    "Do not repeat the invalid arguments."})
+                    "Do not repeat the invalid arguments.")
                 body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 request = urllib.request.Request(self.API_URL, data=body, method="POST", headers=dict(request.header_items()))
                 time.sleep(1)
@@ -282,7 +358,8 @@ class OpenRouterClient:
             remaining = min(self.timeout_seconds, deadline - time.monotonic())
             if self.cancelled.is_set() or remaining <= 0:
                 raise OpenRouterError("OpenRouter request skipped: decision time budget exhausted.")
-            diagnostic = {"response_attempt": response_attempt, "http_attempt": attempt + 1}
+            diagnostic = {"response_attempt": response_attempt, "http_attempt": attempt + 1,
+                          "request_bytes": len(request.data or b"")}
             diagnostics.append(diagnostic)
             started = time.perf_counter()
             try:
@@ -291,11 +368,30 @@ class OpenRouterClient:
                     return json.load(response)
             except urllib.error.HTTPError as error:
                 diagnostic.update({"http_status": error.code, "outcome": "http_error"})
-                retryable = error.code == 429 or error.code >= 500
+                detail = error.read().decode("utf-8", errors="replace")
+                # Meta's validator intermittently rejects a request it accepts seconds later; that is worth a retry.
+                flaky_validation = error.code == 400 and "Invalid input" in detail and "provider_name" in detail
+                retryable = error.code == 429 or error.code >= 500 or flaky_validation
                 if not retryable or attempt == 2:
-                    detail = error.read().decode("utf-8", errors="replace")
+                    # A validator that names an index ("[35] : Invalid input") is talking about one message; show it.
+                    match = re.search(r"\[(\d+)\]", detail)
+                    if error.code == 400 and match:
+                        try:
+                            messages = json.loads(request.data)["messages"]
+                            index = int(match[1])
+                            if index < len(messages):
+                                detail += " | message[%d]=%s" % (index, json.dumps(messages[index])[:1500])
+                                shape = [{"i": i, "role": m.get("role"), "parts": [p.get("type") for p in m["content"]] if isinstance(m.get("content"), list) else type(m.get("content")).__name__,
+                                          "tool_calls": [c.get("type") for c in m.get("tool_calls", [])], "tool_call_id": m.get("tool_call_id")} for i, m in enumerate(messages)]
+                                dump = pathlib.Path(__file__).resolve().parents[1] / "state" / "bad-requests"
+                                dump.mkdir(parents=True, exist_ok=True)
+                                (dump / f"{int(time.time())}.json").write_text(json.dumps({"error": detail[:600], "shape": shape}, indent=1), encoding="utf-8")
+                                (dump / f"{int(time.time())}.body.json").write_bytes(request.data or b"")
+                        except (ValueError, KeyError, TypeError):
+                            pass
                     raise OpenRouterError(f"OpenRouter returned HTTP {error.code}: {detail}") from error
-            except (urllib.error.URLError, TimeoutError) as error:
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+                # URLError, a reset while reading the body, or a truncated JSON body: all worth one more try.
                 diagnostic.update({"outcome": "transport_error", "error": str(error)})
                 if attempt == 2:
                     raise OpenRouterError(f"OpenRouter request failed: {error}") from error

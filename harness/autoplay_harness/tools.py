@@ -318,7 +318,7 @@ for _actor_tool in ACTOR_TOOLS:
     _parameters["properties"]["say"] = {
         "type": "string",
         "maxLength": 200,
-        "description": "What Neon is thinking right now, in her own voice, for the people watching: one or two short sentences, present tense. React to what just happened before saying what is next. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
+        "description": "What Neon is thinking right now, in his own voice, for the people watching: one or two short sentences, present tense. React to what just happened before saying what is next. Never tool names, coordinates, brackets, or anything about being an AI or a program.",
     }
     _parameters["required"].append("say")
 

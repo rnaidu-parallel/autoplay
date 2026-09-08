@@ -12,6 +12,14 @@ The harness completes the active objective itself, without a model call, the mom
 
 There is no growing transcript of prior user and assistant turns. Each call is stateless. Durable state lives in explicit files and bounded context fields. This keeps request size stable and removes the need to compact a conversational transcript.
 
+## Single-agent mode
+
+`run --agent` replaces the actor/director pair with one persona, one conversation per game day, a
+diary the character writes himself, self-judged objectives and a few physics-level circuit breakers.
+It reuses observation, reflexes, verified skills and execution from this loop. Design, event schema
+and acceptance criteria: [one agent, one day per session](specs/one-agent-day-session.md). Score a
+run with `python -m autoplay_harness.validate_days --save <saveId>`.
+
 ## Prompt caching
 
 The system prompt and tool list stay byte-stable between actor calls. Dynamic state stays in the final user message, ordered from slow-changing (ledger, memory, wiki) to fast-changing (game state, frame, counters) so a prefix-caching provider can reuse as much as possible. Each run also sends one stable OpenRouter `session_id`, which gives compatible providers a sticky routing key. Cache availability and discounts still depend on the selected model and provider; the pinned free MiniMax endpoint returned a live hit rate under 10%.
@@ -138,7 +146,7 @@ dialogue page that advanced while the model was thinking is not staleness.
 
 ## Curiosity
 
-A character can only be curious about what she can perceive, so the bridge reports `curiosities`
+A character can only be curious about what he can perceive, so the bridge reports `curiosities`
 within twelve tiles: pets and farm animals (pet), the television (watch), gift packages and chests
 (open), signs, boards and calendars (read), forage (pick up) and artifact spots (dig), each with a
 tile and a zoom-corrected screen centre. The actor's `look_at(x, y)` skill walks beside the thing,

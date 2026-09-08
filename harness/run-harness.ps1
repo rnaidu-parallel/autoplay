@@ -35,6 +35,10 @@ if ($env:AUTOPLAY_PYTHON) {
     $pythonCandidates += $env:AUTOPLAY_PYTHON
 }
 
+$venvPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+if (Test-Path -LiteralPath $venvPython) {
+    $pythonCandidates += $venvPython
+}
 $bundledPython = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
 if (Test-Path -LiteralPath $bundledPython) {
     $pythonCandidates += $bundledPython

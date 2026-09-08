@@ -4,6 +4,8 @@ Status 2026-09-03: memory, narration, operator controls, and capture/attach repa
 
 ## Current proposed work
 
+[One agent, one day per session](one-agent-day-session.md) is the agreed next harness: a single persona with a per-day conversation, a diary it owns, self-judged objectives, and one late backstop, on Muse Spark 1.3 Contributor. It supersedes the continuous-farm-life plan below where they conflict.
+
 [Continuous farm life](continuous-farm-life.md) incorporates Rahul's VOD feedback: 4–6 visible turns, interruptible travel, encounters, quest/journal/mail handling, persistent intentions and remembered curiosity. The runtime implementation removes compulsory daily agendas/themes and expands the feed to six turns. Live acceptance evidence and remaining rehearsal gates belong in the smoke report.
 
 Implement and validate its focused scenarios before another full rehearsal. Use the remaining approved allowance, the Windowed attach workflow, and Finish & Save from [streaming.md](../streaming.md). `--max-minutes` is a deadline, not a graceful save request. Channel/upload preparation and reviewed recording remain prerequisites for public output.

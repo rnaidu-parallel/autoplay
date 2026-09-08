@@ -4,7 +4,6 @@ import subprocess
 import time
 from pathlib import Path
 
-import imageio_ffmpeg
 
 
 class RecordingError(RuntimeError):
@@ -32,6 +31,11 @@ class GameplayRecorder:
         self.encoder: str | None = None
 
     def _command(self, encoder: str = PRIMARY_ENCODER) -> list[str]:
+        try:
+            import imageio_ffmpeg  # bundled ffmpeg binary; imported when recording starts
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except ImportError:
+            ffmpeg = "ffmpeg"
         pattern = self.directory / "gameplay-%03d.mp4"
         segment_start_number = len(list(self.directory.glob("gameplay-*.mp4")))
         # Frames stay on the GPU only if a CUDA device can be derived from the desktop's
@@ -68,7 +72,7 @@ class GameplayRecorder:
                 "yuv420p",
             ]
         command = [
-            imageio_ffmpeg.get_ffmpeg_exe(),
+            ffmpeg,
             "-y",
             "-hide_banner",
             "-loglevel",

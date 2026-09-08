@@ -13,3 +13,4 @@ artifacts/fullscreen-rejected-frame.jpg
 .env.*
 !.env.example
 .idea/
+harness/.venv/

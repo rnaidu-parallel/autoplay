@@ -11,7 +11,6 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-import dxcam
 from PIL import Image, ImageStat
 
 
@@ -55,10 +54,10 @@ def _try_grab(camera, region):
 class ScreenCapture:
     def __init__(
         self,
-        jpeg_quality: int = 75,
+        jpeg_quality: int = 60,  # was 75: the frame dominated a ~600 KB request that Meta then clipped
         save_directory: Path | None = None,
         require_game_window: bool = True,
-        max_image_width: int = 1280,
+        max_image_width: int = 1024,
     ) -> None:
         self.jpeg_quality = jpeg_quality
         self.max_image_width = max_image_width
@@ -182,6 +181,7 @@ class ScreenCapture:
         # WinRT returned an old title splash while the live game was on the farm.
         for _ in range(3):
             try:
+                import dxcam  # heavy Windows-only dependency; imported when a camera is first needed
                 self._camera = dxcam.create(
                     backend="dxgi",
                     output_color="RGB",

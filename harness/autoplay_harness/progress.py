@@ -1,4 +1,4 @@
-"""Notice when an activity has gone quiet so the character can change her mind.
+"""Notice when an activity has gone quiet so the character can change his mind.
 
 This never ends a run. A live stream must keep going, so a drought of new game evidence
 asks for a replan first and, if that does not help, escalates to a scene change.
@@ -40,7 +40,7 @@ class ActivityProgress:
         facts = {(key, json.dumps(state[key], sort_keys=True)) for key in (
             "location", "inventoryCounts", "money", "seedsSown", "plantedCrops",
             "wateredCrops", "tilledTiles", "harvestableCrops", "questRevision",
-            "mailCount", "saveCount", "eventId", "shippingBinCount",
+            "mailCount", "saveCount", "eventId", "shippingBinCount", "minigame",
         ) if key in state}
         if state.get("eventId") is not None:
             facts.add(("eventPhase", json.dumps([state["eventId"], state.get("eventPhase")])))
