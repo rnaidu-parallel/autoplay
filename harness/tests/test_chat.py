@@ -308,6 +308,21 @@ class ChatTests(unittest.TestCase):
             twitch.send.assert_called_once_with("Neon: Quiet out here tonight.")  # nobody anywhere: everywhere
             self.assertEqual(3, kick.send.call_count)
 
+    def test_the_outcome_of_a_request_is_told_where_it_was_asked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "harness" / "runs" / "run-1"
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None},
+                "audience": {"id": "cmd-1", "day": 25, "goal": "go fishing", "support": 1, "status": "done", "note": None},
+            })
+            twitch, kick = Mock(), Mock()
+            agent = ChatAgent(root, FixedExtractor([]), mode="bind", senders={"twitch": twitch, "kick": kick})
+            agent.state["selection"] = {"goal": "go fishing", "command_id": "cmd-1", "message_id": "kick:k1"}
+            asyncio.run(agent.process_window([], 100))
+            kick.send.assert_called_once_with("Neon completed chat's request: go fishing.")
+            twitch.send.assert_not_called()
+
     def test_kick_sender_posts_into_the_channel_and_refreshes_once_on_401(self):
         with tempfile.TemporaryDirectory() as directory:
             tokens = Path(directory) / "kick-tokens.json"

@@ -910,8 +910,11 @@ class ChatAgent:
             message = f"Neon tried chat's request but could not finish it: {selection['goal']}."
         else:
             message = f"Chat's request missed today's plan: {selection['goal']}."
+        # The answer goes where the request was made, not to every room he can speak in.
+        asked_on = "kick" if str(selection.get("message_id") or "").startswith("kick:") else "twitch"
+        senders = {asked_on: self.senders[asked_on]} if asked_on in self.senders else self.senders
         errors = []
-        for platform, sender in self.senders.items():
+        for platform, sender in senders.items():
             parent = selection.get("message_id") if platform == "twitch" else None
             try:
                 await asyncio.to_thread(self._send, sender, message, parent)
@@ -919,7 +922,7 @@ class ChatAgent:
                 errors.append(f"{platform}: {error}")
         if errors:
             selection["reply_error"] = "; ".join(errors)
-        if len(errors) < len(self.senders):
+        if len(errors) < len(senders):
             selection["last_reply_status"] = status
             if not errors:
                 selection.pop("reply_error", None)
