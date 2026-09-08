@@ -10,10 +10,12 @@ from autoplay_harness.chat import (
     ChatAgent,
     ChatMessage,
     IntentExtractor,
+    KickChatSender,
     MessageFilter,
     TwitchChatSender,
     VoteTable,
     parse_irc_message,
+    parse_kick_event,
 )
 from autoplay_harness.control import OperatorControl, write_json
 from autoplay_harness.openrouter import ToolDecision
@@ -145,6 +147,104 @@ class ChatTests(unittest.TestCase):
             state = json.loads((root / "chat" / "state.json").read_text(encoding="utf-8"))
             self.assertEqual("shadow", state["selection"]["status"])
             self.assertFalse((run / "control" / "inbox").exists())
+
+    def test_kick_events_become_messages_with_prefixed_ids(self):
+        raw = json.dumps({"event": "App\\Events\\ChatMessageEvent", "channel": "chatrooms.42.v2",
+                          "data": json.dumps({"id": "abc", "content": "pet the dog!", "type": "message",
+                                              "sender": {"id": 7, "username": "viewer7", "slug": "viewer7"}})})
+        parsed = parse_kick_event(raw, 50.0)
+        self.assertEqual(("kick:abc", "kick:7", "viewer7", "pet the dog!", 50.0),
+                         (parsed.id, parsed.user_id, parsed.user_name, parsed.text, parsed.received_at))
+        self.assertIsNone(parse_kick_event(json.dumps({"event": "pusher:ping", "data": {}})))
+        self.assertIsNone(parse_kick_event("not json"))
+
+    def test_recent_chat_lines_are_kept_and_a_second_request_follows_a_settled_one(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "harness" / "runs" / "run-1"
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None}, "audience": None,
+            })
+            control = OperatorControl(run)
+            control.update(mode="playing", closed=False)
+            first = message("m1", "u1", "go fishing")
+            agent = ChatAgent(root, FixedExtractor([("go fishing", [first])]), mode="bind")
+            asyncio.run(agent.process_window([first, message("m0", "u3", "hello Neon!")], 100))
+            state = json.loads((root / "chat" / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual(["go fishing", "hello Neon!"], [item["text"] for item in state["recent_messages"]])
+            queued = control.consume()
+            self.assertEqual(["go fishing"], [item["message"] for item in queued])
+            # the first request is done; chat's next one goes in the same day
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None},
+                "audience": {"id": queued[0]["id"], "day": 25, "goal": "go fishing", "support": 1, "status": "done", "note": None},
+            })
+            second = message("m2", "u2", "visit town")
+            agent.extractor = FixedExtractor([("visit town", [second])])
+            asyncio.run(agent.process_window([second], 160))
+            self.assertEqual(["visit town"], [item["message"] for item in control.consume()])
+
+    def test_his_chat_lines_are_relayed_as_him_to_every_platform_with_a_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "harness" / "runs" / "run-1"
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None}, "audience": None,
+            })
+            twitch, kick = Mock(), Mock()
+            agent = ChatAgent(root, FixedExtractor([]), mode="bind", senders={"twitch": twitch, "kick": kick})
+            asyncio.run(agent.process_window([], 100))  # a fresh start skips whatever was written before
+            from datetime import datetime, timezone
+            def decision(seq, chat, at):
+                return json.dumps({"type": "actor_decision", "call_id": f"c{seq}", "tool": "idle",
+                                   "at": datetime.fromtimestamp(at, timezone.utc).isoformat(),
+                                   "arguments": {"say": "Hm.", "chat": chat, "ticks": 1}}) + "\n"
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(json.dumps({"type": "observation", "at": "2026-09-08T10:00:00+00:00"}) + "\n")
+                events.write(decision(1, "Fishing it is, viewer7.", 150))
+                events.write(decision(2, "Anyone know where the axe is?", 152))
+            asyncio.run(agent.process_window([], 160))
+            twitch.send.assert_called_once_with("Neon: Fishing it is, viewer7.")
+            kick.send.assert_called_once_with("Neon: Fishing it is, viewer7.")  # the second line waits out the gap
+            asyncio.run(agent.process_window([], 200))
+            self.assertEqual(1, twitch.send.call_count)  # already consumed: a line is relayed once or not at all
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(3, "Old news.", 50))
+                events.write(decision(4, "Fresh.", 230))
+            asyncio.run(agent.process_window([], 240))
+            self.assertEqual(["Neon: Fishing it is, viewer7.", "Neon: Fresh."], [call.args[0] for call in twitch.send.call_args_list])
+
+    def test_kick_sender_posts_into_the_channel_and_refreshes_once_on_401(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tokens = Path(directory) / "kick-tokens.json"
+            write_json(tokens, {"access_token": "old", "refresh_token": "r1"})
+            sender = KickChatSender(tokens, 127558339, "cid", "secret")
+            requests = []
+
+            class Response:
+                def __init__(self, payload):
+                    self.payload = payload
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+                def read(self):
+                    return json.dumps(self.payload).encode("utf-8")
+
+            def urlopen(request, timeout=0):
+                requests.append(request)
+                if request.full_url == KickChatSender.CHAT_URL and request.headers["Authorization"] == "Bearer old":
+                    raise urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
+                if request.full_url == KickChatSender.TOKEN_URL:
+                    return Response({"access_token": "new", "refresh_token": "r2"})
+                return Response({"data": {"is_sent": True, "message_id": "k1"}})
+
+            with patch("urllib.request.urlopen", urlopen):
+                self.assertEqual("k1", sender.send("Neon: hello"))
+            self.assertEqual([KickChatSender.CHAT_URL, KickChatSender.TOKEN_URL, KickChatSender.CHAT_URL],
+                             [request.full_url for request in requests])
+            self.assertEqual({"broadcaster_user_id": 127558339, "content": "Neon: hello", "type": "user"}, json.loads(requests[-1].data))
+            self.assertEqual("new", json.loads(tokens.read_text(encoding="utf-8"))["access_token"])
 
     def test_selection_day_is_monotonic_across_seasons(self):
         with tempfile.TemporaryDirectory() as directory:

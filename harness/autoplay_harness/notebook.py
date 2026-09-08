@@ -208,7 +208,7 @@ class Notebook:
         self._save()
 
     def set_audience_demand(self, demand_id: str, goal: str, support: int, day: int) -> None:
-        """Accept at most one audience agenda slot per in-game day."""
+        """Accept one audience request at a time; the next one may follow as soon as this one is settled."""
         goal = goal.strip()
         if not goal:
             raise ValueError("audience demand needs a goal")
@@ -218,8 +218,6 @@ class Notebook:
         self._expire_audience(day)
         if audience["demand"] is not None:
             raise ValueError("an audience demand is already active")
-        if audience["last_slot_day"] == day:
-            raise ValueError("the audience agenda slot was already used today")
         audience["demand"] = {
             "id": demand_id, "goal": goal, "support": support, "day": day, "status": "pending", "note": None,
         }

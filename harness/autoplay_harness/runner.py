@@ -258,7 +258,7 @@ class AutoplayHarness:
                             and self.stop_reason in {None, "max_actions_reached", "max_decisions_reached"}):
                         self.stop_reason = "time_limit_reached"
                 except (BridgeError, CaptureError, OpenRouterError, ObjectiveError, HarnessError,
-                        KeyError, TypeError, ValueError) as error:
+                        KeyError, TypeError, ValueError, OSError) as error:  # OSError: a pipe or capture reset mid-read
                     consecutive_errors += 1
                     self.telemetry.record(
                         "recoverable_error",

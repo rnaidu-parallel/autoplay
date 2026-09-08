@@ -205,7 +205,7 @@ class StallTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def test_advice_then_one_scene_change_when_nothing_new_happens(self):
+    def test_a_quiet_stretch_by_day_is_advice_only_and_his_objective_stays(self):
         harness = make(self.root)
         harness.client.calls = [("press", {"buttons": ["X"], "ticks": index}) for index in range(STALL_DECISIONS + 2)]
         harness.client.results = [{"status": "completed"}] * (STALL_DECISIONS + 2)
@@ -213,12 +213,23 @@ class StallTests(unittest.TestCase):
         for index in range(STALL_DECISIONS):
             harness.current["time"] = 900 + index * 10
             harness._actor_step()
-        self.assertEqual(1, len(events(harness, "stall_advice")))
-        self.assertEqual(1, len(events(harness, "scene_changed_by_harness")))
-        self.assertEqual("Do something clearly different, somewhere else", harness.ledger.data["active"]["goal"])
-        self.assertEqual("stalled", harness.ledger.data["history"][-1]["evidence"])
+        self.assertEqual(2, len(events(harness, "stall_advice")))
+        self.assertEqual(0, len(events(harness, "scene_changed_by_harness")))
+        self.assertEqual("Get my bearings", harness.ledger.data["active"]["goal"])
         advice_observation = harness.client.messages[STALL_DECISIONS - 1][-1]["content"][0]["text"]
         self.assertIn("What will you do differently?", advice_observation)
+
+    def test_a_quiet_stretch_in_the_evening_sends_him_to_bed(self):
+        harness = make(self.root)
+        harness.client.calls = [("press", {"buttons": ["X"], "ticks": index}) for index in range(STALL_DECISIONS + 2)]
+        harness.client.results = [{"status": "completed"}] * (STALL_DECISIONS + 2)
+        harness.progress.observe(harness.current)
+        for index in range(STALL_DECISIONS):
+            harness.current["time"] = 2000 + index * 10
+            harness._actor_step()
+        self.assertEqual(1, len(events(harness, "scene_changed_by_harness")))
+        self.assertEqual("Go home and sleep", harness.ledger.data["active"]["goal"])
+        self.assertEqual("stalled", harness.ledger.data["history"][-1]["evidence"])
 
     def test_completed_waits_do_not_count_toward_the_stall_bound(self):
         harness = make(self.root)
@@ -365,20 +376,77 @@ class SessionTests(unittest.TestCase):
         self.assertEqual("Get my bearings", harness.ledger.data["active"]["goal"])
         self.assertIn("set your own now", harness.client.messages[-1][-1]["content"][0]["text"])
 
-    def test_open_quests_lead_the_morning_and_nag_gently_at_noon(self):
+    def test_the_journal_is_listed_at_dawn_as_passive_with_each_quests_history(self):
         harness = make(self.root)
         harness.notebook.data["life"]["quests"] = {"6": {"id": "6", "title": "Getting Started", "objectives": ["Cultivate and harvest a parsnip."],
                                                          "daysLeft": None, "reward": 100, "complete": False}}
         harness.notebook.data["life"]["active_quest_ids"] = ["6"]
+        harness.ledger.data["history"].append({"goal": "Grow a parsnip", "source": "quest:6", "status": "interrupted",
+                                               "evidence": "seeds in, waiting", "started": {"day": 2, "time": 900}})
         harness.client.calls = [("idle", {"ticks": 1}), ("idle", {"ticks": 2})]
         harness._actor_step()
         first = json.loads(harness.client.messages[0][-1]["content"][0]["text"].split("\n", 1)[1])
-        self.assertEqual("Getting Started", first["quests"]["open"][0]["title"])
-        self.assertTrue(any(note.startswith("Morning. Open quests: Getting Started") for note in first["notes"]))
+        quest = first["quests"]["open"][0]
+        self.assertEqual(("Getting Started", False), (quest["title"], quest["active"]))
+        self.assertEqual({"daysWorked": [2], "lastOutcome": "interrupted", "lastNote": "seeds in, waiting"}, quest["history"])
+        self.assertTrue(any(note.startswith("Morning. Your journal: Getting Started") for note in first["notes"]))
         harness.current["time"] = 1300
         harness._actor_step()
         second = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])
-        self.assertIn("None of your 1 open quests has had any of today yet.", second["notes"])
+        self.assertFalse(any("open quests" in note for note in second["notes"]))
+
+    def test_calling_a_quest_done_while_the_journal_lists_it_open_is_disputed(self):
+        harness = make(self.root)
+        harness.current["quests"] = [{"id": "12", "title": "Delivery: Shane", "objectives": ["Bring Shane a leek"], "complete": False}]
+        harness.client.calls = [
+            ("set_objective", {"kind": "mission", "goal": "Get Shane his leek", "why": "asked", "done_when": "delivered",
+                               "source": "quest:12", "previous_outcome": "abandoned"}),
+            ("set_objective", {"kind": "free", "goal": "Fish", "why": "sun", "done_when": "dusk",
+                               "previous_outcome": "completed", "previous_note": "gave Shane the leek"}),
+            ("idle", {"ticks": 1}),
+        ]
+        for _ in range(3):
+            harness._actor_step()
+        self.assertEqual("Fish", harness.ledger.data["active"]["goal"])
+        self.assertEqual("Delivery: Shane", events(harness, "objective_claim_disputed")[-1]["journal"])
+        third = harness.client.messages[2][-1]["content"][0]["text"]
+        self.assertIn('the journal still lists \\"Delivery: Shane\\" as open: Bring Shane a leek.', third)
+
+    def test_every_game_action_reports_what_it_changed(self):
+        harness = make(self.root)
+        after = {**harness.current, "money": 420, "inventoryCounts": {"Parsnip Seeds": 15, "Cauliflower Seeds": 1},
+                 "cursorItem": "Cauliflower Seeds", "menu": "ShopMenu"}
+        harness.client.calls = [("click", {"frame_id": "frame-1", "x": 0.5, "y": 0.4, "button": "left"}), ("idle", {"ticks": 1})]
+        harness.client.results = [{"status": "completed", "reason": "menu_click_released", "state": after}]
+        harness._actor_step()
+        result = events(harness, "tool_result")[-1]["result"]
+        self.assertEqual({"money": "-80", "bag": {"Cauliflower Seeds": "+1"}, "cursorItem": "Cauliflower Seeds",
+                          "menu": "none -> ShopMenu"}, result["effects"])
+        harness._actor_step()
+        observation = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])
+        self.assertEqual("-80", observation["game"]["harnessLastResult"]["effects"]["money"])
+
+    def test_recent_chat_reaches_him_next_to_the_agreed_request(self):
+        import time as time_module
+        harness = make(self.root)
+        (self.root / "chat").mkdir()
+        (self.root / "chat" / "state.json").write_text(json.dumps({"recent_messages": [
+            {"id": "m1", "user": "viewer7", "text": "pet the dog!", "at": time_module.time() - 30},
+            {"id": "m0", "user": "old", "text": "stale", "at": time_module.time() - 3600}]}), encoding="utf-8")
+        harness.client.calls = [("idle", {"ticks": 1})]
+        harness._actor_step()
+        observation = json.loads(harness.client.messages[0][-1]["content"][0]["text"].split("\n", 1)[1])
+        self.assertIsNone(observation["audience"]["request"])
+        self.assertEqual([("viewer7", "pet the dog!")], [(item["user"], item["text"]) for item in observation["audience"]["chat"]])
+
+    def test_operator_guidance_always_speaks_as_the_stream_operator(self):
+        harness = make(self.root)
+        harness.control.submit(harness.run_id, "steer", "Head home, the axe can wait.")
+        harness.client.calls = [("idle", {"ticks": 1}), ("idle", {"ticks": 2})]
+        harness._actor_step()
+        harness._actor_step()
+        observation = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])
+        self.assertEqual("Stream operator: Head home, the axe can wait.", observation["operator"]["guidance"])
 
     def test_private_words_never_reach_say_or_diary(self):
         from autoplay_harness import agent as agent_module

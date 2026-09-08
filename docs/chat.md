@@ -1,6 +1,6 @@
-# Twitch chat agent
+# Chat agent (Twitch and Kick)
 
-The chat agent reads Twitch chat, filters unsafe or excessive input, groups explicit gameplay requests, and maintains a decaying vote table. It selects at most one request per in-game day. The harness converts the selected request into a verified agenda item. Chat never supplies a tool call or success condition.
+The chat agent reads Twitch and Kick chat, filters unsafe or excessive input, groups explicit requests, and maintains a decaying vote table. It submits one agreed request at a time to the farmer, and the next as soon as he has settled the previous one. It also keeps the last ten minutes of accepted lines so the farmer can read and answer chat. Chat never supplies a tool call or success condition.
 
 Shadow mode is the default. It writes the selected request to `chat/state.json` and shows it in the overlay, but it does not steer the game.
 
@@ -16,6 +16,22 @@ Shadow mode is the default. It writes the selected request to `chat/state.json` 
 ```
 
 The anonymous IRC transport needs no Twitch token. Review `chat/state.json` after the stream. Do not use binding mode until one shadow stream is reviewed.
+
+## Read Kick chat too
+
+Kick chat is read over Kick's public Pusher websocket; no Kick account is needed.
+
+1. Set `KICK_CHANNEL` in `.env` to the channel slug, or pass `--kick-channel <slug>`.
+2. If Kick refuses the slug lookup (its front door sometimes blocks scripts), open
+   `https://kick.com/api/v2/channels/<slug>` in a browser, copy `chatroom.id`, and set
+   `KICK_CHATROOM_ID` instead.
+3. Run the agent with both `--channel` and `--kick-channel` to merge the two chats. Kick message
+   and user ids are prefixed `kick:` so they never collide with Twitch's.
+
+The agent keeps the last ten minutes of accepted lines in `chat/state.json`; the farmer sees up to
+six of them in every observation and may answer them. Requests are still extracted and voted on;
+the next agreed request is submitted as soon as the farmer has settled the previous one, so chat
+can ask for several things in one game day.
 
 ## Use EventSub
 
@@ -45,6 +61,26 @@ Run:
 ```
 
 The agent submits only the winning goal and its unique supporter count. The harness schedules a dedicated director planning pass without discarding the actor's in-flight decision. A second request on the same game day is rejected by both the chat agent and the harness.
+
+## Let Neon answer chat
+
+Any action Neon takes can carry a `chat` line: something he says to the viewers, as opposed to
+`say`, which is his narration on the overlay. With `--reply`, the chat agent posts every `chat`
+line as "Neon: ..." on every platform it has credentials for, at most one line per platform every
+twenty seconds, and never a line older than two minutes. Lines written before the agent started are
+not replayed. Request outcomes ("Added to Neon's plan: ...") go to the same platforms.
+
+Twitch replies use the bot account described below. For Kick:
+
+1. Register an app at Kick's developer settings with redirect URI `http://localhost:8790/callback`
+   and the `chat:write` scope; put `KICK_CLIENT_ID` and `KICK_CLIENT_SECRET` in `.env`, and the
+   channel slug (hyphens, as in the channel URL) in `KICK_CHANNEL`.
+2. Run `.\chat\run-chat.ps1 --kick-login` and approve in the browser tab that opens. Lines appear
+   in chat as whichever account approved, so approve as a bot account if you want them separate
+   from your own. Tokens land in `chat/kick-tokens.json` (git-ignored) and refresh themselves.
+3. Start the agent with `--reply`. Lines are posted into the channel named by `KICK_CHANNEL`
+   (`KICK_BROADCASTER_USER_ID` skips the lookup). Kick's bot-type post returned a server error
+   for us, so the agent posts user-type messages aimed at the broadcaster id.
 
 ## Enable Twitch replies
 

@@ -721,15 +721,13 @@ public sealed partial class ModEntry : Mod
 
         // The game refuses to close an inventory menu while an item is held on the cursor.
         this.closeMenuReason = null;
-        if (Game1.player.CursorSlotItem is Item cursorItem)
+        (Item? held, IReflectedField<Item?>? heldField) = this.FindHeldItem();
+        if (held is not null)
         {
-            Game1.player.CursorSlotItem = null;
-            this.closeMenuReason = this.ReturnHeldItem(cursorItem);
-        }
-        if (menu is ItemGrabMenu grabMenu && grabMenu.heldItem is Item grabbedItem)
-        {
-            grabMenu.heldItem = null;
-            this.closeMenuReason = this.ReturnHeldItem(grabbedItem);
+            if (ReferenceEquals(Game1.player.CursorSlotItem, held))
+                Game1.player.CursorSlotItem = null;
+            heldField?.SetValue(null);
+            this.closeMenuReason = this.ReturnHeldItem(held);
         }
 
         this.closeMenuActive = true;
@@ -738,6 +736,22 @@ public sealed partial class ModEntry : Mod
             $"close_menu_started menu={GetMenuState()} held_item={this.closeMenuReason ?? "none"}",
             LogLevel.Info
         );
+    }
+
+    /// <summary>The item on the cursor, wherever the game keeps it: the player's cursor slot, or the
+    /// held item of the open menu page (crafting, shop, chest), which the game does not always draw and
+    /// will not let the menu close over.</summary>
+    private (Item? item, IReflectedField<Item?>? field) FindHeldItem()
+    {
+        if (Game1.player.CursorSlotItem is Item cursor)
+            return (cursor, null);
+        IClickableMenu? menu = Game1.activeClickableMenu;
+        if (menu is GameMenu gameMenu)
+            menu = gameMenu.GetCurrentPage();
+        if (menu is null)
+            return (null, null);
+        IReflectedField<Item?>? field = this.Helper.Reflection.GetField<Item?>(menu, "heldItem", required: false);
+        return (field?.GetValue(), field);
     }
 
     private string ReturnHeldItem(Item item)
@@ -2277,7 +2291,9 @@ public sealed partial class ModEntry : Mod
                 Y = y,
                 ScreenX = (int)((((x * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.X) * zoom),
                 ScreenY = (int)((((y * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.Y) * zoom),
-                Interaction = interaction
+                Interaction = interaction,
+                // A television boxed in by furniture is not worth offering: he cannot stand beside it.
+                Reachable = this.TryGetReachDistance(new Point(x, y), out _)
             });
         }
 
@@ -2503,7 +2519,7 @@ public sealed partial class ModEntry : Mod
             EventCanMove = location.currentEvent?.isFestival == true && Game1.player.CanMove
                 && !Game1.freezeControls && Game1.activeClickableMenu is null,
             Minigame = Game1.currentMinigame?.GetType().Name ?? "none",
-            CursorItem = Game1.player.CursorSlotItem?.DisplayName,
+            CursorItem = this.FindHeldItem().item?.DisplayName,
             DialogueText = Game1.activeClickableMenu is DialogueBox activeDialogue ? activeDialogue.getCurrentString() : null,
             TilledTiles = tilledTiles,
             PlantedCrops = plantedCrops,

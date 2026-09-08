@@ -14,3 +14,4 @@ artifacts/fullscreen-rejected-frame.jpg
 !.env.example
 .idea/
 harness/.venv/
+chat/kick-tokens.json

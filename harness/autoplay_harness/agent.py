@@ -48,7 +48,7 @@ STALL_DECISIONS = 12
 STALL_SECONDS = 150  # ~12 decisions at this model's latency; 90 s fired after six while he was lawfully wandering Town
 SAME_TARGET_LIMIT = 3
 GUIDANCE_DECISIONS = 6
-COMMON_FIELDS = ("say", "diary", "think_harder")
+COMMON_FIELDS = ("say", "diary", "chat", "think_harder")
 BEARINGS = {"kind": "free", "goal": "Get my bearings", "why": "A fresh start; I want to know where things stand.",
             "done_when": "I know what needs doing today"}
 # Words that must never reach the public stream through his mouth or his diary (comma-separated env var).
@@ -61,6 +61,46 @@ def redact(text: Any) -> Any:
     for word in PRIVATE_WORDS:
         text = re.sub(re.escape(word), "the operator", text, flags=re.IGNORECASE)
     return text
+
+
+def _held_name(state: dict[str, Any]) -> str | None:
+    held = state.get("cursorItem")
+    if isinstance(held, dict):
+        stack = held.get("stack")
+        return f"{stack} {held.get('name')}" if isinstance(stack, int) and stack > 1 else held.get("name")
+    return held or None
+
+
+def action_effects(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """What an action actually changed, so a delivered input is never mistaken for an achieved effect.
+
+    Raw inputs (click, hold, press) only report that the input was sent; this is the difference between
+    the world before and after, in the terms he reasons in: money, bag, cursor, place, menu, dialogue."""
+    effects: dict[str, Any] = {}
+    if isinstance(before.get("money"), int) and isinstance(after.get("money"), int) and after["money"] != before["money"]:
+        effects["money"] = f"{after['money'] - before['money']:+d}"
+    counts_before = before.get("inventoryCounts") or {}
+    counts_after = after.get("inventoryCounts") or {}
+    bag = {name: (counts_after.get(name) or 0) - (counts_before.get(name) or 0)
+           for name in set(counts_before) | set(counts_after)}
+    bag = {name: f"{delta:+d}" for name, delta in sorted(bag.items()) if delta}
+    if bag:
+        effects["bag"] = bag
+    if _held_name(before) != _held_name(after):
+        effects["cursorItem"] = _held_name(after) or "put away"
+    if before.get("location") != after.get("location"):
+        effects["location"] = f"{before.get('location')} -> {after.get('location')}"
+    elif all(isinstance(state.get(key), int) for state in (before, after) for key in ("tileX", "tileY")):
+        moved = abs(after["tileX"] - before["tileX"]) + abs(after["tileY"] - before["tileY"])
+        if moved:
+            effects["movedTiles"] = moved
+    if (before.get("menu") or "none") != (after.get("menu") or "none"):
+        effects["menu"] = f"{before.get('menu') or 'none'} -> {after.get('menu') or 'none'}"
+    if after.get("dialogueText") and after.get("dialogueText") != before.get("dialogueText"):
+        effects["dialogue"] = str(after["dialogueText"])[:120]
+    if isinstance(before.get("stamina"), int) and isinstance(after.get("stamina"), int) and after["stamina"] != before["stamina"]:
+        effects["stamina"] = f"{after['stamina'] - before['stamina']:+d}"
+    return effects
 
 
 class AgentProgress(ActivityProgress):
@@ -174,32 +214,29 @@ class AgentHarness(AutoplayHarness):
             self.stall_advice = True
             self.telemetry.record("stall_advice", {**self._ids(), "decisions": self.progress.decisions})
         elif action == "escalate":
-            if state.get("eventUp"):
-                # A festival freezes the clock, so "nothing new for N seconds" means nothing there; advise, never override.
+            evening = (state.get("time") or 0) >= 2000 or (isinstance(state.get("stamina"), int) and state["stamina"] < 30)
+            if evening and not state.get("eventUp") and not state.get("festival"):
+                self._change_scene_by_harness(state)
+            else:
+                # His objective stays his. A festival freezes the clock, and by day a quiet stretch is his to
+                # notice: the advice keeps coming until something new happens.
                 self.stall_advice = True
                 self.progress.reset()
-                self.telemetry.record("stall_advice", {**self._ids(), "decisions": self.progress.decisions, "event": True})
-            else:
-                self._change_scene_by_harness(state)
+                self.telemetry.record("stall_advice", {**self._ids(), "decisions": self.progress.decisions,
+                                                       "event": bool(state.get("eventUp") or state.get("festival"))})
 
     def _change_scene_by_harness(self, state: dict[str, Any]) -> None:
-        evening = (state.get("time") or 0) >= 2000 or (isinstance(state.get("stamina"), int) and state["stamina"] < 30)
-        if evening:
-            objective = {"kind": "free", "goal": "Go home and sleep",
-                         "why": "It is late and nothing new has happened for a while.", "done_when": "I am in bed"}
-        else:
-            objective = {"kind": "free", "goal": "Do something clearly different, somewhere else",
-                         "why": "Nothing new has happened for a while.",
-                         "done_when": "I have started a different activity in a different place"}
+        """The one objective the harness still sets: bed, when it is late and nothing has happened for a while."""
+        objective = {"kind": "free", "goal": "Go home and sleep",
+                     "why": "It is late and nothing new has happened for a while.", "done_when": "I am in bed"}
         replaced = (self.ledger.data.get("active") or {}).get("goal")
         self._set_objective({**objective, "previous_outcome": "interrupted", "previous_note": "stalled"}, state, by_harness=True)
         self.blocked_movements.clear()
         self.failed_targets = {}
         self.last_action_fingerprint = None
         self.stall_advice = False
-        self.notes_pending.append(f"(The harness set your objective aside because nothing new had happened for a while; "
-                                  f"\"{replaced}\" is in your recent objectives. Do something clearly different first, then set "
-                                  "your own objective again, the old one included, once something has changed.)")
+        self.notes_pending.append(f"(It is late and nothing new had happened for a while, so the harness set \"{replaced}\" "
+                                  "aside for bed; it is in your recent objectives for tomorrow.)")
         self.telemetry.record("scene_changed_by_harness", {**self._ids(), "objective": objective["goal"]})
 
     def _stall_deadline_remaining(self) -> float:
@@ -361,7 +398,7 @@ class AgentHarness(AutoplayHarness):
             raise
         model_ms = round((time.perf_counter() - started) * 1000)
         if PRIVATE_WORDS:
-            cleaned = {key: (redact(value) if key in {"say", "diary"} else value) for key, value in decision.arguments.items()}
+            cleaned = {key: (redact(value) if key in {"say", "diary", "chat"} else value) for key, value in decision.arguments.items()}
             decision = ToolDecision(decision.name, cleaned, decision.usage, decision.model, decision.content,
                                     decision.reasoning, decision.provider, decision.attempts, decision.call_id)
         self.decisions += 1
@@ -412,6 +449,8 @@ class AgentHarness(AutoplayHarness):
             result = self._execute(plain, frame, current_state)
         if result.get("circuit_breaker"):
             self.telemetry.record("circuit_breaker", {**self._ids(), "tool": decision.name, "kind": result["circuit_breaker"]})
+        if game_input and isinstance(result.get("state"), dict):
+            result["effects"] = action_effects(current_state, result["state"])
         bridge_ms = round((time.perf_counter() - execute_started) * 1000)
         self._finish_step(decision, call_id, result, current_state, result.get("state") or current_state, model_ms, bridge_ms, cycle_started)
 
@@ -419,7 +458,7 @@ class AgentHarness(AutoplayHarness):
                      after: dict[str, Any], model_ms: int, bridge_ms: int, cycle_started: float) -> None:
         assert self.session is not None
         self.last_result = {"tool": decision.name, "status": result.get("status")}
-        for key in ("error", "warning", "reason"):
+        for key in ("error", "warning", "reason", "effects"):
             if key in result:
                 self.last_result[key] = result[key]
         self.recent_actions.append({"tool": decision.name, "status": result.get("status"),
@@ -507,6 +546,13 @@ class AgentHarness(AutoplayHarness):
                     disputed = True
                     self.notes_pending.append(f'You marked "{active.get("goal")}" completed, but its check was false at the time.')
                     self.telemetry.record("objective_claim_disputed", {**self._ids(), "objective": active.get("goal"), "check": check})
+            open_quest = self._open_quest(str(active.get("source") or ""), state) if outcome == "completed" else None
+            if open_quest:
+                disputed = True
+                self.notes_pending.append(f'You marked "{active.get("goal")}" completed, but the journal still lists '
+                                          f'"{open_quest.get("title")}" as open: {"; ".join(open_quest.get("objectives") or [])}.')
+                self.telemetry.record("objective_claim_disputed", {**self._ids(), "objective": active.get("goal"),
+                                                                   "journal": open_quest.get("title")})
             data["history"].append({**active, "status": outcome, "evidence": note, "ended_at": self.ledger._now()})
             source = str(active.get("source") or "")
             if demand and source == f"chat:{demand['id']}":
@@ -548,6 +594,25 @@ class AgentHarness(AutoplayHarness):
         if warning:
             result["warning"] = warning
         return result
+
+    @staticmethod
+    def _open_quest(source: str, state: dict[str, Any]) -> dict[str, Any] | None:
+        if not source.startswith("quest:"):
+            return None
+        for quest in state.get("quests") or []:
+            if isinstance(quest, dict) and str(quest.get("id")) == source[6:] and not quest.get("complete"):
+                return quest
+        return None
+
+    def _quest_history(self, quest_id: Any) -> dict[str, Any] | None:
+        """What became of this quest on earlier days, from his own objective records."""
+        items = [item for item in self.ledger.data.get("history", []) if str(item.get("source") or "") == f"quest:{quest_id}"]
+        if not items:
+            return None
+        days = sorted({(item.get("started") or {}).get("day") for item in items
+                       if (item.get("started") or {}).get("day") is not None})
+        last = items[-1]
+        return {"daysWorked": days, "lastOutcome": last.get("status"), "lastNote": last.get("evidence")}
 
     # ---- what the agent sees ----
 
@@ -591,7 +656,8 @@ class AgentHarness(AutoplayHarness):
         quests = {
             "open": [{"id": q.get("id"), "title": q.get("title"), "objectives": q.get("objectives"),
                       "daysLeft": q.get("daysLeft"), "reward": q.get("reward"),
-                      "isYourObjective": str(active.get("source") or "") == f"quest:{q.get('id')}"} for q in open_quests],
+                      "active": str(active.get("source") or "") == f"quest:{q.get('id')}",
+                      "history": self._quest_history(q.get("id"))} for q in open_quests],
             "crops": {"planted": state.get("plantedCrops"), "watered": state.get("wateredCrops"),
                       "harvestable": state.get("harvestableCrops"), "seedsSown": state.get("seedsSown")},
         }
@@ -600,11 +666,9 @@ class AgentHarness(AutoplayHarness):
         notes = list(self.notes_pending)
         self.notes_pending = []
         if open_quests and self.first_call_of_day:
-            titles = "; ".join(f"{q.get('title')} ({'; '.join(q.get('objectives') or [])})" for q in open_quests[:4])
-            notes.append(f"Morning. Open quests: {titles}. Decide which one gets part of today and what it needs "
-                         "(something to grow, buy, gather, or someone to see), and set it as your objective when you start on it.")
-        elif open_quests and active.get("kind") != "mission" and (state.get("time") or 0) >= 1200                 and not any(str(item.get("source") or "").startswith("quest:") for item in self.ledger.data.get("history", [])[-6:]):
-            notes.append(f"None of your {len(open_quests)} open quests has had any of today yet.")
+            titles = "; ".join(f"{q.get('title')} ({'; '.join(q.get('objectives') or [])})" for q in open_quests[:6])
+            notes.append(f"Morning. Your journal: {titles}. All of it is passive until you make one entry your objective; "
+                         "quests.open shows what each one has had from you on earlier days.")
         if self._bedtime_due(state):
             notes.append("It is past 11:30 PM. Go home and sleep; write the day's diary entry on the way.")
         elif (state.get("time") or 0) >= 2200 and state.get("location") != "FarmHouse":
@@ -640,7 +704,7 @@ class AgentHarness(AutoplayHarness):
             "world": {**self.world.summary(state.get("location"), state.get("time")),
                       "doorsNotOnMap": {f"{here} -> {there}": how for (here, there), how in DOORS_NOT_ON_MAP.items()
                                         if here == state.get("location")} or None},
-            "audience": self.notebook.audience_demand(),
+            "audience": self._audience(),
             "operator": {"guidance": self.operator_guidance} if self.guidance_decisions_left > 0 and self.operator_guidance else None,
             "progress": {"decisionsSinceEvidence": self.progress.decisions,
                          "secondsSinceEvidence": int(time.monotonic() - self.progress.last_progress),
@@ -655,6 +719,24 @@ class AgentHarness(AutoplayHarness):
                    f"result: {(self.last_result or {}).get('status') or 'none'}")
         return text, summary
 
+    def _audience(self) -> dict[str, Any] | None:
+        """The one request chat agreed on, and the last few things chat said, in untrusted words."""
+        request = self.notebook.audience_demand()
+        chat: list[dict[str, Any]] = []
+        try:
+            recent = json.loads((self.repository_root / "chat" / "state.json").read_text(encoding="utf-8")).get("recent_messages") or []
+        except (OSError, ValueError, AttributeError):
+            recent = []
+        now = time.time()
+        for item in recent:
+            if isinstance(item, dict) and now - float(item.get("at") or 0) <= 600:
+                chat.append({"user": redact(str(item.get("user") or "viewer")), "text": redact(str(item.get("text") or ""))[:200],
+                             "secondsAgo": max(0, int(now - float(item.get("at") or now)))})
+        chat = chat[-6:]
+        if not request and not chat:
+            return None
+        return {"request": request, "chat": chat or None}
+
     @staticmethod
     def _action_fingerprint(decision: ToolDecision, state: dict[str, Any]) -> str:
         base = AutoplayHarness._action_fingerprint(decision, state)
@@ -665,6 +747,8 @@ class AgentHarness(AutoplayHarness):
     def _poll_operator(self, state: dict[str, Any]) -> bool:
         discarded = super()._poll_operator(state)
         if self.operator_guidance and self.operator_guidance != self.guidance_seen:
+            if not self.operator_guidance.lower().startswith("stream operator"):
+                self.operator_guidance = "Stream operator: " + redact(self.operator_guidance)
             self.guidance_seen = self.operator_guidance
             self.guidance_decisions_left = GUIDANCE_DECISIONS
         return discarded

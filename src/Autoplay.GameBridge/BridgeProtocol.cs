@@ -362,6 +362,7 @@ internal sealed class BridgeCuriosity
     public int ScreenX { get; init; }
     public int ScreenY { get; init; }
     public string Interaction { get; init; } = string.Empty;
+    public bool Reachable { get; init; }
 }
 
 internal sealed class BridgeMapAction

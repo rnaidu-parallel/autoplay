@@ -8,9 +8,11 @@ import re
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterable
 
@@ -243,6 +245,141 @@ class TwitchChatSender:
         return str(sent.get("message_id") or "")
 
 
+class KickChatSender:
+    """Post into a Kick channel's chat through Kick's public API, as the account that approved the app
+    (a user-type message aimed at the broadcaster's id; Kick's bot-type post answered 500 for us). The
+    token carries the chat:write scope, lives in chat/kick-tokens.json and refreshes itself."""
+    CHAT_URL = "https://api.kick.com/public/v1/chat"
+    TOKEN_URL = "https://id.kick.com/oauth/token"
+    # Kick's front door refuses urllib's default agent with a 403.
+    HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NeonFarmChat/1.0", "Accept": "application/json"}
+
+    def __init__(self, tokens_path: Path, broadcaster_user_id: int, client_id: str = "", client_secret: str = "") -> None:
+        self.tokens_path = tokens_path
+        self.broadcaster_user_id = int(broadcaster_user_id)
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.tokens = self._load()
+
+    def _load(self) -> dict[str, Any]:
+        try:
+            value = json.loads(self.tokens_path.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _post(self, message: str) -> dict[str, Any]:
+        body = {"broadcaster_user_id": self.broadcaster_user_id, "content": message[:500], "type": "user"}
+        request = urllib.request.Request(
+            self.CHAT_URL, data=json.dumps(body).encode("utf-8"), method="POST",
+            headers={**self.HEADERS, "Authorization": f"Bearer {self.tokens.get('access_token', '')}",
+                     "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.load(response)
+
+    def refresh(self) -> None:
+        if not (self.tokens.get("refresh_token") and self.client_id and self.client_secret):
+            raise RuntimeError("Kick token expired and cannot refresh; run chat-agent --kick-login again.")
+        form = urllib.parse.urlencode({"grant_type": "refresh_token", "refresh_token": self.tokens["refresh_token"],
+                                       "client_id": self.client_id, "client_secret": self.client_secret}).encode("utf-8")
+        request = urllib.request.Request(self.TOKEN_URL, data=form, method="POST",
+                                         headers={**self.HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            self.tokens = json.load(response)
+        write_json(self.tokens_path, self.tokens)
+
+    def send(self, message: str, reply_parent_message_id: str | None = None) -> str:
+        if not self.tokens.get("access_token"):
+            raise RuntimeError("No Kick token; run chat-agent --kick-login first.")
+        try:
+            result = self._post(message)
+        except urllib.error.HTTPError as error:
+            if error.code != 401:
+                raise RuntimeError(f"Kick chat post failed: HTTP {error.code}") from error
+            self.refresh()
+            try:
+                result = self._post(message)
+            except (urllib.error.URLError, json.JSONDecodeError) as retry_error:
+                raise RuntimeError(f"Kick chat post failed after refresh: {retry_error}") from retry_error
+        except (urllib.error.URLError, json.JSONDecodeError) as error:
+            raise RuntimeError(f"Kick chat post failed: {error}") from error
+        data = result.get("data") or {}
+        if data.get("is_sent") is False:
+            raise RuntimeError("Kick did not send the message.")
+        return str(data.get("message_id") or "")
+
+
+def kick_broadcaster_user_id(channel: str, client_id: str, client_secret: str) -> int:
+    """The broadcaster id behind a Kick channel slug, through the public channels endpoint with an app token."""
+    form = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret}).encode("utf-8")
+    try:
+        request = urllib.request.Request(KickChatSender.TOKEN_URL, data=form, method="POST",
+                                         headers={**KickChatSender.HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            app_token = json.load(response)["access_token"]
+        slug = channel.strip().lstrip("@").casefold()
+        request = urllib.request.Request("https://api.kick.com/public/v1/channels?slug=" + urllib.parse.quote(slug),
+                                         headers={**KickChatSender.HEADERS, "Authorization": f"Bearer {app_token}"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response).get("data") or []
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError) as error:
+        raise RuntimeError(f"Could not look up the Kick channel {channel!r} ({error}); set KICK_BROADCASTER_USER_ID.") from error
+    if not data or not isinstance(data[0].get("broadcaster_user_id"), int):
+        raise RuntimeError(f"Kick knows no channel {channel!r}; slugs use hyphens, e.g. can-we-reverse-entropy.")
+    return data[0]["broadcaster_user_id"]
+
+
+def kick_login(tokens_path: Path, client_id: str, client_secret: str, port: int = 8790) -> None:
+    """One-time OAuth (PKCE) login for the Kick bot: prints the URL to open, waits for the redirect on
+    localhost, exchanges the code and stores the tokens. The app must list http://localhost:<port>/callback
+    as a redirect URI and request the chat:write scope."""
+    import base64
+    import hashlib
+    import http.server
+    import secrets
+    import webbrowser
+
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(48)).rstrip(b"=").decode("ascii")
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    state = secrets.token_urlsafe(16)
+    redirect = f"http://localhost:{port}/callback"
+    url = "https://id.kick.com/oauth/authorize?" + urllib.parse.urlencode({
+        "response_type": "code", "client_id": client_id, "redirect_uri": redirect, "scope": "chat:write",
+        "code_challenge": challenge, "code_challenge_method": "S256", "state": state})
+    received: dict[str, str] = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            received.update({key: value[0] for key, value in query.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Kick login received; you can close this tab.")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    print("Open this URL, sign in as the bot account, and approve:\n" + url)
+    webbrowser.open(url)
+    with http.server.HTTPServer(("localhost", port), Handler) as server:
+        while "code" not in received and "error" not in received:
+            server.handle_request()
+    if received.get("state") != state or "code" not in received:
+        raise RuntimeError(f"Kick login failed: {received.get('error') or 'state mismatch'}")
+    form = urllib.parse.urlencode({"grant_type": "authorization_code", "client_id": client_id, "client_secret": client_secret,
+                                   "redirect_uri": redirect, "code_verifier": verifier, "code": received["code"]}).encode("utf-8")
+    request = urllib.request.Request(KickChatSender.TOKEN_URL, data=form, method="POST",
+                                     headers={**KickChatSender.HEADERS, "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            tokens = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Kick refused the token exchange: HTTP {error.code} {error.read().decode('utf-8', 'replace')[:300]}") from error
+    write_json(tokens_path, tokens)
+    print(f"Kick tokens stored in {tokens_path}")
+
+
 def parse_irc_message(line: str, received_at: float | None = None) -> ChatMessage | None:
     if " PRIVMSG " not in line:
         return None
@@ -297,6 +434,86 @@ class TwitchIRCSource:
                         await writer.wait_closed()
                     except OSError:
                         pass
+            await asyncio.sleep(2)
+
+
+def parse_kick_event(raw: str, received_at: float | None = None) -> ChatMessage | None:
+    """A Kick chat line from its Pusher feed; ids are prefixed so they never collide with Twitch's."""
+    try:
+        packet = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(packet, dict) or packet.get("event") != "App\\Events\\ChatMessageEvent":
+        return None
+    data = packet.get("data")
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            return None
+    if not isinstance(data, dict):
+        return None
+    sender = data.get("sender") if isinstance(data.get("sender"), dict) else {}
+    text = str(data.get("content") or "").strip()
+    if not text:
+        return None
+    return ChatMessage(
+        "kick:" + str(data.get("id") or uuid.uuid4().hex),
+        "kick:" + str(sender.get("id") or sender.get("username") or "viewer"),
+        str(sender.get("username") or "viewer"),
+        text,
+        time.time() if received_at is None else received_at,
+    )
+
+
+def kick_chatroom_id(channel: str) -> int:
+    """The chatroom id behind a Kick channel slug; Kick's front door sometimes refuses scripts, so the id can
+    also be given directly through KICK_CHATROOM_ID."""
+    slug = channel.strip().lstrip("@").casefold()
+    request = urllib.request.Request(f"https://kick.com/api/v2/channels/{slug}",
+                                     headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.load(response)
+    except (urllib.error.URLError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Could not look up the Kick chatroom for {channel!r} ({error}); set KICK_CHATROOM_ID.") from error
+    chatroom = (payload.get("chatroom") or {}).get("id") if isinstance(payload, dict) else None
+    if not isinstance(chatroom, int):
+        raise RuntimeError(f"Kick returned no chatroom id for {channel!r}; set KICK_CHATROOM_ID.")
+    return chatroom
+
+
+class KickChatSource:
+    """Kick chat over its public Pusher websocket: read-only, no account needed."""
+    URL = "wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=8.4.0&flash=false"
+
+    def __init__(self, chatroom_id: int) -> None:
+        self.chatroom_id = int(chatroom_id)
+
+    async def messages(self) -> AsyncIterator[ChatMessage]:
+        try:
+            from websockets.asyncio.client import connect
+            from websockets.exceptions import ConnectionClosed
+        except ImportError as error:
+            raise RuntimeError("Kick chat needs the project's websockets dependency.") from error
+        while True:
+            try:
+                async with connect(self.URL, open_timeout=15) as socket:
+                    await socket.send(json.dumps({"event": "pusher:subscribe",
+                                                  "data": {"auth": "", "channel": f"chatrooms.{self.chatroom_id}.v2"}}))
+                    async for raw in socket:
+                        try:
+                            packet = json.loads(raw)
+                        except ValueError:
+                            continue
+                        if isinstance(packet, dict) and packet.get("event") == "pusher:ping":
+                            await socket.send(json.dumps({"event": "pusher:pong", "data": {}}))
+                            continue
+                        message = parse_kick_event(raw)
+                        if message is not None:
+                            yield message
+            except (ConnectionClosed, OSError):
+                pass
             await asyncio.sleep(2)
 
 
@@ -374,9 +591,15 @@ class TwitchEventSubSource:
 
 
 class ChatAgent:
+    RECENT_SECONDS = 600
+    RECENT_LIMIT = 12
+    RELAY_GAP_SECONDS = 20   # at most one farmer line per platform per this many seconds
+    RELAY_MAX_AGE = 120      # a line older than this is stale; the moment has passed
+
     def __init__(self, repository_root: Path, extractor: IntentExtractor, mode: str = "shadow",
                  window_seconds: int = 60, half_life_seconds: int = 300, min_support: int = 1,
-                 message_filter: MessageFilter | None = None, sender: TwitchChatSender | None = None) -> None:
+                 message_filter: MessageFilter | None = None, sender: TwitchChatSender | None = None,
+                 senders: dict[str, Any] | None = None) -> None:
         self.root = repository_root
         self.extractor = extractor
         self.mode = mode
@@ -384,6 +607,12 @@ class ChatAgent:
         self.min_support = min_support
         self.filter = message_filter or MessageFilter(window_seconds=window_seconds)
         self.sender = sender
+        # Every platform he can speak on: {"twitch": TwitchChatSender, "kick": KickChatSender}.
+        self.senders: dict[str, Any] = dict(senders or {})
+        if sender is not None:
+            self.senders.setdefault("twitch", sender)
+        self.relay_offsets: dict[str, int] = {}
+        self.relay_last_sent: dict[str, float] = {}
         self.state_path = self.root / "chat" / "state.json"
         self.state = self._load_state()
         self.votes = VoteTable.restore(self.state.get("candidates", []), half_life_seconds)
@@ -417,6 +646,11 @@ class ChatAgent:
     async def process_window(self, messages: list[ChatMessage], now: float | None = None) -> None:
         now = time.time() if now is None else now
         accepted = [message for message in messages if self.filter.accept(message, now)]
+        # What chat said lately, for the farmer to read and answer; requests are extracted separately below.
+        recent = [item for item in self.state.get("recent_messages", []) if now - float(item.get("at") or 0) <= self.RECENT_SECONDS]
+        recent += [{"id": message.id, "user": message.user_name, "text": message.text[:200], "at": message.received_at}
+                   for message in accepted]
+        self.state["recent_messages"] = recent[-self.RECENT_LIMIT:]
         existing_goals = [candidate.goal for candidate in self.votes.candidates]
         for goal, supporters in await asyncio.to_thread(self.extractor.extract, accepted, existing_goals):
             self.votes.add(goal, supporters, now)
@@ -425,7 +659,67 @@ class ChatAgent:
         self.state.pop("last_error", None)
         await self._arbitrate(now)
         await self._reply_to_outcome()
+        await self._relay_farmer_lines(now)
         self._save(now)
+
+    def _farmer_lines(self, now: float) -> list[tuple[str, str, float]]:
+        """New `chat` lines from the latest run's decisions: (call id, text, when)."""
+        current = self._overlay()
+        if current is None:
+            return []
+        path = current[0] / "events.jsonl"
+        key = str(path)
+        try:
+            size = path.stat().st_size
+        except OSError:
+            self.relay_offsets.setdefault(key, 0)  # not written yet: nothing to skip when it appears
+            return []
+        offset = self.relay_offsets.get(key)
+        if offset is None:
+            offset = int((self.state.get("relay_offsets") or {}).get(key, size))  # a fresh start skips the past
+        if offset > size:
+            offset = 0
+        lines: list[tuple[str, str, float]] = []
+        with path.open("rb") as events:
+            events.seek(offset)
+            chunk = events.read()
+            consumed = chunk.rfind(b"\n") + 1  # keep a partial trailing line for next time
+            for raw in chunk[:consumed].splitlines():
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if event.get("type") != "actor_decision":
+                    continue
+                text = str((event.get("arguments") or {}).get("chat") or "").strip()
+                if not text:
+                    continue
+                try:
+                    stamp = datetime.fromisoformat(event["at"]).timestamp()
+                except (KeyError, ValueError, TypeError):
+                    stamp = now
+                lines.append((str(event.get("call_id") or ""), text, stamp))
+        self.relay_offsets[key] = offset + consumed
+        self.state["relay_offsets"] = {key: offset + consumed}
+        return lines
+
+    async def _relay_farmer_lines(self, now: float) -> None:
+        """What he says to chat goes out as him, on every platform he can speak on."""
+        if not self.senders:
+            return
+        for call_id, text, stamp in self._farmer_lines(now):
+            if now - stamp > self.RELAY_MAX_AGE:
+                continue
+            for platform, sender in self.senders.items():
+                if now - self.relay_last_sent.get(platform, 0.0) < self.RELAY_GAP_SECONDS:
+                    continue
+                try:
+                    await asyncio.to_thread(sender.send, "Neon: " + text)
+                except RuntimeError as error:
+                    self.state["relay_error"] = f"{platform}: {error}"
+                else:
+                    self.relay_last_sent[platform] = now
+                    self.state["relayed"] = ([*self.state.get("relayed", []), {"id": call_id, "platform": platform, "text": text, "at": now}])[-20:]
 
     async def _arbitrate(self, now: float) -> None:
         current = self._overlay()
@@ -434,19 +728,20 @@ class ChatAgent:
             return
         run, overlay = current
         day = calendar_day(overlay.get("game") or {})
-        if not isinstance(day, int) or self.state.get("last_selected_day") == day:
+        if not isinstance(day, int) or (overlay.get("session") or {}).get("stopReason"):
             return
-        if (overlay.get("session") or {}).get("stopReason"):
+        # One request at a time: the next goes in once the farmer has settled the last one.
+        visible_demand = overlay.get("audience") or {}
+        if visible_demand.get("status") in {"pending", "bound"}:
             return
+        previous = self.state.get("selection") or {}
+        if (previous.get("status") == "queued" and visible_demand.get("id") != previous.get("command_id")
+                and now - float(previous.get("queued_at") or 0) < 300):
+            return  # queued and not yet visible to the farmer
         support = candidate.active_support(now, self.votes.half_life_seconds)
         selection = {"day": day, "goal": candidate.goal, "support": support,
-                     "message_id": candidate.message_id, "run_id": run.name}
+                     "message_id": candidate.message_id, "run_id": run.name, "queued_at": now}
         self.state["selection"] = selection
-        visible_demand = overlay.get("audience") or {}
-        if visible_demand.get("day") == day:
-            self.state["last_selected_day"] = day
-            selection["status"] = "already_used"
-            return
         if self.mode == "shadow":
             self.state["last_selected_day"] = day
             selection["status"] = "shadow"
@@ -465,7 +760,7 @@ class ChatAgent:
         selection.update({"status": "queued", "command_id": command["id"], "last_reply_status": None})
 
     async def _reply_to_outcome(self) -> None:
-        if self.sender is None or self.mode != "bind":
+        if not self.senders or self.mode != "bind":
             return
         selection = self.state.get("selection") or {}
         command_id = selection.get("command_id")
@@ -488,22 +783,28 @@ class ChatAgent:
             message = f"Neon tried chat's request but could not finish it: {selection['goal']}."
         else:
             message = f"Chat's request missed today's plan: {selection['goal']}."
-        try:
-            await asyncio.to_thread(self.sender.send, message, selection.get("message_id"))
-        except RuntimeError as error:
-            selection["reply_error"] = str(error)
-        else:
+        errors = []
+        for platform, sender in self.senders.items():
+            parent = selection.get("message_id") if platform == "twitch" else None
+            try:
+                await asyncio.to_thread(sender.send, message, parent)
+            except RuntimeError as error:
+                errors.append(f"{platform}: {error}")
+        if errors:
+            selection["reply_error"] = "; ".join(errors)
+        if len(errors) < len(self.senders):
             selection["last_reply_status"] = status
-            selection.pop("reply_error", None)
+            if not errors:
+                selection.pop("reply_error", None)
 
-    async def run(self, source: TwitchIRCSource | TwitchEventSubSource) -> None:
+    async def run(self, *sources: TwitchIRCSource | TwitchEventSubSource | KickChatSource) -> None:
         queue: asyncio.Queue[ChatMessage] = asyncio.Queue()
 
-        async def receive() -> None:
+        async def receive(source: Any) -> None:
             async for message in source.messages():
                 await queue.put(message)
 
-        receiver = asyncio.create_task(receive())
+        receivers = [asyncio.create_task(receive(source)) for source in sources]
         pending: list[ChatMessage] = []
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.window_seconds
@@ -519,14 +820,17 @@ class ChatAgent:
                         self._save(time.time())
                     pending = []
                     deadline = loop.time() + self.window_seconds
-                if receiver.done():
-                    await receiver
+                for receiver in receivers:
+                    if receiver.done():
+                        await receiver
         finally:
-            receiver.cancel()
-            try:
-                await receiver
-            except asyncio.CancelledError:
-                pass
+            for receiver in receivers:
+                receiver.cancel()
+            for receiver in receivers:
+                try:
+                    await receiver
+                except asyncio.CancelledError:
+                    pass
 
 
 def _required_environment(names: Iterable[str]) -> dict[str, str]:
@@ -538,11 +842,17 @@ def _required_environment(names: Iterable[str]) -> dict[str, str]:
 
 
 def configure_parser(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("chat-agent", help="Read Twitch chat and select one audience demand per game day")
+    parser = subparsers.add_parser("chat-agent", help="Read Twitch and Kick chat and pass viewer requests to the farmer")
     parser.add_argument("--channel", default=os.environ.get("TWITCH_CHANNEL", ""))
+    parser.add_argument("--kick-channel", default=os.environ.get("KICK_CHANNEL", ""), help="Kick channel slug")
+    parser.add_argument("--kick-chatroom-id", default=os.environ.get("KICK_CHATROOM_ID", ""),
+                        help="Kick chatroom id, when the slug lookup is refused")
     parser.add_argument("--transport", choices=["eventsub", "irc"], default="irc")
     parser.add_argument("--mode", choices=["shadow", "bind"], default="shadow")
-    parser.add_argument("--reply", action="store_true", help="Send selection and outcome replies through Twitch API")
+    parser.add_argument("--reply", action="store_true",
+                        help="Post the farmer's chat lines and request outcomes on every platform with credentials")
+    parser.add_argument("--kick-login", action="store_true", help="Authorize the Kick bot once and store its tokens")
+    parser.add_argument("--kick-login-port", type=int, default=8790)
     parser.add_argument("--window-seconds", type=int, default=60)
     parser.add_argument("--half-life-seconds", type=int, default=300)
     parser.add_argument("--min-support", type=int, default=1)
@@ -553,8 +863,14 @@ def configure_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def main(arguments: argparse.Namespace, repository_root: Path) -> int:
-    if arguments.transport == "irc" and not arguments.channel:
-        raise ValueError("Set TWITCH_CHANNEL or pass --channel.")
+    if arguments.kick_login:
+        values = _required_environment(["KICK_CLIENT_ID", "KICK_CLIENT_SECRET"])
+        kick_login(repository_root / "chat" / "kick-tokens.json", values["KICK_CLIENT_ID"], values["KICK_CLIENT_SECRET"],
+                   arguments.kick_login_port)
+        return 0
+    kick_wanted = bool(arguments.kick_channel or arguments.kick_chatroom_id)
+    if arguments.transport == "irc" and not arguments.channel and not kick_wanted:
+        raise ValueError("Set TWITCH_CHANNEL or pass --channel, or give a Kick channel.")
     if not 10 <= arguments.window_seconds <= 300:
         raise ValueError("--window-seconds must be between 10 and 300.")
     if arguments.half_life_seconds <= 0 or arguments.min_support <= 0 or arguments.per_user_cap <= 0:
@@ -568,30 +884,46 @@ def main(arguments: argparse.Namespace, repository_root: Path) -> int:
     client = OpenRouterClient(
         os.environ.get("OPENROUTER_API_KEY", ""), arguments.model, "autoplay-chat", reasoning_effort="low"
     )
-    sender = None
+    kick_tokens = repository_root / "chat" / "kick-tokens.json"
+    senders: dict[str, Any] = {}
     if arguments.reply:
-        values = _required_environment(
-            ["TWITCH_CLIENT_ID", "TWITCH_ACCESS_TOKEN", "TWITCH_BROADCASTER_ID", "TWITCH_USER_ID"]
-        )
-        sender = TwitchChatSender(values["TWITCH_CLIENT_ID"], values["TWITCH_ACCESS_TOKEN"],
-                                  values["TWITCH_BROADCASTER_ID"], values["TWITCH_USER_ID"])
+        twitch = {name: os.environ.get(name, "").strip()
+                  for name in ("TWITCH_CLIENT_ID", "TWITCH_ACCESS_TOKEN", "TWITCH_BROADCASTER_ID", "TWITCH_USER_ID")}
+        if all(twitch.values()):
+            senders["twitch"] = TwitchChatSender(twitch["TWITCH_CLIENT_ID"], twitch["TWITCH_ACCESS_TOKEN"],
+                                                 twitch["TWITCH_BROADCASTER_ID"], twitch["TWITCH_USER_ID"])
+        if kick_tokens.is_file():
+            kick_id, kick_secret = os.environ.get("KICK_CLIENT_ID", "").strip(), os.environ.get("KICK_CLIENT_SECRET", "").strip()
+            broadcaster = os.environ.get("KICK_BROADCASTER_USER_ID", "").strip()
+            if not broadcaster:
+                if not arguments.kick_channel:
+                    raise ValueError("Kick replies need KICK_CHANNEL (or KICK_BROADCASTER_USER_ID).")
+                broadcaster = str(kick_broadcaster_user_id(arguments.kick_channel, kick_id, kick_secret))
+            senders["kick"] = KickChatSender(kick_tokens, int(broadcaster), kick_id, kick_secret)
+        if not senders:
+            raise ValueError("--reply needs Twitch credentials in the environment or a Kick login (chat-agent --kick-login).")
+    sender = None
+    sources: list[Any] = []
     if arguments.transport == "eventsub":
         values = _required_environment(
             ["TWITCH_CLIENT_ID", "TWITCH_ACCESS_TOKEN", "TWITCH_BROADCASTER_ID", "TWITCH_USER_ID"]
         )
-        source: TwitchIRCSource | TwitchEventSubSource = TwitchEventSubSource(
+        sources.append(TwitchEventSubSource(
             values["TWITCH_CLIENT_ID"], values["TWITCH_ACCESS_TOKEN"],
             values["TWITCH_BROADCASTER_ID"], values["TWITCH_USER_ID"],
-        )
-    else:
-        source = TwitchIRCSource(arguments.channel)
+        ))
+    elif arguments.channel:
+        sources.append(TwitchIRCSource(arguments.channel))
+    if kick_wanted:
+        chatroom = int(arguments.kick_chatroom_id) if arguments.kick_chatroom_id else kick_chatroom_id(arguments.kick_channel)
+        sources.append(KickChatSource(chatroom))
     agent = ChatAgent(
         repository_root, IntentExtractor(client), arguments.mode, arguments.window_seconds,
         arguments.half_life_seconds, arguments.min_support,
-        MessageFilter(arguments.per_user_cap, arguments.window_seconds, blocked), sender,
+        MessageFilter(arguments.per_user_cap, arguments.window_seconds, blocked), sender, senders,
     )
     try:
-        asyncio.run(agent.run(source))
+        asyncio.run(agent.run(*sources))
     except KeyboardInterrupt:
         return 0
     return 0

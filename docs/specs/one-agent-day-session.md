@@ -93,6 +93,18 @@ behaviour. Read the contributor tier terms for data use and rate limits.
 - Reflexes stay unchanged: dialogue and cutscenes watched at reading pace; greeting in passing.
 - Verified skills stay unchanged: plant, water, till, clear, check mail, look at, travel, go
   home and sleep. They are hands, not mind.
+- Every game action reports its effect, not only its delivery (rev 4). The result of any
+  game-input tool carries `effects`: the difference between the world before and after in his
+  terms: `money` delta, `bag` deltas by item, `cursorItem`, `location` or `movedTiles`, `menu`,
+  new `dialogue`, `stamina` delta. The same `effects` sits in `harnessLastResult` on the next
+  observation. A raw click that bought a seed packet shows `money: -80` and the packet on the
+  cursor; a hold that went nowhere shows nothing. This is the generic answer to the shop
+  incident, the invisible held item and the festival holds: the state says what happened, and
+  the prompt tells him to read it before repeating anything.
+- The bridge shows what a player can see (rev 4): `cursorItem` is the item on the cursor wherever
+  the game keeps it (the cursor slot or the open menu page's held item, crafting and shops
+  included), `close_menu` returns that item, and each curiosity carries `reachable` so a boxed-in
+  television is not offered as a thing to look at.
 
 ## Depth by situation
 
@@ -131,6 +143,16 @@ chat:<id> | operator), check (optional structured comparison), started {day, tim
   never a gap. The first objective of a fresh save is set by the loop: `free: get my bearings`.
 - The last three objectives with their outcomes and notes are always in the newest observation.
   Changing your mind is fine; changing it back and forth is visible. No gate.
+- Active and passive (rev 4). The journal is passive by default: every open quest is listed in
+  `quests.open` with `active: true` on the one whose id is the objective's source, and none of
+  the others drives movement; they progress when the world offers the chance (an unmet villager
+  beside him, a quest item in the bag and its person in front of him). Each entry carries
+  `history`: the days he made it his objective, the last outcome and note, derived from the
+  ledger's own history by source. No new state, no scheduler.
+- Journal truth (rev 4). Marking a `quest:<id>` objective `completed` while the journal still
+  lists that quest open is disputed the same way a false check is: one note in the next
+  observation naming the open entry and its objectives, `objective_claim_disputed` in the log,
+  nothing rejected.
 - Optional `check`, same parser as today. The observation reports `checkHolds: true|false`.
   If the agent marks an objective `completed` while its check is false, the observation carries
   one line: `You marked "<goal>" completed, but its check was false at the time.` and the event
@@ -200,26 +222,32 @@ and dialogue text are not evidence. Setting an objective is not evidence.
 - At 8 decisions without evidence the line gains a sentence asking what he will do differently,
   and the next call runs at medium depth.
 - At 12 completed decisions or 150 elapsed seconds without evidence, whichever comes first, the
-  harness changes the scene: after 20:00 or under 30 stamina it sets the objective to going home
-  to sleep; otherwise it replaces the objective with `free: do something clearly different,
-  somewhere else` with outcome `interrupted` and note `stalled`, clears local retry state, and
-  records `scene_changed_by_harness`. Model calls are capped at the remaining deadline so this
-  cannot be delayed by a slow call. This is the only harness-driven objective change and the
-  only one an acceptance day may not show.
+  advice repeats and the counters reset; his objective stays his. The one exception is bedtime:
+  after 20:00 or under 30 stamina, outside any event or festival, the harness sets the objective
+  to going home to sleep with outcome `interrupted` and note `stalled`, clears local retry state,
+  and records `scene_changed_by_harness`. Model calls are capped at the remaining deadline so
+  this cannot be delayed by a slow call. (Rev 3 also replaced daytime objectives with "do
+  something clearly different"; the first stream showed him reversing 15 of those within a
+  minute, so rev 4 dropped it.)
 
 ## Audience and operator
 
 - Chat stays as today up to the operator inbox: filter, intent extraction (same model), vote
-  table, one demand per game day, shadow or bind. The loop consumes `audience` commands into the
-  notebook slot exactly as now.
-- The observation shows `audience: {id, goal, support, status}` while a demand is pending or
-  bound. He may take it with `set_objective(source="chat:<id>")` → status `bound`; finishing
-  that objective `completed` → `done`; `abandoned` or `interrupted` → `failed`. At day end a
-  pending demand → `missed` and a bound one → `failed` (existing expiry). Overlay and chat
-  replies work unchanged.
+  table, shadow or bind. Chat can steer anything (rev 4): the chat agent reads Twitch and Kick
+  (`--kick-channel` or `KICK_CHATROOM_ID`, over Kick's public Pusher feed), keeps the last ten
+  minutes of accepted lines in `chat/state.json`, and submits the next agreed request as soon as
+  the previous one is settled, several per day if chat keeps asking.
+- The observation shows `audience: {request, chat}`: `request` is the one pending or bound
+  demand `{id, goal, support, status}`; `chat` is up to six recent lines `{user, text,
+  secondsAgo}`, redacted, untrusted. He may answer chat through `say`, do what a line asks, or
+  take the request with `set_objective(source="chat:<id>")` → status `bound`; finishing that
+  objective `completed` → `done`; `abandoned` or `interrupted` → `failed`. At day end a pending
+  demand → `missed` and a bound one → `failed` (existing expiry). Overlay and chat replies work
+  unchanged.
 - Operator `steer` guidance appears in the observation as `operator.guidance` for the next 6
-  decisions or until the objective changes, whichever comes first. `finish_save` and `hold`
-  behave as today.
+  decisions or until the objective changes, whichever comes first, always prefixed
+  `Stream operator:` and redacted, so no name typed by mistake can reach him. `finish_save` and
+  `hold` behave as today.
 
 ## Tools
 
@@ -243,7 +271,10 @@ a run.
 
 ## Overlay
 
-`objective.goal` is the focus. Thoughts remain `say`. No overlay changes are required.
+`objective.goal` is the focus. Thoughts remain `say`; since rev 4 `say` is optional and the last
+line stays on screen while silent actions run, so he speaks for beats (a reaction, a choice, a
+discovery, a setback, a promise, a question to chat) rather than for every step. The overlay never
+duplicates what the game already draws (date, time, weather, money, energy).
 
 ## Events
 

@@ -68,13 +68,21 @@ NEW_TOOLS = [
 COMMON_FIELDS = {
     "say": {
         "type": "string", "minLength": 1, "maxLength": 320,
-        "description": "What Neon is thinking right now, in his own voice, for the people watching: one to three short "
-                       "sentences, present tense. React to what just happened before saying what is next. Never tool "
-                       "names, coordinates, brackets, or anything about being an AI or a program.",
+        "description": "Neon's voice for the people watching, when there is something to say: a reaction to what just "
+                       "happened, a choice, a discovery, a setback, a promise, a question to chat. One to three short "
+                       "sentences, present tense. Leave it out when nothing new happened since the last line. Never tool "
+                       "names, coordinates, brackets, the words menu, tooltip, cursor, click, tab, scroll or tile, or "
+                       "anything about being an AI or a program.",
+    },
+    "chat": {
+        "type": "string", "minLength": 1, "maxLength": 200,
+        "description": "A line posted to the chat as Neon, when he answers a viewer or asks them something. "
+                       "Plain words, no names of anyone off the stream.",
     },
     "diary": {
         "type": "string", "maxLength": 300,
-        "description": "Optional short diary note to keep alongside this action, in your own words.",
+        "description": "Optional short diary note to keep alongside this action, in your own words. Never mentions the "
+                       "stream or being watched.",
     },
     "think_harder": {
         "type": "boolean",
@@ -87,8 +95,6 @@ def _with_common_fields(tool: dict) -> dict:
     tool = copy.deepcopy(tool)
     parameters = tool["function"]["parameters"]
     parameters["properties"].update(copy.deepcopy(COMMON_FIELDS))
-    if "say" not in parameters["required"]:
-        parameters["required"].append("say")
     return tool
 
 

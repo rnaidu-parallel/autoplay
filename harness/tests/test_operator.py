@@ -175,12 +175,13 @@ class OperatorTests(unittest.TestCase):
 
         self.assertEqual("bound", self.harness.notebook.audience_demand()["status"])
 
-    def test_only_one_audience_slot_is_accepted_per_day(self):
+    def test_one_audience_request_at_a_time_and_the_next_may_follow_the_same_day(self):
         self.harness.notebook.set_audience_demand("first", "go fishing", 3, 29)
-        self.harness.notebook.mark_audience("missed", "The plan went another way.")
-        with self.assertRaisesRegex(ValueError, "already used today"):
+        with self.assertRaisesRegex(ValueError, "already active"):
             self.harness.notebook.set_audience_demand("second", "visit town", 4, 29)
-        self.harness.notebook.set_audience_demand("tomorrow", "visit town", 4, 30)
+        self.harness.notebook.mark_audience("missed", "The plan went another way.")
+        self.harness.notebook.set_audience_demand("second", "visit town", 4, 29)
+        self.assertEqual("second", self.harness.notebook.audience_demand()["id"])
 
     def test_duplicate_audience_command_is_rejected_without_replacing_the_first(self):
         self.harness.notebook.set_audience_demand("first", "go fishing", 3, 28)
