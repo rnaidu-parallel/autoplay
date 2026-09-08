@@ -8,7 +8,8 @@ $dotenvPath = Join-Path $repositoryRoot '.env'
 if (Test-Path -LiteralPath $dotenvPath) {
     foreach ($dotenvName in @(
         'OPENROUTER_API_KEY', 'TWITCH_CHANNEL', 'TWITCH_CLIENT_ID', 'TWITCH_ACCESS_TOKEN',
-        'TWITCH_BROADCASTER_ID', 'TWITCH_USER_ID'
+        'TWITCH_BROADCASTER_ID', 'TWITCH_USER_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_REDIRECT_URL',
+        'KICK_CLIENT_ID', 'KICK_CLIENT_SECRET', 'KICK_CHANNEL', 'KICK_BROADCASTER_USER_ID', 'KICK_CHATROOM_ID'
     )) {
         if (-not [Environment]::GetEnvironmentVariable($dotenvName, 'Process')) {
             $entry = Get-Content -LiteralPath $dotenvPath |

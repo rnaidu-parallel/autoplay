@@ -101,6 +101,40 @@ class ChatTests(unittest.TestCase):
         self.assertEqual("parent-1", body["reply_parent_message_id"])
         self.assertEqual("Bearer token", request.headers["Authorization"])
 
+    def test_twitch_sender_from_tokens_refreshes_once_on_401_and_keeps_the_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tokens = Path(directory) / "twitch-tokens.json"
+            write_json(tokens, {"access_token": "old", "refresh_token": "r1", "user_id": "42", "broadcaster_id": "7", "login": "neonbot"})
+            sender = TwitchChatSender.from_tokens(tokens, "cid", "secret")
+            requests = []
+
+            class Response:
+                def __init__(self, payload):
+                    self.payload = payload
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+                def read(self):
+                    return json.dumps(self.payload).encode("utf-8")
+
+            def urlopen(request, timeout=0):
+                requests.append(request)
+                if request.full_url == TwitchChatSender.API_URL and request.headers["Authorization"] == "Bearer old":
+                    raise urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
+                if request.full_url == TwitchChatSender.TOKEN_URL:
+                    return Response({"access_token": "new", "refresh_token": "r2"})
+                return Response({"data": [{"is_sent": True, "message_id": "t1"}]})
+
+            with patch("urllib.request.urlopen", urlopen):
+                self.assertEqual("t1", sender.send("Neon: hello", "parent-1"))
+            self.assertEqual([TwitchChatSender.API_URL, TwitchChatSender.TOKEN_URL, TwitchChatSender.API_URL],
+                             [request.full_url for request in requests])
+            self.assertEqual({"broadcaster_id": "7", "sender_id": "42", "message": "Neon: hello", "reply_parent_message_id": "parent-1"},
+                             json.loads(requests[-1].data))
+            stored = json.loads(tokens.read_text(encoding="utf-8"))
+            self.assertEqual(("new", "r2", "neonbot"), (stored["access_token"], stored["refresh_token"], stored["login"]))
+
     def test_bind_mode_queues_one_command_and_replies_to_outcomes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

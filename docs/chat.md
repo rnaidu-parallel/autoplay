@@ -84,16 +84,43 @@ Twitch replies use the bot account described below. For Kick:
 
 ## Enable Twitch replies
 
-Add `user:write:chat` to the Twitch user token. Then add `--reply`:
+Twitch posts need a user token with `user:write:chat` for the account that speaks. The login works
+like the Kick one, except that Twitch's console only takes an https redirect URL, so the local
+callback port is exposed through a tunnel for the minute the login takes.
+
+1. Start a tunnel to the login port and note its https address:
+
+   ```powershell
+   ngrok http 8791
+   ```
+
+2. Register an app at <https://dev.twitch.tv/console/apps> (category Chat Bot) with the OAuth
+   redirect URL `https://<your-id>.ngrok.app/callback`. Put its `TWITCH_CLIENT_ID` and
+   `TWITCH_CLIENT_SECRET` in `.env`; `TWITCH_CHANNEL` names the channel the lines go to.
+3. Run the login with the same redirect URL and approve in the browser tab that opens, signed in as
+   the account that should speak (a bot account keeps its lines separate from yours):
+
+   ```powershell
+   .\chat\run-chat.ps1 --twitch-login --twitch-redirect https://<your-id>.ngrok.app/callback
+   ```
+
+   Tokens, the speaker's id and the channel's broadcaster id land in `chat/twitch-tokens.json`
+   (git-ignored); the token refreshes itself. Stop the tunnel afterwards; replies never need it.
+4. Start the agent with `--reply`:
 
 ```powershell
-.\chat\run-chat.ps1 --transport eventsub --mode bind --reply
+.\chat\run-chat.ps1 --transport irc --mode bind --reply
 ```
 
-The agent replies when the request enters Neon's plan and when it completes, fails, or misses the plan. Twitch limits messages to 500 characters; the sender truncates at that limit. See [Send Chat Message](https://dev.twitch.tv/docs/chat/send-receive-messages/).
+`TWITCH_ACCESS_TOKEN`, `TWITCH_BROADCASTER_ID` and `TWITCH_USER_ID` in the environment still work
+when there is no token file. The agent posts every `chat` line Neon writes, and replies when a request
+enters his plan and when it completes, fails, or misses the plan. Twitch limits messages to 500
+characters; the sender truncates at that limit. See [Send Chat Message](https://dev.twitch.tv/docs/chat/send-receive-messages/).
 
 ## Configure filtering
 
 Create the ignored local file `chat/blocklist.txt`. Add one blocked phrase per line. The built-in filter also rejects links, prompt-injection-shaped text, messages longer than 500 characters, and messages above the per-user window cap.
 
-Use `--window-seconds`, `--half-life-seconds`, `--min-support`, and `--per-user-cap` only after shadow-run evidence shows that the defaults are unsuitable.
+Chat is processed in windows of `--window-seconds` (default 15, so a line reaches the farmer within
+about twenty seconds; the first live steer took over a minute at the old 60). Use `--half-life-seconds`,
+`--min-support`, and `--per-user-cap` only after shadow-run evidence shows that the defaults are unsuitable.

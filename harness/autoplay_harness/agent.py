@@ -22,6 +22,12 @@ from .agent_tools import AGENT_TOOLS, INFORMATIONAL
 EVENT_UNAVAILABLE = {"navigate_to", "go_to_location", "travel_to", "check_mail", "plant_seeds", "plant_nearest_seeds",
                      "till_tiles", "water_crops", "clear_debris", "go_home_and_sleep", "look_at"}
 EVENT_TOOLS = [tool for tool in AGENT_TOOLS if tool["function"]["name"] not in EVENT_UNAVAILABLE]
+# A festival is an event he may walk around in: the bridge keeps pathed movement and the map's action tiles.
+FESTIVAL_TOOLS = [tool for tool in AGENT_TOOLS if tool["function"]["name"] not in EVENT_UNAVAILABLE - {"navigate_to"}]
+
+
+def walking_at_festival(state: dict[str, Any]) -> bool:
+    return bool(state.get("eventUp") and state.get("festival") and state.get("eventCanMove"))
 
 # Doors the bridge's world graph does not list (they are building doors, not warps). Until the bridge learns them,
 # the observation says where they are so a day is not spent looking. Format: (from, to): how to enter.
@@ -167,6 +173,8 @@ class AgentHarness(AutoplayHarness):
         self.stall_advice = False
         self.first_call_of_day = True
         self.notes_pending: list[str] = []
+        self.chat_seen: set[str] = set()
+        self.request_seen: str | None = None
         self.recent_actions: list[dict[str, Any]] = []
         self.guidance_decisions_left = 0
         self.guidance_seen = ""
@@ -336,6 +344,20 @@ class AgentHarness(AutoplayHarness):
         elif not active or active.get("saveId") != save:
             self._set_objective({**BEARINGS, "previous_outcome": "interrupted",
                                  "previous_note": "a different save or a fresh start"}, state, by_harness=True)
+        elif not active.get("by_harness") and isinstance((active.get("started") or {}).get("day"), int) \
+                and active["started"]["day"] < day:
+            self._carry_objective_over(state)
+
+    def _carry_objective_over(self, state: dict[str, Any]) -> None:
+        """His objective outlived its day: close yesterday's record and reopen it today, so its history counts the days."""
+        data = self.ledger.data
+        active = data["active"]
+        data["history"].append({**active, "status": "interrupted", "evidence": "the day ended", "ended_at": self.ledger._now()})
+        data["active"] = {**active, "id": f"objective-{len(data['history']) + 1}", "created_at": self.ledger._now(),
+                          "started": {"day": calendar_day(state), "time": state.get("time")}}
+        self.ledger._save()
+        self.telemetry.record("objective_carried_over", {**self._ids(), "objective": active.get("goal"),
+                                                         "since": active["started"]["day"]})
 
     @staticmethod
     def _prompt_versions(runs: Path, session_id: str) -> set[str]:
@@ -389,7 +411,7 @@ class AgentHarness(AutoplayHarness):
                                                "context_chars": len(text), "tools_count": len(AGENT_TOOLS),
                                                "estimated_tokens": self.session.estimated_tokens()}, include_recent=False)
         started = time.perf_counter()
-        tools = EVENT_TOOLS if state.get("eventUp") else AGENT_TOOLS
+        tools = (FESTIVAL_TOOLS if walking_at_festival(state) else EVENT_TOOLS) if state.get("eventUp") else AGENT_TOOLS
         try:
             decision = self.client.complete_turn(AGENT_SYSTEM_PROMPT, self.session.messages(), tools,
                                                  reasoning_effort=effort, max_tokens=cap, timeout_seconds=timeout)
@@ -691,9 +713,23 @@ class AgentHarness(AutoplayHarness):
                          "What will you do differently? Answer with a different action, not a reworded one.")
         if not frame.data_url:
             notes.append("No screenshot is available right now; act from the structured state and avoid pointer tools.")
-        if state.get("eventUp") and state.get("eventCanMove"):
-            notes.append("An event is on (a festival or a scene), so the walking helpers are off: move with hold and "
+        if walking_at_festival(state):
+            notes.append("A festival is on. `navigate_to` walks to any tile here, and `nearbyActions` lists the festival's "
+                         "spots with their tiles (LuauSoup is the soup pot; IceFishing the hole): walk to the tile just "
+                         "below one, tap W to face it, then press X. `npcsNearby` has tiles for everyone. The clock is paused.")
+        elif state.get("eventUp") and state.get("eventCanMove"):
+            notes.append("An event is on (a scene), so the walking helpers are off: move with hold and "
                          "control_sequence, talk with X, and use the screenshot for where people stand. The clock is paused.")
+        audience, fresh_lines, fresh_request = self._audience()
+        if fresh_lines:
+            quoted = "; ".join(f'{user}: "{text}"' for user, text in fresh_lines)
+            names = ", ".join(dict.fromkeys(user for user, _ in fresh_lines))
+            notes.append(f"New in chat: {quoted}. Answer {names} by name with `chat` on this action, and if they ask for "
+                         "something that fits the game and does no harm, start doing it now.")
+        if fresh_request:
+            notes.append(f'Chat agreed on a request: "{fresh_request["goal"]}". Take it now with '
+                         f'set_objective(source="chat:{fresh_request["id"]}") if it fits and does no harm, and say so; '
+                         "otherwise tell them why not.")
         if self.operator_mode == "finishing":
             notes.append("The operator asked to finish and save: go home and sleep now.")
         packet: dict[str, Any] = {
@@ -704,7 +740,7 @@ class AgentHarness(AutoplayHarness):
             "world": {**self.world.summary(state.get("location"), state.get("time")),
                       "doorsNotOnMap": {f"{here} -> {there}": how for (here, there), how in DOORS_NOT_ON_MAP.items()
                                         if here == state.get("location")} or None},
-            "audience": self._audience(),
+            "audience": audience,
             "operator": {"guidance": self.operator_guidance} if self.guidance_decisions_left > 0 and self.operator_guidance else None,
             "progress": {"decisionsSinceEvidence": self.progress.decisions,
                          "secondsSinceEvidence": int(time.monotonic() - self.progress.last_progress),
@@ -719,10 +755,15 @@ class AgentHarness(AutoplayHarness):
                    f"result: {(self.last_result or {}).get('status') or 'none'}")
         return text, summary
 
-    def _audience(self) -> dict[str, Any] | None:
-        """The one request chat agreed on, and the last few things chat said, in untrusted words."""
+    def _audience(self) -> tuple[dict[str, Any] | None, list[tuple[str, str]], dict[str, Any] | None]:
+        """The one request chat agreed on, and the last few things chat said, in untrusted words; with the lines
+        and the request he has not been shown before, so the observation can point them out once."""
         request = self.notebook.audience_demand()
+        fresh_request = None
+        if request and request.get("id") != self.request_seen:
+            self.request_seen, fresh_request = request.get("id"), request
         chat: list[dict[str, Any]] = []
+        fresh_lines: list[tuple[str, str]] = []
         try:
             recent = json.loads((self.repository_root / "chat" / "state.json").read_text(encoding="utf-8")).get("recent_messages") or []
         except (OSError, ValueError, AttributeError):
@@ -730,12 +771,17 @@ class AgentHarness(AutoplayHarness):
         now = time.time()
         for item in recent:
             if isinstance(item, dict) and now - float(item.get("at") or 0) <= 600:
-                chat.append({"user": redact(str(item.get("user") or "viewer")), "text": redact(str(item.get("text") or ""))[:200],
-                             "secondsAgo": max(0, int(now - float(item.get("at") or now)))})
+                line = {"user": redact(str(item.get("user") or "viewer")), "text": redact(str(item.get("text") or ""))[:200],
+                        "secondsAgo": max(0, int(now - float(item.get("at") or now)))}
+                chat.append(line)
+                key = str(item.get("id") or f"{line['user']}:{line['text']}:{item.get('at')}")
+                if key not in self.chat_seen:
+                    self.chat_seen.add(key)
+                    fresh_lines.append((line["user"], line["text"]))
         chat = chat[-6:]
         if not request and not chat:
-            return None
-        return {"request": request, "chat": chat or None}
+            return None, fresh_lines, fresh_request
+        return {"request": request, "chat": chat or None}, fresh_lines, fresh_request
 
     @staticmethod
     def _action_fingerprint(decision: ToolDecision, state: dict[str, Any]) -> str:

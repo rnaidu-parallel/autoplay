@@ -395,6 +395,33 @@ class SessionTests(unittest.TestCase):
         second = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])
         self.assertFalse(any("open quests" in note for note in second["notes"]))
 
+    def test_his_own_objective_outliving_its_day_gets_a_record_per_day_it_took(self):
+        harness = make(self.root)
+        harness.notebook.data["life"]["quests"] = {"100": {"id": "100", "title": "Robin's Lost Axe", "objectives": ["Find Robin's axe."],
+                                                           "daysLeft": None, "reward": 250, "complete": False}}
+        harness.notebook.data["life"]["active_quest_ids"] = ["100"]
+        harness.client.calls = [("set_objective", {"kind": "mission", "goal": "Search for Robin's axe", "why": "asked",
+                                                   "done_when": "found", "source": "quest:100", "previous_outcome": "abandoned"}),
+                                ("idle", {"ticks": 1}), ("idle", {"ticks": 1}), ("idle", {"ticks": 1})]
+        harness._actor_step()
+        harness.current["time"] = 1300
+        harness._actor_step()  # the same day: nothing to record
+        self.assertEqual(0, len(events(harness, "objective_carried_over")))
+        harness.current.update(day=4, time=600)
+        harness._actor_step()
+        active, history = harness.ledger.data["active"], harness.ledger.data["history"]
+        self.assertEqual(("Search for Robin's axe", 4, False), (active["goal"], active["started"]["day"], active["by_harness"]))
+        self.assertEqual(("Search for Robin's axe", "interrupted", "the day ended", 3),
+                         (history[-1]["goal"], history[-1]["status"], history[-1]["evidence"], history[-1]["started"]["day"]))
+        self.assertNotEqual(history[-1]["id"], active["id"])
+        harness.current.update(day=5, time=600)
+        harness._actor_step()
+        dawn = json.loads(harness.client.messages[-1][-1]["content"][0]["text"].split("\n", 1)[1])
+        quest = dawn["quests"]["open"][0]
+        self.assertTrue(quest["active"])
+        self.assertEqual({"daysWorked": [3, 4], "lastOutcome": "interrupted", "lastNote": "the day ended"}, quest["history"])
+        self.assertEqual(["Search for Robin's axe"] * 2, [item["goal"] for item in dawn["objective"]["recent"][-2:]])
+
     def test_calling_a_quest_done_while_the_journal_lists_it_open_is_disputed(self):
         harness = make(self.root)
         harness.current["quests"] = [{"id": "12", "title": "Delivery: Shane", "objectives": ["Bring Shane a leek"], "complete": False}]
@@ -463,8 +490,9 @@ class SessionTests(unittest.TestCase):
         self.assertEqual("Fair point, the operator. Off I go.", decision["arguments"]["say"])
         self.assertEqual("the operator said so.", harness.diary.entries(3)[-1]["text"])
 
-    def test_events_withhold_the_walking_helpers_and_say_so(self):
-        harness = make(self.root, {**FARM, "location": "Temp", "eventUp": True, "eventCanMove": True, "eventId": "festival"})
+    def test_scenes_withhold_the_walking_helpers_and_say_so(self):
+        harness = make(self.root, {**FARM, "location": "Temp", "eventUp": True, "eventCanMove": True, "festival": False,
+                                   "eventId": "scene"})
         offered = []
         def complete(system_prompt, messages, tools, **kwargs):
             offered.append([t["function"]["name"] for t in tools])
@@ -474,10 +502,49 @@ class SessionTests(unittest.TestCase):
         self.assertNotIn("navigate_to", offered[0])
         self.assertIn("hold", offered[0])
         self.assertIn("set_objective", offered[0])
-        observation = json.loads(harness.client.messages[0][-1]["content"][0]["text"].split("\n", 1)[1]) if harness.client.messages else None
-        # the scripted client above bypasses message capture; check the note through a fresh observation instead
         text, _ = harness._observation(harness.current, frame())
         self.assertIn("walking helpers are off", text)
+
+    def test_festivals_keep_pathed_walking_and_point_at_the_action_tiles(self):
+        harness = make(self.root, {**FARM, "location": "Temp", "eventUp": True, "eventCanMove": True, "festival": True,
+                                   "eventId": "festival", "nearbyActions": [{"x": 35, "y": 13, "kind": "Action", "value": "LuauSoup"}]})
+        offered = []
+        def complete(system_prompt, messages, tools, **kwargs):
+            offered.append([t["function"]["name"] for t in tools])
+            return ToolDecision("hold", {"say": "Walking.", "buttons": ["W"], "ticks": 10}, {"cost": 0.0}, "m", call_id="c1")
+        harness.client.complete_turn = complete
+        harness._actor_step()
+        self.assertIn("navigate_to", offered[0])
+        self.assertNotIn("go_to_location", offered[0])
+        self.assertNotIn("go_home_and_sleep", offered[0])
+        text, _ = harness._observation(harness.current, frame())
+        self.assertIn("A festival is on. `navigate_to` walks", text)
+        self.assertIn("LuauSoup", json.dumps(json.loads(text.split("\n", 1)[1])["game"]["nearbyActions"]))
+
+    def test_a_new_chat_line_is_pointed_out_once_with_the_viewer_named(self):
+        import time as time_module
+        harness = make(self.root)
+        (self.root / "chat").mkdir()
+        (self.root / "chat" / "state.json").write_text(json.dumps({"recent_messages": [
+            {"id": "m1", "user": "fofa_bet", "text": "go dance", "at": time_module.time() - 30}]}), encoding="utf-8")
+        harness.client.calls = [("idle", {"ticks": 1}), ("idle", {"ticks": 1})]
+        harness._actor_step()
+        harness._actor_step()
+        first = json.loads(harness.client.messages[0][-1]["content"][0]["text"].split("\n", 1)[1])["notes"]
+        second = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])["notes"]
+        self.assertTrue(any(note.startswith('New in chat: fofa_bet: "go dance". Answer fofa_bet by name') for note in first), first)
+        self.assertFalse(any(note.startswith("New in chat") for note in second), second)
+
+    def test_a_new_agreed_request_is_pointed_out_once(self):
+        harness = make(self.root)
+        harness.notebook.set_audience_demand("req-1", "Go dance.", 1, 3)
+        harness.client.calls = [("idle", {"ticks": 1}), ("idle", {"ticks": 1})]
+        harness._actor_step()
+        harness._actor_step()
+        first = json.loads(harness.client.messages[0][-1]["content"][0]["text"].split("\n", 1)[1])["notes"]
+        second = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])["notes"]
+        self.assertTrue(any('Chat agreed on a request: "Go dance."' in note and "chat:req-1" in note for note in first), first)
+        self.assertFalse(any("Chat agreed on a request" in note for note in second), second)
 
     def test_diary_field_on_sleep_is_the_bedtime_entry(self):
         harness = make(self.root)

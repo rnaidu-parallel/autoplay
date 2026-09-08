@@ -555,7 +555,7 @@ public sealed partial class ModEntry : Mod
             return;
         }
 
-        if (this.navigationActionPhase == 0 && (!IsPlayerFreeStrict() || Game1.activeClickableMenu is not null || Game1.eventUp))
+        if (this.navigationActionPhase == 0 && (!IsPlayerFreeStrict() || Game1.activeClickableMenu is not null || (Game1.eventUp && !IsWalkingAtFestival())))
         {
             this.FinishNavigation("interrupted", "player_not_free");
             return;
@@ -2540,7 +2540,7 @@ public sealed partial class ModEntry : Mod
             BedTile = bedTile,
             NpcsNearby = npcsNearby,
             ShopItems = shopItems,
-            NearbyActions = Game1.eventUp ? Array.Empty<BridgeMapAction>() : nearbyActions,
+            NearbyActions = Game1.eventUp && !IsWalkingAtFestival() ? Array.Empty<BridgeMapAction>() : nearbyActions,
             Curiosities = Game1.eventUp ? Array.Empty<BridgeCuriosity>() : curiositiesNearby,
             NavigationOriginX = navigationOriginX,
             NavigationOriginY = navigationOriginY,
@@ -2713,6 +2713,12 @@ public sealed partial class ModEntry : Mod
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static
         );
         return field is null ? null : field.GetValue(null) is not null;
+    }
+
+    /// <summary>A festival where the player may walk: pathed movement and the map's action tiles (the Luau soup pot, the fishing hole) stay available, unlike a scripted scene.</summary>
+    private static bool IsWalkingAtFestival()
+    {
+        return Game1.eventUp && Game1.currentLocation?.currentEvent?.isFestival == true && Game1.player.CanMove;
     }
 
     private static bool IsPlayerFreeStrict()

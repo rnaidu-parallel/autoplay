@@ -109,6 +109,25 @@ chat on Twitch or direct Twitch viewers away to another simultaneous stream.
 If the channel belongs to the Kick Partner Program, check its multistream toggle and payout terms.
 [Kick partner multistreaming](https://help.kick.com/en/articles/11091744-multistreaming-on-the-kick-partner-program)
 
+## One-command session
+
+`broadcast\session.ps1` bundles the pieces above for a live day. It reads `.env` for the channels
+and keys, opens the portable OBS if it is closed, then starts the overlay, the harness
+(`run --agent --forever --continuous --budget-usd <n> --record-video`, game auto-launched) and the
+chat agent (`--mode bind`, `--reply` when a Twitch or Kick login exists). It waits for the game
+world before returning.
+
+```powershell
+.\broadcast\session.ps1 start -BudgetUsd 50     # everything except the broadcast
+.\broadcast\session.ps1 status                  # processes, farmer, chat window, OBS outputs
+.\broadcast\session.ps1 live                    # stream.cjs start, once a few decisions look right
+.\broadcast\session.ps1 stop                    # stream.cjs stop, then chat, harness (+ffmpeg), overlay
+```
+
+`start -Live` goes straight to the broadcast once the world is ready; `-NoRecord` skips the local
+video. Logs land in `broadcast\local\session\*.log`, pids in `pids.json` there. `stop` leaves OBS
+open on the Break scene and `harness\state\STOP` in place; the next `start` removes the marker.
+
 ## Run the rehearsal after preparation
 
 Do not run this section yet. Connect the channels and verify upload capacity first.

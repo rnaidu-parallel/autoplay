@@ -15,3 +15,4 @@ artifacts/fullscreen-rejected-frame.jpg
 .idea/
 harness/.venv/
 chat/kick-tokens.json
+chat/twitch-tokens.json

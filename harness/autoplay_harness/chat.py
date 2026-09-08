@@ -212,13 +212,49 @@ class IntentExtractor:
 
 
 class TwitchChatSender:
+    """Post into the Twitch channel as the account that logged in (chat-agent --twitch-login), or with a
+    token from the environment. A token file (chat/twitch-tokens.json) refreshes itself on a 401."""
     API_URL = "https://api.twitch.tv/helix/chat/messages"
+    TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 
-    def __init__(self, client_id: str, access_token: str, broadcaster_id: str, sender_id: str) -> None:
+    def __init__(self, client_id: str, access_token: str, broadcaster_id: str, sender_id: str,
+                 tokens_path: Path | None = None, client_secret: str = "", refresh_token: str = "") -> None:
         self.client_id = client_id
         self.access_token = access_token.removeprefix("oauth:")
         self.broadcaster_id = broadcaster_id
         self.sender_id = sender_id
+        self.tokens_path = tokens_path
+        self.client_secret = client_secret
+        self.refresh_token = refresh_token
+
+    @classmethod
+    def from_tokens(cls, tokens_path: Path, client_id: str, client_secret: str) -> "TwitchChatSender":
+        tokens = json.loads(tokens_path.read_text(encoding="utf-8"))
+        return cls(client_id, str(tokens["access_token"]), str(tokens["broadcaster_id"]), str(tokens["user_id"]),
+                   tokens_path, client_secret, str(tokens.get("refresh_token") or ""))
+
+    def refresh(self) -> None:
+        if not (self.refresh_token and self.client_secret and self.tokens_path):
+            raise RuntimeError("Twitch token expired and cannot refresh; run chat-agent --twitch-login again.")
+        form = urllib.parse.urlencode({"grant_type": "refresh_token", "refresh_token": self.refresh_token,
+                                       "client_id": self.client_id, "client_secret": self.client_secret}).encode("utf-8")
+        request = urllib.request.Request(self.TOKEN_URL, data=form, method="POST",
+                                         headers={"Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            tokens = json.load(response)
+        self.access_token = str(tokens["access_token"])
+        self.refresh_token = str(tokens.get("refresh_token") or self.refresh_token)
+        stored = json.loads(self.tokens_path.read_text(encoding="utf-8"))
+        write_json(self.tokens_path, {**stored, "access_token": self.access_token, "refresh_token": self.refresh_token})
+
+    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+        request = urllib.request.Request(
+            self.API_URL, data=json.dumps(body).encode("utf-8"), method="POST",
+            headers={"Authorization": f"Bearer {self.access_token}", "Client-Id": self.client_id,
+                     "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.load(response)
 
     def send(self, message: str, reply_parent_message_id: str | None = None) -> str:
         body: dict[str, Any] = {
@@ -228,14 +264,14 @@ class TwitchChatSender:
         }
         if reply_parent_message_id:
             body["reply_parent_message_id"] = reply_parent_message_id
-        request = urllib.request.Request(
-            self.API_URL, data=json.dumps(body).encode("utf-8"), method="POST",
-            headers={"Authorization": f"Bearer {self.access_token}", "Client-Id": self.client_id,
-                     "Content-Type": "application/json"},
-        )
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                result = json.load(response)
+            try:
+                result = self._post(body)
+            except urllib.error.HTTPError as error:
+                if error.code != 401:
+                    raise
+                self.refresh()
+                result = self._post(body)
         except (urllib.error.URLError, json.JSONDecodeError) as error:
             raise RuntimeError(f"Twitch chat reply failed: {error}") from error
         sent = (result.get("data") or [{}])[0]
@@ -378,6 +414,67 @@ def kick_login(tokens_path: Path, client_id: str, client_secret: str, port: int 
         raise RuntimeError(f"Kick refused the token exchange: HTTP {error.code} {error.read().decode('utf-8', 'replace')[:300]}") from error
     write_json(tokens_path, tokens)
     print(f"Kick tokens stored in {tokens_path}")
+
+
+def twitch_login(tokens_path: Path, client_id: str, client_secret: str, channel: str, port: int = 8791,
+                 redirect: str = "") -> None:
+    """One-time OAuth login for the Twitch chat account: prints the URL to open, waits for the redirect on
+    the local port, exchanges the code, looks up the sender's and the broadcaster's ids and stores it all.
+    Twitch's console wants an https redirect URL, so `redirect` is the public https address of a tunnel to
+    the local port (for example `ngrok http 8791` -> https://<id>.ngrok.app/callback), registered on the app."""
+    import http.server
+    import secrets
+    import webbrowser
+
+    state = secrets.token_urlsafe(16)
+    redirect = redirect or f"http://localhost:{port}/callback"
+    url = "https://id.twitch.tv/oauth2/authorize?" + urllib.parse.urlencode({
+        "response_type": "code", "client_id": client_id, "redirect_uri": redirect,
+        "scope": "user:read:chat user:write:chat", "state": state})
+    received: dict[str, str] = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            received.update({key: value[0] for key, value in query.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Twitch login received; you can close this tab.")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    print("Open this URL, sign in as the account that should speak in chat, and approve:\n" + url)
+    webbrowser.open(url)
+    with http.server.HTTPServer(("localhost", port), Handler) as server:
+        while "code" not in received and "error" not in received:
+            server.handle_request()
+    if received.get("state") != state or "code" not in received:
+        raise RuntimeError(f"Twitch login failed: {received.get('error_description') or received.get('error') or 'state mismatch'}")
+    form = urllib.parse.urlencode({"grant_type": "authorization_code", "client_id": client_id, "client_secret": client_secret,
+                                   "redirect_uri": redirect, "code": received["code"]}).encode("utf-8")
+    request = urllib.request.Request(TwitchChatSender.TOKEN_URL, data=form, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            tokens = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Twitch refused the token exchange: HTTP {error.code} {error.read().decode('utf-8', 'replace')[:300]}") from error
+
+    def users(query: str = "") -> dict[str, Any]:
+        request = urllib.request.Request("https://api.twitch.tv/helix/users" + query,
+                                         headers={"Authorization": f"Bearer {tokens['access_token']}", "Client-Id": client_id})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.load(response).get("data") or []
+        if not data:
+            raise RuntimeError(f"Twitch knows no user for {query or 'this token'}.")
+        return data[0]
+
+    me = users()
+    broadcaster = users("?login=" + urllib.parse.quote(channel.lstrip("#").lower()))
+    write_json(tokens_path, {"access_token": tokens["access_token"], "refresh_token": tokens.get("refresh_token", ""),
+                             "user_id": me["id"], "login": me["login"], "broadcaster_id": broadcaster["id"], "channel": channel})
+    print(f"Twitch tokens for {me['login']} (speaking in {channel}) stored in {tokens_path}")
 
 
 def parse_irc_message(line: str, received_at: float | None = None) -> ChatMessage | None:
@@ -853,7 +950,12 @@ def configure_parser(subparsers: argparse._SubParsersAction) -> None:
                         help="Post the farmer's chat lines and request outcomes on every platform with credentials")
     parser.add_argument("--kick-login", action="store_true", help="Authorize the Kick bot once and store its tokens")
     parser.add_argument("--kick-login-port", type=int, default=8790)
-    parser.add_argument("--window-seconds", type=int, default=60)
+    parser.add_argument("--twitch-login", action="store_true",
+                        help="Authorize the Twitch chat account once and store its tokens")
+    parser.add_argument("--twitch-login-port", type=int, default=8791)
+    parser.add_argument("--twitch-redirect", default=os.environ.get("TWITCH_REDIRECT_URL", ""),
+                        help="Public https redirect URL registered on the Twitch app, tunnelled to the login port")
+    parser.add_argument("--window-seconds", type=int, default=15)
     parser.add_argument("--half-life-seconds", type=int, default=300)
     parser.add_argument("--min-support", type=int, default=1)
     parser.add_argument("--per-user-cap", type=int, default=3)
@@ -885,11 +987,22 @@ def main(arguments: argparse.Namespace, repository_root: Path) -> int:
         os.environ.get("OPENROUTER_API_KEY", ""), arguments.model, "autoplay-chat", reasoning_effort="low"
     )
     kick_tokens = repository_root / "chat" / "kick-tokens.json"
+    twitch_tokens = repository_root / "chat" / "twitch-tokens.json"
+    if arguments.twitch_login:
+        values = _required_environment(["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET"])
+        if not arguments.channel:
+            raise ValueError("Set TWITCH_CHANNEL or pass --channel: the login stores the channel's broadcaster id.")
+        twitch_login(twitch_tokens, values["TWITCH_CLIENT_ID"], values["TWITCH_CLIENT_SECRET"], arguments.channel,
+                     arguments.twitch_login_port, arguments.twitch_redirect)
+        return 0
     senders: dict[str, Any] = {}
     if arguments.reply:
         twitch = {name: os.environ.get(name, "").strip()
                   for name in ("TWITCH_CLIENT_ID", "TWITCH_ACCESS_TOKEN", "TWITCH_BROADCASTER_ID", "TWITCH_USER_ID")}
-        if all(twitch.values()):
+        if twitch_tokens.is_file() and twitch["TWITCH_CLIENT_ID"]:
+            senders["twitch"] = TwitchChatSender.from_tokens(twitch_tokens, twitch["TWITCH_CLIENT_ID"],
+                                                             os.environ.get("TWITCH_CLIENT_SECRET", "").strip())
+        elif all(twitch.values()):
             senders["twitch"] = TwitchChatSender(twitch["TWITCH_CLIENT_ID"], twitch["TWITCH_ACCESS_TOKEN"],
                                                  twitch["TWITCH_BROADCASTER_ID"], twitch["TWITCH_USER_ID"])
         if kick_tokens.is_file():
@@ -901,7 +1014,7 @@ def main(arguments: argparse.Namespace, repository_root: Path) -> int:
                 broadcaster = str(kick_broadcaster_user_id(arguments.kick_channel, kick_id, kick_secret))
             senders["kick"] = KickChatSender(kick_tokens, int(broadcaster), kick_id, kick_secret)
         if not senders:
-            raise ValueError("--reply needs Twitch credentials in the environment or a Kick login (chat-agent --kick-login).")
+            raise ValueError("--reply needs a Twitch login (chat-agent --twitch-login) or a Kick login (chat-agent --kick-login).")
     sender = None
     sources: list[Any] = []
     if arguments.transport == "eventsub":
