@@ -817,12 +817,17 @@ class ChatAgent:
         return lines
 
     def _platforms_for(self, text: str) -> list[str]:
-        """A line that names a viewer goes where that viewer spoke; a line for nobody in particular goes everywhere."""
+        """A line that names a viewer goes where that viewer spoke; one for nobody in particular goes where
+        people have been talking lately; with nobody talking anywhere, everywhere."""
         folded = text.casefold()
-        named = {("kick" if str(item.get("id") or "").startswith("kick:") else "twitch")
-                 for item in self.state.get("recent_messages", [])
-                 if str(item.get("user") or "").casefold() in folded}
-        return [platform for platform in self.senders if platform in named] or list(self.senders)
+        named, talking = set(), set()
+        for item in self.state.get("recent_messages", []):
+            platform = "kick" if str(item.get("id") or "").startswith("kick:") else "twitch"
+            talking.add(platform)
+            if str(item.get("user") or "").casefold() in folded:
+                named.add(platform)
+        chosen = named or talking
+        return [platform for platform in self.senders if platform in chosen] or list(self.senders)
 
     async def _relay_farmer_lines(self, now: float) -> None:
         """What he says to chat goes out as him, where the people he is talking to are."""

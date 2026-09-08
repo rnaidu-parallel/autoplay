@@ -299,8 +299,14 @@ class ChatTests(unittest.TestCase):
             with (run / "events.jsonl").open("a", encoding="utf-8") as events:
                 events.write(decision(2, "Off to the mines, everyone.", 190))
             asyncio.run(agent.process_window([], 200))
-            twitch.send.assert_called_once_with("Neon: Off to the mines, everyone.")
+            twitch.send.assert_not_called()  # nobody on Twitch has said a word: the room that is talking gets it
             self.assertEqual(2, kick.send.call_count)
+            agent.state["recent_messages"] = []
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(3, "Quiet out here tonight.", 230))
+            asyncio.run(agent.process_window([], 240))
+            twitch.send.assert_called_once_with("Neon: Quiet out here tonight.")  # nobody anywhere: everywhere
+            self.assertEqual(3, kick.send.call_count)
 
     def test_kick_sender_posts_into_the_channel_and_refreshes_once_on_401(self):
         with tempfile.TemporaryDirectory() as directory:
