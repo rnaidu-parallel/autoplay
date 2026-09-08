@@ -710,6 +710,7 @@ class ChatAgent:
             self.senders.setdefault("twitch", sender)
         self.relay_offsets: dict[str, int] = {}
         self.relay_last_sent: dict[str, float] = {}
+        self.sent_texts: dict[str, float] = {}  # what we posted lately; our own lines come back through IRC
         self.state_path = self.root / "chat" / "state.json"
         self.state = self._load_state()
         self.votes = VoteTable.restore(self.state.get("candidates", []), half_life_seconds)
@@ -740,8 +741,23 @@ class ChatAgent:
         except (OSError, json.JSONDecodeError):
             return None
 
+    def _send(self, sender: Any, text: str, parent: str | None = None) -> None:
+        self.sent_texts[text] = time.time()
+        sender.send(text, parent) if parent else sender.send(text)
+
+    def _said_lately(self, text: str, now: float) -> bool:
+        return now - self.sent_texts.get(text, float("-inf")) <= self.RECENT_SECONDS
+
+    def _is_echo(self, message: ChatMessage, now: float) -> bool:
+        """The channel account posts our replies, so they arrive back as chat (Twitch prefixes @user)."""
+        self.sent_texts = {text: at for text, at in self.sent_texts.items() if now - at <= self.RECENT_SECONDS}
+        text = re.sub(r"^@\S+\s+", "", message.text.strip())
+        return text in self.sent_texts
+
     async def process_window(self, messages: list[ChatMessage], now: float | None = None) -> None:
         now = time.time() if now is None else now
+        received = len(messages)
+        messages = [message for message in messages if not self._is_echo(message, now)]
         accepted = [message for message in messages if self.filter.accept(message, now)]
         # What chat said lately, for the farmer to read and answer; requests are extracted separately below.
         recent = [item for item in self.state.get("recent_messages", []) if now - float(item.get("at") or 0) <= self.RECENT_SECONDS]
@@ -751,7 +767,7 @@ class ChatAgent:
         existing_goals = [candidate.goal for candidate in self.votes.candidates]
         for goal, supporters in await asyncio.to_thread(self.extractor.extract, accepted, existing_goals):
             self.votes.add(goal, supporters, now)
-        self.state["last_window"] = {"received": len(messages), "accepted": len(accepted),
+        self.state["last_window"] = {"received": received, "accepted": len(accepted),
                                      "demands": len(self.votes.candidates)}
         self.state.pop("last_error", None)
         await self._arbitrate(now)
@@ -800,18 +816,27 @@ class ChatAgent:
         self.state["relay_offsets"] = {key: offset + consumed}
         return lines
 
+    def _platforms_for(self, text: str) -> list[str]:
+        """A line that names a viewer goes where that viewer spoke; a line for nobody in particular goes everywhere."""
+        folded = text.casefold()
+        named = {("kick" if str(item.get("id") or "").startswith("kick:") else "twitch")
+                 for item in self.state.get("recent_messages", [])
+                 if str(item.get("user") or "").casefold() in folded}
+        return [platform for platform in self.senders if platform in named] or list(self.senders)
+
     async def _relay_farmer_lines(self, now: float) -> None:
-        """What he says to chat goes out as him, on every platform he can speak on."""
+        """What he says to chat goes out as him, where the people he is talking to are."""
         if not self.senders:
             return
         for call_id, text, stamp in self._farmer_lines(now):
-            if now - stamp > self.RELAY_MAX_AGE:
-                continue
-            for platform, sender in self.senders.items():
+            if now - stamp > self.RELAY_MAX_AGE or self._said_lately("Neon: " + text, now):
+                continue  # stale, or he already posted this exact line: once per line, never a repeat
+            for platform in self._platforms_for(text):
+                sender = self.senders[platform]
                 if now - self.relay_last_sent.get(platform, 0.0) < self.RELAY_GAP_SECONDS:
                     continue
                 try:
-                    await asyncio.to_thread(sender.send, "Neon: " + text)
+                    await asyncio.to_thread(self._send, sender, "Neon: " + text)
                 except RuntimeError as error:
                     self.state["relay_error"] = f"{platform}: {error}"
                 else:
@@ -846,7 +871,7 @@ class ChatAgent:
             if self.sender is not None:
                 try:
                     await asyncio.to_thread(
-                        self.sender.send, f"Shadow pick: chat would ask Neon to {candidate.goal}.", candidate.message_id
+                        self._send, self.sender, f"Shadow pick: chat would ask Neon to {candidate.goal}.", candidate.message_id
                     )
                 except RuntimeError as error:
                     selection["reply_error"] = str(error)
@@ -884,7 +909,7 @@ class ChatAgent:
         for platform, sender in self.senders.items():
             parent = selection.get("message_id") if platform == "twitch" else None
             try:
-                await asyncio.to_thread(sender.send, message, parent)
+                await asyncio.to_thread(self._send, sender, message, parent)
             except RuntimeError as error:
                 errors.append(f"{platform}: {error}")
         if errors:

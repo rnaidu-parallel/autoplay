@@ -247,6 +247,60 @@ class ChatTests(unittest.TestCase):
                 events.write(decision(4, "Fresh.", 230))
             asyncio.run(agent.process_window([], 240))
             self.assertEqual(["Neon: Fishing it is, viewer7.", "Neon: Fresh."], [call.args[0] for call in twitch.send.call_args_list])
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(5, "Fresh.", 270))  # the same line again is not posted again
+                events.write(decision(6, "Something else.", 271))
+            asyncio.run(agent.process_window([], 280))
+            self.assertEqual("Neon: Something else.", twitch.send.call_args_list[-1].args[0])
+            self.assertEqual(3, twitch.send.call_count)
+
+    def test_his_own_posts_coming_back_through_chat_are_not_read_as_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "harness" / "runs" / "run-1"
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None}, "audience": None,
+            })
+            twitch, kick = Mock(), Mock()
+            agent = ChatAgent(root, FixedExtractor([]), mode="bind", senders={"twitch": twitch, "kick": kick})
+            agent.state["selection"] = {"goal": "Go dance.", "command_id": "cmd-1", "message_id": "m0"}
+            OperatorControl(run).update(last_command={"id": "cmd-1", "status": "rejected"})
+            asyncio.run(agent.process_window([], 100))
+            twitch.send.assert_called_once_with("Chat's request missed today's plan: Go dance..", "m0")
+            echoes = [message("e1", "channel", "@fofa_bet Chat's request missed today's plan: Go dance..", 130),
+                      message("e2", "channel", "Chat's request missed today's plan: Go dance..", 131)]
+            viewer = message("v1", "viewer7", "go fishing", 132)
+            asyncio.run(agent.process_window(echoes + [viewer], 140))
+            self.assertEqual([[viewer]], agent.extractor.calls[-1:])
+            self.assertEqual(["v1"], [item["id"] for item in agent.state["recent_messages"]])
+            self.assertEqual({"received": 3, "accepted": 1, "demands": 0}, agent.state["last_window"])
+
+    def test_a_reply_that_names_a_viewer_goes_only_where_that_viewer_spoke(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run = root / "harness" / "runs" / "run-1"
+            write_json(run / "overlay" / "state.json", {
+                "game": {"day": 25}, "session": {"runId": "run-1", "stopReason": None}, "audience": None,
+            })
+            twitch, kick = Mock(), Mock()
+            agent = ChatAgent(root, FixedExtractor([]), mode="bind", senders={"twitch": twitch, "kick": kick})
+            asyncio.run(agent.process_window([], 100))
+            asyncio.run(agent.process_window([message("kick:k1", "KickFan", "go dance", 120)], 130))
+            from datetime import datetime, timezone
+            def decision(seq, chat, at):
+                return json.dumps({"type": "actor_decision", "call_id": f"c{seq}", "tool": "idle",
+                                   "at": datetime.fromtimestamp(at, timezone.utc).isoformat(),
+                                   "arguments": {"say": "Hm.", "chat": chat}}) + "\n"
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(1, "kickfan, no dance floor here, sorry!", 150))
+            asyncio.run(agent.process_window([], 160))
+            kick.send.assert_called_once_with("Neon: kickfan, no dance floor here, sorry!")
+            twitch.send.assert_not_called()
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(2, "Off to the mines, everyone.", 190))
+            asyncio.run(agent.process_window([], 200))
+            twitch.send.assert_called_once_with("Neon: Off to the mines, everyone.")
+            self.assertEqual(2, kick.send.call_count)
 
     def test_kick_sender_posts_into_the_channel_and_refreshes_once_on_401(self):
         with tempfile.TemporaryDirectory() as directory:

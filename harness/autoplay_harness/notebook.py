@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -220,6 +221,7 @@ class Notebook:
             raise ValueError("an audience demand is already active")
         audience["demand"] = {
             "id": demand_id, "goal": goal, "support": support, "day": day, "status": "pending", "note": None,
+            "at": time.time(),
         }
         audience["last_slot_day"] = day
         self._save()
@@ -233,9 +235,21 @@ class Notebook:
         else:
             self.mark_audience("missed", "The in-game day ended before the request reached the plan.")
 
+    PENDING_SECONDS = 15 * 60  # a request nobody took up in this long is missed
+    BOUND_SECONDS = 60 * 60    # a request still unfinished after this long has failed
+
     def audience_demand(self) -> dict[str, Any] | None:
         demand = self.data["audience"]["demand"]
-        return demand if demand and demand["status"] in {"pending", "bound"} else None
+        if not demand or demand["status"] not in {"pending", "bound"}:
+            return None
+        age = time.time() - float(demand.get("at") or 0)  # no stamp: an older session's request, long gone
+        if demand["status"] == "pending" and age > self.PENDING_SECONDS:
+            self.mark_audience("missed", "The request was not taken up in time.")
+            return None
+        if demand["status"] == "bound" and age > self.BOUND_SECONDS:
+            self.mark_audience("failed", "Time ran out on the request.")
+            return None
+        return demand
 
     def mark_audience(self, status: str, note: str | None = None) -> None:
         if status not in {"bound", "missed", "done", "failed"}:

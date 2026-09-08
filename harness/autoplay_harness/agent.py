@@ -773,10 +773,10 @@ class AgentHarness(AutoplayHarness):
             if isinstance(item, dict) and now - float(item.get("at") or 0) <= 600:
                 line = {"user": redact(str(item.get("user") or "viewer")), "text": redact(str(item.get("text") or ""))[:200],
                         "secondsAgo": max(0, int(now - float(item.get("at") or now)))}
-                chat.append(line)
                 key = str(item.get("id") or f"{line['user']}:{line['text']}:{item.get('at')}")
-                if key not in self.chat_seen:
+                if key not in self.chat_seen:  # a line is shown once; shown again, he answers it again
                     self.chat_seen.add(key)
+                    chat.append(line)
                     fresh_lines.append((line["user"], line["text"]))
         chat = chat[-6:]
         if not request and not chat:

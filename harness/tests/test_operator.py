@@ -206,6 +206,22 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual("failed", retired["status"])
         self.assertIn("day ended", retired["note"])
 
+    def test_audience_request_expires_on_the_clock_when_not_taken_up_or_finished(self):
+        notebook = self.harness.notebook
+        notebook.set_audience_demand("first", "go dance", 3, 29)
+        notebook.data["audience"]["demand"]["at"] -= notebook.PENDING_SECONDS + 1
+        self.assertIsNone(notebook.audience_demand())
+        self.assertEqual("missed", notebook.data["audience"]["recent"][0]["status"])
+        notebook.set_audience_demand("second", "go fishing", 3, 29)
+        notebook.mark_audience("bound", "Fish at the Beach")
+        notebook.data["audience"]["demand"]["at"] -= notebook.PENDING_SECONDS + 1
+        self.assertEqual("bound", notebook.audience_demand()["status"])  # taken up: it gets the longer clock
+        notebook.data["audience"]["demand"]["at"] -= notebook.BOUND_SECONDS
+        self.assertIsNone(notebook.audience_demand())
+        self.assertEqual("failed", notebook.data["audience"]["recent"][0]["status"])
+        notebook.data["audience"]["demand"] = {"id": "old", "goal": "x", "support": 1, "day": 29, "status": "pending", "note": None}
+        self.assertIsNone(notebook.audience_demand())  # no stamp: left over from an earlier session
+
     def test_missed_and_failed_demands_are_reported_not_hidden(self):
         day = {**STATE, "location": "Farm", "day": 25, "time": 630}
         number = calendar_day(day)

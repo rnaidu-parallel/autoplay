@@ -534,6 +534,9 @@ class SessionTests(unittest.TestCase):
         second = json.loads(harness.client.messages[1][-1]["content"][0]["text"].split("\n", 1)[1])["notes"]
         self.assertTrue(any(note.startswith('New in chat: fofa_bet: "go dance". Answer fofa_bet by name') for note in first), first)
         self.assertFalse(any(note.startswith("New in chat") for note in second), second)
+        packets = [json.loads(m[-1]["content"][0]["text"].split("\n", 1)[1]) for m in harness.client.messages]
+        self.assertEqual("go dance", packets[0]["audience"]["chat"][0]["text"])
+        self.assertIsNone(packets[1].get("audience"))  # shown once: a line he can still see is a line he answers again
 
     def test_a_new_agreed_request_is_pointed_out_once(self):
         harness = make(self.root)
