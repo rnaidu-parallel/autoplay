@@ -263,6 +263,20 @@ public sealed partial class ModEntry : Mod
         this.Monitor.Log($"control_started buttons={string.Join('+', buttons)} ticks={ticks}", LogLevel.Info);
     }
 
+    /// <summary>The action button acts on the tile under the cursor whenever the cursor is within a tile of
+    /// the farmer, and the bridge parks the cursor beside him; so before an X press the cursor goes onto the
+    /// tile he faces (a ladder, a chest, a door), not the floor next to him. Seen live 2026-09-08: four
+    /// nights standing under the mine ladder pressing X into the dirt.</summary>
+    private static void PointCursorAtFacingTile()
+    {
+        if (!Context.IsWorldReady || Game1.activeClickableMenu is not null)
+            return;
+        Vector2 tile = Game1.player.GetGrabTile();
+        int x = (int)((((tile.X * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.X) * Game1.options.zoomLevel);
+        int y = (int)((((tile.Y * Game1.tileSize) + (Game1.tileSize / 2)) - Game1.viewport.Y) * Game1.options.zoomLevel);
+        Game1.setMousePosition(x, y);
+    }
+
     private void StartCursorMove(int x, int y)
     {
         if (this.IsOperationBusy())
@@ -1595,6 +1609,8 @@ public sealed partial class ModEntry : Mod
         if (this.focusWarmupTicks-- > 0)
             return;
 
+        if (Array.IndexOf(this.heldButtons, SButton.X) >= 0)
+            PointCursorAtFacingTile();
         foreach (SButton button in this.heldButtons)
             this.helper.Input.Press(button);
 

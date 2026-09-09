@@ -536,7 +536,12 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(any(note.startswith("New in chat") for note in second), second)
         packets = [json.loads(m[-1]["content"][0]["text"].split("\n", 1)[1]) for m in harness.client.messages]
         self.assertEqual("go dance", packets[0]["audience"]["chat"][0]["text"])
-        self.assertIsNone(packets[1].get("audience"))  # shown once: a line he can still see is a line he answers again
+        self.assertEqual("go dance", packets[1]["audience"]["chat"][0]["text"])  # unanswered: still in view
+        harness.client.calls = [("idle", {"ticks": 1, "chat": "fofa_bet no dance floor here"}), ("idle", {"ticks": 1})]
+        harness._actor_step()
+        harness._actor_step()
+        answered = json.loads(harness.client.messages[3][-1]["content"][0]["text"].split("\n", 1)[1])
+        self.assertIsNone(answered.get("audience"))  # answered once, gone from view; he does not answer it again
 
     def test_a_new_agreed_request_is_pointed_out_once(self):
         harness = make(self.root)

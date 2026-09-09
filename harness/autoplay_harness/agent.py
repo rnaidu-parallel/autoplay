@@ -174,6 +174,7 @@ class AgentHarness(AutoplayHarness):
         self.first_call_of_day = True
         self.notes_pending: list[str] = []
         self.chat_seen: set[str] = set()
+        self.chat_answered_at = 0.0  # when he last posted to chat; older lines count as answered
         self.request_seen: str | None = None
         self.recent_actions: list[dict[str, Any]] = []
         self.guidance_decisions_left = 0
@@ -425,6 +426,8 @@ class AgentHarness(AutoplayHarness):
                                     decision.reasoning, decision.provider, decision.attempts, decision.call_id)
         self.decisions += 1
         self.first_call_of_day = False
+        if str(decision.arguments.get("chat") or "").strip():
+            self.chat_answered_at = time.time()
         self.think_harder_next = bool(decision.arguments.get("think_harder"))
         call_id = decision.call_id or f"call-{self.run_id[:8]}-{self.seq}"
         self.decision_seq = self.seq
@@ -774,9 +777,12 @@ class AgentHarness(AutoplayHarness):
                 line = {"user": redact(str(item.get("user") or "viewer")), "text": redact(str(item.get("text") or ""))[:200],
                         "secondsAgo": max(0, int(now - float(item.get("at") or now)))}
                 key = str(item.get("id") or f"{line['user']}:{line['text']}:{item.get('at')}")
-                if key not in self.chat_seen:  # a line is shown once; shown again, he answers it again
-                    self.chat_seen.add(key)
+                # A line stays in view until he has posted to chat since it arrived; pointed out only once.
+                # (Shown once and dropped, a line that arrived during a long walk home was never answered.)
+                if float(item.get("at") or 0) > self.chat_answered_at:
                     chat.append(line)
+                if key not in self.chat_seen:
+                    self.chat_seen.add(key)
                     fresh_lines.append((line["user"], line["text"]))
         chat = chat[-6:]
         if not request and not chat:

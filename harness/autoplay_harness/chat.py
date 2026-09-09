@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import difflib
 import json
 import os
 import re
@@ -690,7 +691,7 @@ class TwitchEventSubSource:
 class ChatAgent:
     RECENT_SECONDS = 600
     RECENT_LIMIT = 12
-    RELAY_GAP_SECONDS = 20   # at most one farmer line per platform per this many seconds
+    RELAY_GAP_SECONDS = 5    # at most one farmer line per platform per this many seconds; 20 made a reply chain crawl
     RELAY_MAX_AGE = 120      # a line older than this is stale; the moment has passed
 
     def __init__(self, repository_root: Path, extractor: IntentExtractor, mode: str = "shadow",
@@ -746,7 +747,14 @@ class ChatAgent:
         sender.send(text, parent) if parent else sender.send(text)
 
     def _said_lately(self, text: str, now: float) -> bool:
-        return now - self.sent_texts.get(text, float("-inf")) <= self.RECENT_SECONDS
+        """Exact or near repeat of something posted in the last ten minutes (a reworded reply is still a repeat)."""
+        folded = text.casefold()
+        for sent, at in self.sent_texts.items():
+            if now - at > self.RECENT_SECONDS:
+                continue
+            if sent == text or difflib.SequenceMatcher(None, sent.casefold(), folded).ratio() >= 0.75:
+                return True
+        return False
 
     def _is_echo(self, message: ChatMessage, now: float) -> bool:
         """The channel account posts our replies, so they arrive back as chat (Twitch prefixes @user)."""

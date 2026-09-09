@@ -253,6 +253,11 @@ class ChatTests(unittest.TestCase):
             asyncio.run(agent.process_window([], 280))
             self.assertEqual("Neon: Something else.", twitch.send.call_args_list[-1].args[0])
             self.assertEqual(3, twitch.send.call_count)
+            with (run / "events.jsonl").open("a", encoding="utf-8") as events:
+                events.write(decision(7, "hey viewer7 yeah California snow is different, this is my third stream welcome in", 300))
+                events.write(decision(8, "yeah California snow is totally different, this is my third stream thanks for hanging out", 330))
+            asyncio.run(agent.process_window([], 340))
+            self.assertEqual(4, twitch.send.call_count)  # a reworded repeat is still a repeat
 
     def test_his_own_posts_coming_back_through_chat_are_not_read_as_requests(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -104,7 +104,7 @@ function Start-Session {
     if (-not $NoRecord) { $harnessArguments += '--record-video' }
     $harnessPid = Start-Piece 'harness' $harnessArguments
 
-    $chatArguments = @('chat-agent', '--transport', 'irc', '--mode', 'bind')
+    $chatArguments = @('chat-agent', '--transport', 'irc', '--mode', 'bind', '--window-seconds', '10')
     if ($channel) { $chatArguments += @('--channel', $channel) }
     if ($kick) { $chatArguments += @('--kick-channel', $kick) }
     if ($canReply) { $chatArguments += '--reply' }
