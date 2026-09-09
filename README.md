@@ -24,7 +24,7 @@ The harness has completed a continuous full-screen run with MiniMax M3's free Op
 - Deterministic first-save loading, full-screen simulation ownership, recoverable continuous mode, and segmented 1080p recording.
 - An outer `--forever` supervisor with daily cost accounting, clean stop-file control, restart status, and per-run wall-clock limits.
 
-See [docs/harness.md](docs/harness.md) for the architecture and operating procedure. See [docs/control-surface.md](docs/control-surface.md) for runtime control evidence.
+See [docs/harness.md](docs/harness.md) for the architecture and operating procedure. See [docs/control-surface.md](docs/control-surface.md) for runtime control evidence. See [docs/root-cause-2026-09-09.md](docs/root-cause-2026-09-09.md) for the current post-stream issue inventory, which links the earlier reports.
 
 ## Verify without spending OpenRouter credits
 
